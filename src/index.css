@@ -1,0 +1,84 @@
+@import "tailwindcss";
+
+/*
+ * OmniPulse theme.
+ * Every component uses Tailwind's `slate` (surfaces, text) and `indigo` (primary actions) scales.
+ * Re-defining those two scales here re-skins the whole app in one place:
+ *   slate  = deep-sea ink (blue-green tinted neutrals)
+ *   indigo = "pulse" teal (kept under the old name so no component needs editing)
+ */
+@theme {
+  --font-sans: 'Figtree', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-display: 'Bricolage Grotesque', 'Figtree', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --color-slate-50: #f4f8fa;
+  --color-slate-100: #e9f0f5;
+  --color-slate-200: #d3dee8;
+  --color-slate-300: #b3c4d3;
+  --color-slate-400: #8aa2b8;
+  --color-slate-500: #647f98;
+  --color-slate-600: #3f586f;
+  --color-slate-700: #27394d;
+  --color-slate-800: #1a2a3b;
+  --color-slate-850: #152231;
+  --color-slate-900: #0f1a27;
+  --color-slate-950: #08111a;
+
+  --color-indigo-50: #effcf9;
+  --color-indigo-100: #d3f7f1;
+  --color-indigo-200: #a9ede3;
+  --color-indigo-300: #74dccf;
+  --color-indigo-400: #3cc4b5;
+  --color-indigo-500: #14a899;
+  --color-indigo-600: #0a8a7e;
+  --color-indigo-700: #086d65;
+  --color-indigo-800: #0a554f;
+  --color-indigo-900: #0b3f3b;
+  --color-indigo-950: #052624;
+
+  --animate-toast-in: toast-in 0.22s ease-out;
+  --animate-draw: draw 2.4s cubic-bezier(0.5, 0, 0.2, 1) 0.2s both;
+  --animate-ping-slow: ping-slow 2.2s ease-out 2.4s infinite;
+}
+
+@keyframes toast-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+@keyframes draw { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
+@keyframes ping-slow { 0% { transform: scale(1); opacity: 0.7; } 80%, 100% { transform: scale(3.2); opacity: 0; } }
+
+@layer base {
+  html { color-scheme: dark; -webkit-text-size-adjust: 100%; }
+  body {
+    font-family: var(--font-sans);
+    background-color: var(--color-slate-950);
+    background-image:
+      radial-gradient(60rem 28rem at 12% -8%, rgba(20, 168, 153, 0.13), transparent 60%),
+      radial-gradient(48rem 24rem at 100% 0%, rgba(245, 158, 11, 0.06), transparent 55%);
+    background-attachment: fixed;
+  }
+  h1, h2, h3 { font-family: var(--font-display); letter-spacing: -0.015em; }
+  button, [role='button'], a { -webkit-tap-highlight-color: transparent; }
+  button:not(:disabled), [role='button'] { cursor: pointer; }
+  button:disabled { cursor: not-allowed; }
+  :focus-visible { outline: 2px solid var(--color-indigo-400); outline-offset: 2px; border-radius: 6px; }
+  input:focus-visible, textarea:focus-visible, select:focus-visible { outline-offset: 0; }
+  ::selection { background: rgba(60, 196, 181, 0.3); color: #fff; }
+}
+
+/* Replaces the plugin-only `scrollbar-none` helper */
+.scrollbar-none { scrollbar-width: none; -ms-overflow-style: none; }
+.scrollbar-none::-webkit-scrollbar { display: none; }
+
+/* Subtle scrollbars */
+* { scrollbar-width: thin; scrollbar-color: var(--color-slate-700) transparent; }
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--color-slate-700); border-radius: 9999px; }
+::-webkit-scrollbar-thumb:hover { background: var(--color-slate-600); }
+
+/* Pulse line used in the landing hero */
+.pulse-line { stroke-dasharray: 1; stroke-dashoffset: 0; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
+}
