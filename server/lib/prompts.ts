@@ -154,12 +154,12 @@ export const STORY_MOODS: Record<StoryMoodKey, { label: string; write: string; r
   dramatic_suspense: {
     label: 'Dramatic / Suspense',
     write: 'Slow-burn tension. Withhold information, plant unanswered questions, end scenes on unease. Restrained, low-voiced, loaded dialogue.',
-    render: 'low-key lighting with deep shadows, desaturated teal and amber grade, shallow depth of field, drifting dust and haze, tense stillness',
+    render: 'low-key lighting with deep shadows, desaturated teal and amber grade, shallow depth of field, drifting dust and haze, restless tense movement, characters never standing still',
   },
   melodrama: {
     label: 'Melodrama',
     write: 'Heightened emotion and big stakes: confessions, betrayals, tearful reunions. Characters speak their feelings openly and passionately.',
-    render: 'rich saturated colours, warm golden key light with dramatic rim light, rain or falling petals in the air, expressive close-ups, glossy romantic grade',
+    render: 'rich saturated colours, warm golden key light with dramatic rim light, rain or falling petals in the air, expressive close-ups mixed with wide moving shots, glossy romantic grade',
   },
   viral_hook: {
     label: 'High-Energy Viral Hook',
@@ -169,7 +169,7 @@ export const STORY_MOODS: Record<StoryMoodKey, { label: string; write: string; r
   emotional_heartfelt: {
     label: 'Emotional / Heartfelt',
     write: 'Warm, sincere, human. Small moments, quiet gestures, honest simple words. Build to a gentle emotional release.',
-    render: 'soft golden-hour window light, warm natural skin tones, gentle lens glow, intimate close framing, floating dust motes, tender calm movement',
+    render: 'soft golden-hour window light, warm natural skin tones, gentle lens glow, intimate framing mixed with wider shots, floating dust motes, characters moving through the space',
   },
   cinematic_trailer: {
     label: 'Cinematic Movie Trailer',
@@ -300,7 +300,7 @@ export function storyPrompt(a: {
   continuity?: SeriesContinuity;
 }): string {
   const guide: Record<string, string> = {
-    drama: 'A short dramatic story told through dialogue. 2 to 4 characters, a clear emotional arc (setup, tension, turn). Natural, believable speech.',
+    drama: 'A short cinematic drama played out like a movie: physical conflict, danger, chases or confrontations, with brief charged dialogue spoken during the action. 2 to 4 characters, a clear arc (setup, escalation, turn).',
     documentary: 'A short documentary. A "Narrator" character guides the viewer, plus 1 to 3 other speakers (experts or people involved, all fictional or generic roles, never real named people). Calm, factual tone. Only use widely established facts. Never invent statistics, studies or quotes from real people or organisations.',
     animation: 'A short animated story with expressive cartoon characters, humour and heart, suitable for all ages. 2 to 4 characters, a simple clear plot with a payoff.',
   };
@@ -327,9 +327,10 @@ ${plan}
 
 Rules:
 - Characters: each has a short name (or "Narrator"), a role, a gender ("male" or "female") and a concrete visual description of 25 to 45 words (age, face, hair, clothes, build, one distinctive detail). Narrator has no visual description.
-- "visualPrompt": describe only what the camera sees, in 60 to 100 words. Name who is in frame and REPEAT each visible character's full visual description word for word, then the specific action and physics (how fabric, hair, smoke, water, light and objects move), the setting, and the lighting. No dialogue, no subtitles, no captions, no logos, no readable text.
+- "visualPrompt": describe only what the camera sees, in 60 to 100 words. START with the shot type and the physical action in progress (a chase, a fight, a fall, a crash, an escape), then name who is in frame and REPEAT each visible character's full visual description word for word, then the physics (how fabric, hair, smoke, water, dust and objects move), the setting, and the lighting. Characters must be physically doing something, never just standing and speaking to the camera. No dialogue, no subtitles, no captions, no logos, no readable text.
 - "cameraMotion": one sentence in film language that applies the camera profile to THIS shot. It must keep the profile's movement type (${cam.label}) and may add the subject, direction and speed for this scene.
-- "lines": 1 to 3 lines per scene. Every "speaker" must exactly match a character name. Respect each scene's word limit above.
+- "lines": 0 to 3 SHORT lines per scene, spoken during the action. Every "speaker" must exactly match a character name. Respect each scene's word limit above.
+- Play it like a MOVIE: physical conflict, danger and escalation in every scene, varied shot types, no talking-head shots and no narrator over the pictures (documentary excepted).
 - "voiceoverText": the spoken words of the scene as one string (narration and dialogue, without speaker names). It must match "lines".
 - Scene 1 must hook the viewer immediately${a.continuity ? ' by continuing straight from the previous part\'s ending' : ''}. The last scene must resolve the story and may end with a short call to action.
 - Keep continuity: the same characters, wardrobe, places and time of day carry from scene to scene unless the story changes them.
@@ -378,6 +379,17 @@ export const castMinimum = (totalSeconds: number, format: string) => {
   return format === 'documentary' ? Math.min(base, 3) : base;
 };
 
+/** Makes the video read as a movie scene (people DOING things) instead of people standing and talking to the camera. */
+const ACTION_DIRECTION = `MOVIE DIRECTION (this is the most important rule; it decides whether the result looks like a film or like a person reading a script):
+- This is a MOVIE, not a talking-head video and not a narrated slideshow. Show the story through physical action, conflict and consequences. Never solve a scene with a person standing still and explaining things.
+- Every scene is built on a visible physical event: a chase, a fight, a fall, an escape, a crash, a search, a break-in, a struggle over an object, a door kicked open, a sprint through a crowd, a car skidding, something shattering, fire, smoke, rain, a storm, a collapse. Pick the one that fits the idea and make it the main thing the camera sees.
+- Characters ALWAYS move through space: running, climbing, reaching, grabbing, shoving, ducking, driving, throwing, hiding. They interact with objects and with each other. Nobody simply stands facing the camera.
+- Dialogue is short and happens DURING the action (shouted over noise, gasped while running, whispered while hiding, spat in the middle of a confrontation). Most lines are 3 to 8 words. Many scenes should have only one short line, and some may have none at all.
+- Vary the shots like a real film: wide action shots, low angles, over-the-shoulder, tracking behind a runner, close-ups on hands, objects and eyes, POV. A close-up on a face is for a reaction beat, never the whole scene.
+- Escalate: each scene raises the danger or changes the situation (new place, new threat, new reveal). No two scenes may look alike.
+- No narrator voice over the pictures unless the format is documentary. In drama the characters in the scene speak, and nobody talks to the camera.
+- Keep it safe: intense action, stunts, danger and emotion are welcome, but no gore, no blood close-ups and no real weapons being fired at people.`;
+
 const ORIGINALITY = `ORIGINALITY (this is what makes the script worth paying for):
 - Open mid-action on a specific, surprising moment. Never open with a weather report, a sunrise or "In a world...".
 - Invent specific, unusual details: odd jobs, named streets and objects, a vivid recurring motif that comes back and pays off.
@@ -400,10 +412,10 @@ const castRules = (need: number, format: string) => `CAST: write at least ${need
 const sceneJsonShape = `{ "sceneNumber": 1, "visualPrompt": "<what the camera sees in the first half>", "secondHalfAction": "<20 second scenes only: what happens next in the SAME place, 1 to 2 sentences, empty for 10 second scenes>", "cameraMotion": "<camera instruction>", "lines": [ { "speaker": "<character name>", "text": "<spoken words>", "half": 1 } ] }`;
 
 const sceneRules = (cam: { label: string }) => `SCENE RULES:
-- "visualPrompt": describe only what the camera sees, in 60 to 100 words. Name who is in frame and REPEAT each visible character's full visual description word for word, then the specific action and physics (how fabric, hair, smoke, water, light move), the setting and lighting. No dialogue, no subtitles, no captions, no logos, no readable text.
-- "secondHalfAction": for 20 second scenes, a different physical beat that follows straight on from the first half in the same place (a new action, reaction or reveal), so the full 20 seconds is never repetition.
+- "visualPrompt": describe only what the camera sees, in 60 to 100 words. START with the shot type and the physical action in progress (for example: Low tracking shot behind a man sprinting through a market as crates explode behind him), then name who is in frame and REPEAT each visible character's full visual description word for word, then the physics (how fabric, hair, smoke, water, dust, debris and light move), the setting and lighting. The characters must be doing something physical with their whole body or with objects, never just standing and speaking to the camera. No dialogue, no subtitles, no captions, no logos, no readable text.
+- "secondHalfAction": for 20 second scenes, a bigger physical beat that follows straight on from the first half in the same place (the chase turns a corner, the door breaks, the floor gives way, the enemy appears, a crash), so the full 20 seconds escalates and is never repetition or just more talking.
 - "cameraMotion": one sentence in film language applying the ${cam.label} profile to this shot.
-- "lines": 1 to 4 lines per scene, from different characters whenever the scene allows. Every "speaker" must exactly match a character name. "half" is 1 or 2 (always 1 for 10 second scenes): the half of the scene in which the line is spoken. Respect each scene's word limits exactly; a line must be a complete thought that fits its half.
+- "lines": 0 to 3 SHORT lines per scene (usually 3 to 8 words each), spoken in the middle of the action, from different characters whenever the scene allows. A scene with a single line, or an empty list, is fine when the action carries it. Every "speaker" must exactly match a character name. "half" is 1 or 2 (always 1 for 10 second scenes): the half of the scene in which the line is spoken. Respect each scene's word limits exactly; a line must be a complete thought that fits its half.
 - Everything must follow from the idea. Do not invent statistics or claims. Safe: no real people, no sexual content, no graphic violence, no hate. Write all dialogue in English.`;
 
 interface WriterBase {
@@ -415,7 +427,7 @@ interface WriterBase {
 
 function writerHead(a: WriterBase): string {
   const guide: Record<string, string> = {
-    drama: 'A dramatic story told through dialogue between several distinct people. A clear emotional arc with real conflict and a turn.',
+    drama: 'A cinematic dramatic story, played out like a movie: high stakes, physical conflict, danger and a turn, with brief charged dialogue spoken during the action. Several distinct people with opposing goals.',
     documentary: 'A documentary. A "Narrator" guides the viewer, with other speakers (experts, witnesses, people involved; fictional or generic roles, never real named people). Calm, factual tone. Only widely established facts. Never invent statistics, studies or quotes from real people or organisations.',
     animation: 'An animated story with expressive cartoon characters, humour and heart, suitable for all ages, a clear plot and a payoff.',
   };
@@ -434,6 +446,8 @@ Every "visualPrompt" must show this mood through lighting, colour, weather, text
 CAMERA PROFILE: ${cam.label}. Base instruction: ${cam.direct}.
 PACING: ${a.pacing}
 ${lock}
+${ACTION_DIRECTION}
+
 ${ORIGINALITY}
 `;
 }

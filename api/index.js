@@ -1134,12 +1134,12 @@ const STORY_MOODS = {
     dramatic_suspense: {
         label: 'Dramatic / Suspense',
         write: 'Slow-burn tension. Withhold information, plant unanswered questions, end scenes on unease. Restrained, low-voiced, loaded dialogue.',
-        render: 'low-key lighting with deep shadows, desaturated teal and amber grade, shallow depth of field, drifting dust and haze, tense stillness',
+        render: 'low-key lighting with deep shadows, desaturated teal and amber grade, shallow depth of field, drifting dust and haze, restless tense movement, characters never standing still',
     },
     melodrama: {
         label: 'Melodrama',
         write: 'Heightened emotion and big stakes: confessions, betrayals, tearful reunions. Characters speak their feelings openly and passionately.',
-        render: 'rich saturated colours, warm golden key light with dramatic rim light, rain or falling petals in the air, expressive close-ups, glossy romantic grade',
+        render: 'rich saturated colours, warm golden key light with dramatic rim light, rain or falling petals in the air, expressive close-ups mixed with wide moving shots, glossy romantic grade',
     },
     viral_hook: {
         label: 'High-Energy Viral Hook',
@@ -1149,7 +1149,7 @@ const STORY_MOODS = {
     emotional_heartfelt: {
         label: 'Emotional / Heartfelt',
         write: 'Warm, sincere, human. Small moments, quiet gestures, honest simple words. Build to a gentle emotional release.',
-        render: 'soft golden-hour window light, warm natural skin tones, gentle lens glow, intimate close framing, floating dust motes, tender calm movement',
+        render: 'soft golden-hour window light, warm natural skin tones, gentle lens glow, intimate framing mixed with wider shots, floating dust motes, characters moving through the space',
     },
     cinematic_trailer: {
         label: 'Cinematic Movie Trailer',
@@ -1248,7 +1248,7 @@ CONTINUITY RULES FOR PART ${c.partNumber}:
 /** Multi-character productions: drama, documentary, animation. The server measures length from the finished script. */
 function storyPrompt(a) {
     const guide = {
-        drama: 'A short dramatic story told through dialogue. 2 to 4 characters, a clear emotional arc (setup, tension, turn). Natural, believable speech.',
+        drama: 'A short cinematic drama played out like a movie: physical conflict, danger, chases or confrontations, with brief charged dialogue spoken during the action. 2 to 4 characters, a clear arc (setup, escalation, turn).',
         documentary: 'A short documentary. A "Narrator" character guides the viewer, plus 1 to 3 other speakers (experts or people involved, all fictional or generic roles, never real named people). Calm, factual tone. Only use widely established facts. Never invent statistics, studies or quotes from real people or organisations.',
         animation: 'A short animated story with expressive cartoon characters, humour and heart, suitable for all ages. 2 to 4 characters, a simple clear plot with a payoff.',
     };
@@ -1275,9 +1275,10 @@ ${plan}
 
 Rules:
 - Characters: each has a short name (or "Narrator"), a role, a gender ("male" or "female") and a concrete visual description of 25 to 45 words (age, face, hair, clothes, build, one distinctive detail). Narrator has no visual description.
-- "visualPrompt": describe only what the camera sees, in 60 to 100 words. Name who is in frame and REPEAT each visible character's full visual description word for word, then the specific action and physics (how fabric, hair, smoke, water, light and objects move), the setting, and the lighting. No dialogue, no subtitles, no captions, no logos, no readable text.
+- "visualPrompt": describe only what the camera sees, in 60 to 100 words. START with the shot type and the physical action in progress (a chase, a fight, a fall, a crash, an escape), then name who is in frame and REPEAT each visible character's full visual description word for word, then the physics (how fabric, hair, smoke, water, dust and objects move), the setting, and the lighting. Characters must be physically doing something, never just standing and speaking to the camera. No dialogue, no subtitles, no captions, no logos, no readable text.
 - "cameraMotion": one sentence in film language that applies the camera profile to THIS shot. It must keep the profile's movement type (${cam.label}) and may add the subject, direction and speed for this scene.
-- "lines": 1 to 3 lines per scene. Every "speaker" must exactly match a character name. Respect each scene's word limit above.
+- "lines": 0 to 3 SHORT lines per scene, spoken during the action. Every "speaker" must exactly match a character name. Respect each scene's word limit above.
+- Play it like a MOVIE: physical conflict, danger and escalation in every scene, varied shot types, no talking-head shots and no narrator over the pictures (documentary excepted).
 - "voiceoverText": the spoken words of the scene as one string (narration and dialogue, without speaker names). It must match "lines".
 - Scene 1 must hook the viewer immediately${a.continuity ? ' by continuing straight from the previous part\'s ending' : ''}. The last scene must resolve the story and may end with a short call to action.
 - Keep continuity: the same characters, wardrobe, places and time of day carry from scene to scene unless the story changes them.
@@ -1319,6 +1320,16 @@ const castMinimum = (totalSeconds, format) => {
     const base = totalSeconds >= 120 ? 4 : totalSeconds >= 40 ? 3 : 2;
     return format === 'documentary' ? Math.min(base, 3) : base;
 };
+/** Makes the video read as a movie scene (people DOING things) instead of people standing and talking to the camera. */
+const ACTION_DIRECTION = `MOVIE DIRECTION (this is the most important rule; it decides whether the result looks like a film or like a person reading a script):
+- This is a MOVIE, not a talking-head video and not a narrated slideshow. Show the story through physical action, conflict and consequences. Never solve a scene with a person standing still and explaining things.
+- Every scene is built on a visible physical event: a chase, a fight, a fall, an escape, a crash, a search, a break-in, a struggle over an object, a door kicked open, a sprint through a crowd, a car skidding, something shattering, fire, smoke, rain, a storm, a collapse. Pick the one that fits the idea and make it the main thing the camera sees.
+- Characters ALWAYS move through space: running, climbing, reaching, grabbing, shoving, ducking, driving, throwing, hiding. They interact with objects and with each other. Nobody simply stands facing the camera.
+- Dialogue is short and happens DURING the action (shouted over noise, gasped while running, whispered while hiding, spat in the middle of a confrontation). Most lines are 3 to 8 words. Many scenes should have only one short line, and some may have none at all.
+- Vary the shots like a real film: wide action shots, low angles, over-the-shoulder, tracking behind a runner, close-ups on hands, objects and eyes, POV. A close-up on a face is for a reaction beat, never the whole scene.
+- Escalate: each scene raises the danger or changes the situation (new place, new threat, new reveal). No two scenes may look alike.
+- No narrator voice over the pictures unless the format is documentary. In drama the characters in the scene speak, and nobody talks to the camera.
+- Keep it safe: intense action, stunts, danger and emotion are welcome, but no gore, no blood close-ups and no real weapons being fired at people.`;
 const ORIGINALITY = `ORIGINALITY (this is what makes the script worth paying for):
 - Open mid-action on a specific, surprising moment. Never open with a weather report, a sunrise or "In a world...".
 - Invent specific, unusual details: odd jobs, named streets and objects, a vivid recurring motif that comes back and pays off.
@@ -1336,14 +1347,14 @@ const sceneSpecs = (scenes, from = 0, to = scenes.length, beats) => {
 const castRules = (need, format) => `CAST: write at least ${need} DIFFERENT speaking characters${format === 'documentary' ? ' (the Narrator counts as one)' : ''}, and at most 6. Each one must speak in at least one scene. Every character has: a short name (or "Narrator"), a role, a gender ("male" or "female"), a "voice" (how they sound: age, pitch, pace, accent or texture, e.g. "gravelly elderly man, slow and weary"), and a concrete visual description of 25 to 45 words (age, face, hair, clothes, build, one distinctive detail). Narrator has no visual description. Never give two characters the same kind of voice.`;
 const sceneJsonShape = `{ "sceneNumber": 1, "visualPrompt": "<what the camera sees in the first half>", "secondHalfAction": "<20 second scenes only: what happens next in the SAME place, 1 to 2 sentences, empty for 10 second scenes>", "cameraMotion": "<camera instruction>", "lines": [ { "speaker": "<character name>", "text": "<spoken words>", "half": 1 } ] }`;
 const sceneRules = (cam) => `SCENE RULES:
-- "visualPrompt": describe only what the camera sees, in 60 to 100 words. Name who is in frame and REPEAT each visible character's full visual description word for word, then the specific action and physics (how fabric, hair, smoke, water, light move), the setting and lighting. No dialogue, no subtitles, no captions, no logos, no readable text.
-- "secondHalfAction": for 20 second scenes, a different physical beat that follows straight on from the first half in the same place (a new action, reaction or reveal), so the full 20 seconds is never repetition.
+- "visualPrompt": describe only what the camera sees, in 60 to 100 words. START with the shot type and the physical action in progress (for example: Low tracking shot behind a man sprinting through a market as crates explode behind him), then name who is in frame and REPEAT each visible character's full visual description word for word, then the physics (how fabric, hair, smoke, water, dust, debris and light move), the setting and lighting. The characters must be doing something physical with their whole body or with objects, never just standing and speaking to the camera. No dialogue, no subtitles, no captions, no logos, no readable text.
+- "secondHalfAction": for 20 second scenes, a bigger physical beat that follows straight on from the first half in the same place (the chase turns a corner, the door breaks, the floor gives way, the enemy appears, a crash), so the full 20 seconds escalates and is never repetition or just more talking.
 - "cameraMotion": one sentence in film language applying the ${cam.label} profile to this shot.
-- "lines": 1 to 4 lines per scene, from different characters whenever the scene allows. Every "speaker" must exactly match a character name. "half" is 1 or 2 (always 1 for 10 second scenes): the half of the scene in which the line is spoken. Respect each scene's word limits exactly; a line must be a complete thought that fits its half.
+- "lines": 0 to 3 SHORT lines per scene (usually 3 to 8 words each), spoken in the middle of the action, from different characters whenever the scene allows. A scene with a single line, or an empty list, is fine when the action carries it. Every "speaker" must exactly match a character name. "half" is 1 or 2 (always 1 for 10 second scenes): the half of the scene in which the line is spoken. Respect each scene's word limits exactly; a line must be a complete thought that fits its half.
 - Everything must follow from the idea. Do not invent statistics or claims. Safe: no real people, no sexual content, no graphic violence, no hate. Write all dialogue in English.`;
 function writerHead(a) {
     const guide = {
-        drama: 'A dramatic story told through dialogue between several distinct people. A clear emotional arc with real conflict and a turn.',
+        drama: 'A cinematic dramatic story, played out like a movie: high stakes, physical conflict, danger and a turn, with brief charged dialogue spoken during the action. Several distinct people with opposing goals.',
         documentary: 'A documentary. A "Narrator" guides the viewer, with other speakers (experts, witnesses, people involved; fictional or generic roles, never real named people). Calm, factual tone. Only widely established facts. Never invent statistics, studies or quotes from real people or organisations.',
         animation: 'An animated story with expressive cartoon characters, humour and heart, suitable for all ages, a clear plot and a payoff.',
     };
@@ -1362,6 +1373,8 @@ Every "visualPrompt" must show this mood through lighting, colour, weather, text
 CAMERA PROFILE: ${cam.label}. Base instruction: ${cam.direct}.
 PACING: ${a.pacing}
 ${lock}
+${ACTION_DIRECTION}
+
 ${ORIGINALITY}
 `;
 }
@@ -2971,18 +2984,18 @@ async function adaptScriptLocally(row, user, input) {
         const mood = /!/.test(first.text) ? 'intense, charged emotion, raised energy' : /\?/.test(first.text) ? 'uncertain, searching, tense' : 'quiet, restrained, believable emotion';
         // shot: an opening wide shot, a two-shot when two people share the scene, otherwise a close-up on the speaker
         const shot = k === 0 && !ctx.continuity ? `Wide establishing shot${setting ? ` of ${setting}` : ''}, then settling on ${who.length ? who.join(' and ') : 'the scene'}`
-            : who.length >= 2 ? `Medium two-shot, ${who[0]} and ${who[1]} facing each other, over-the-shoulder framing`
-                : who.length === 1 ? `Medium close-up on ${who[0]}, who is the one speaking`
+            : who.length >= 2 ? `Dynamic handheld shot, ${who[0]} and ${who[1]} in tense physical confrontation, moving through the space`
+                : who.length === 1 ? `Tracking shot following ${who[0]} as they move through the place`
                     : 'Cinematic establishing view of the place';
         const people = who.map((n) => `${n} is ${lookOf.get(n)}`).join('. ');
-        const doing = (acts.length ? acts.join(' ') : cues.length ? `${who[0] || 'The speaker'} is ${cues[0]}` : `${who[0] || 'The speaker'} speaks naturally with small, believable gestures`).replace(/[.\s]+$/, '');
+        const doing = (acts.length ? acts.join(' ') : cues.length ? `${who[0] || 'The speaker'} is ${cues[0]}` : `${who[0] || 'The character'} moves urgently through the place, grabbing, pushing or reaching for things, and speaks while moving`).replace(/[.\s]+$/, '');
         rawScenes.push({
             lines,
             visualPrompt: `${shot}. ${setting && k !== 0 ? `Setting: ${setting}. ` : ''}${people ? `${people}. ` : ''}${doing}. Mood: ${mood}. Photorealistic live-action film, real human proportions, natural skin texture and expressions, realistic fabric and hair movement, motivated natural lighting, shallow depth of field, shot on a 35mm cinema camera.`.replace(/\s+/g, ' '),
             secondHalfAction: (() => {
                 const talker = lines[lines.length - 1]?.speaker;
                 const listener = who.find((x) => x !== talker);
-                return talker && talker !== 'Narrator' ? `${talker} carries on speaking${listener ? ` while ${listener} listens and reacts with a small, honest change of expression` : ', with natural small movements and a believable change of expression'}. The camera stays on the same moment, no cut and no repeat of what already happened.` : 'The moment develops naturally with the same people in the same place, no cut and no repeat of what already happened.';
+                return talker && talker !== 'Narrator' ? `The action escalates: ${talker} keeps moving and speaking${listener ? ` while ${listener} reacts physically, lunging, ducking or blocking the way` : ', pushing forward through the danger'}. The camera stays in the same place, no cut and no repeat of what already happened.` : 'The action escalates with the same people in the same place: a sudden movement, a crash or a new danger, no cut and no repeat of what already happened.';
             })(),
         });
     }
@@ -3123,11 +3136,11 @@ function finishStory(ctx, d, input) {
         const modelCam = str(sc?.cameraMotion, 220);
         const cameraMotion = modelCam.length >= 8 ? modelCam : cam.direct;
         const second = str(sc?.secondHalfAction, 400);
-        const fixed = `Camera: ${cameraMotion}. Mood and grade: ${mood.render}. Visual look: ${look}. ${aspectHint} No text, captions or subtitles in the picture.`;
+        const fixed = `Cinematic live-action movie scene with continuous physical action: the people are always moving and doing things, interacting with the place and each other, never posing, never facing the camera, never giving a speech. Camera: ${cameraMotion}. Mood and grade: ${mood.render}. Visual look: ${look}. ${aspectHint} No text, captions or subtitles in the picture.`;
         const parts = [];
         for (let h = 1; h <= halves; h++) {
             const mine = lines.filter((l) => l.half === h);
-            const tail = mine.length ? `Audio: clear natural spoken dialogue, unhurried and human, with accurate lip sync and matching room sound, no music. Each person finishes their whole sentence and stops speaking a moment before the clip ends. ${spokenFor(mine)}` : 'Audio: natural ambient sound, no music, no speech.';
+            const tail = mine.length ? `Audio: the lines below are spoken inside the scene, in the middle of the action and never to the camera, with accurate lip sync and realistic sound effects (footsteps, impacts, wind, crashes, breathing). No music. Each person finishes their whole sentence and stops speaking a moment before the clip ends. ${spokenFor(mine)}` : 'Audio: realistic sound effects and ambient sound of the action (footsteps, impacts, wind, crashes), no music, no speech.';
             const lead = h === 1 ? '' : `Continuing seamlessly from the previous moment, with no cut, in the same place and with the same characters: ${(second || 'the action carries on naturally and the moment develops').replace(/[.\s]+$/, '')}. `;
             // The second half starts from the first half's last picture, so it only describes the next beat. Repeating the opening description makes the video jump back.
             const visual = h === 1 ? str(visualBase, Math.max(200, RENDER_PROMPT_MAX - fixed.length - tail.length - lead.length - 4)) : 'The same people, place and light as in the picture it starts from.';
@@ -3612,8 +3625,19 @@ const cronDispatch = async ({ req, res, query }) => {
 // ---------------------------------------------------------------- downloads
 const safeName = (s) => s.replace(/[^\w\- ]+/g, '').trim().slice(0, 60) || 'video';
 async function jobVideoUrl(j) {
-    const st = String(j.status_url);
-    const s = st.startsWith('deapi:') ? await deapiStatus(st.slice(6)) : await falStatus(j.status_url, j.response_url);
+    // A finished scene already has its video address saved. Use it: asking the video provider again for every download
+    // burns its status allowance (deAPI basic accounts get only a few hundred checks a day) and fails once the job record expires.
+    if (j.status === 'done' && j.video_url)
+        return String(j.video_url);
+    let s;
+    try {
+        s = await refreshJob(j);
+    }
+    catch (e) {
+        if (e instanceof HttpError && e.code === 'DEAPI')
+            throw new HttpError(424, 'The video engine could not confirm this scene right now. Please try the download again in a minute.', 'DOWNLOAD');
+        throw e;
+    }
     if (s.state !== 'done' || !s.videoUrl)
         throw new HttpError(409, 'This scene is not ready yet. Please try again in a moment.');
     return String(s.videoUrl);

@@ -749,18 +749,18 @@ async function adaptScriptLocally(row: any, user: { secondsLimit: number }, inpu
     const mood = /!/.test(first.text) ? 'intense, charged emotion, raised energy' : /\?/.test(first.text) ? 'uncertain, searching, tense' : 'quiet, restrained, believable emotion';
     // shot: an opening wide shot, a two-shot when two people share the scene, otherwise a close-up on the speaker
     const shot = k === 0 && !ctx.continuity ? `Wide establishing shot${setting ? ` of ${setting}` : ''}, then settling on ${who.length ? who.join(' and ') : 'the scene'}`
-      : who.length >= 2 ? `Medium two-shot, ${who[0]} and ${who[1]} facing each other, over-the-shoulder framing`
-      : who.length === 1 ? `Medium close-up on ${who[0]}, who is the one speaking`
+      : who.length >= 2 ? `Dynamic handheld shot, ${who[0]} and ${who[1]} in tense physical confrontation, moving through the space`
+      : who.length === 1 ? `Tracking shot following ${who[0]} as they move through the place`
       : 'Cinematic establishing view of the place';
     const people = who.map((n) => `${n} is ${lookOf.get(n)}`).join('. ');
-    const doing = (acts.length ? acts.join(' ') : cues.length ? `${who[0] || 'The speaker'} is ${cues[0]}` : `${who[0] || 'The speaker'} speaks naturally with small, believable gestures`).replace(/[.\s]+$/, '');
+    const doing = (acts.length ? acts.join(' ') : cues.length ? `${who[0] || 'The speaker'} is ${cues[0]}` : `${who[0] || 'The character'} moves urgently through the place, grabbing, pushing or reaching for things, and speaks while moving`).replace(/[.\s]+$/, '');
     rawScenes.push({
       lines,
       visualPrompt: `${shot}. ${setting && k !== 0 ? `Setting: ${setting}. ` : ''}${people ? `${people}. ` : ''}${doing}. Mood: ${mood}. Photorealistic live-action film, real human proportions, natural skin texture and expressions, realistic fabric and hair movement, motivated natural lighting, shallow depth of field, shot on a 35mm cinema camera.`.replace(/\s+/g, ' '),
       secondHalfAction: (() => {
         const talker = lines[lines.length - 1]?.speaker;
         const listener = who.find((x) => x !== talker);
-        return talker && talker !== 'Narrator' ? `${talker} carries on speaking${listener ? ` while ${listener} listens and reacts with a small, honest change of expression` : ', with natural small movements and a believable change of expression'}. The camera stays on the same moment, no cut and no repeat of what already happened.` : 'The moment develops naturally with the same people in the same place, no cut and no repeat of what already happened.';
+        return talker && talker !== 'Narrator' ? `The action escalates: ${talker} keeps moving and speaking${listener ? ` while ${listener} reacts physically, lunging, ducking or blocking the way` : ', pushing forward through the danger'}. The camera stays in the same place, no cut and no repeat of what already happened.` : 'The action escalates with the same people in the same place: a sudden movement, a crash or a new danger, no cut and no repeat of what already happened.';
       })(),
     });
   }
@@ -886,11 +886,11 @@ function finishStory(ctx: StoryCtx, d: any, input: StoryInput) {
     const cameraMotion = modelCam.length >= 8 ? modelCam : cam.direct;
     const second = str(sc?.secondHalfAction, 400);
 
-    const fixed = `Camera: ${cameraMotion}. Mood and grade: ${mood.render}. Visual look: ${look}. ${aspectHint} No text, captions or subtitles in the picture.`;
+    const fixed = `Cinematic live-action movie scene with continuous physical action: the people are always moving and doing things, interacting with the place and each other, never posing, never facing the camera, never giving a speech. Camera: ${cameraMotion}. Mood and grade: ${mood.render}. Visual look: ${look}. ${aspectHint} No text, captions or subtitles in the picture.`;
     const parts = [];
     for (let h = 1; h <= halves; h++) {
       const mine = lines.filter((l) => l.half === h);
-      const tail = mine.length ? `Audio: clear natural spoken dialogue, unhurried and human, with accurate lip sync and matching room sound, no music. Each person finishes their whole sentence and stops speaking a moment before the clip ends. ${spokenFor(mine)}` : 'Audio: natural ambient sound, no music, no speech.';
+      const tail = mine.length ? `Audio: the lines below are spoken inside the scene, in the middle of the action and never to the camera, with accurate lip sync and realistic sound effects (footsteps, impacts, wind, crashes, breathing). No music. Each person finishes their whole sentence and stops speaking a moment before the clip ends. ${spokenFor(mine)}` : 'Audio: realistic sound effects and ambient sound of the action (footsteps, impacts, wind, crashes), no music, no speech.';
       const lead = h === 1 ? '' : `Continuing seamlessly from the previous moment, with no cut, in the same place and with the same characters: ${(second || 'the action carries on naturally and the moment develops').replace(/[.\s]+$/, '')}. `;
       // The second half starts from the first half's last picture, so it only describes the next beat. Repeating the opening description makes the video jump back.
       const visual = h === 1 ? str(visualBase, Math.max(200, RENDER_PROMPT_MAX - fixed.length - tail.length - lead.length - 4)) : 'The same people, place and light as in the picture it starts from.';
@@ -1293,8 +1293,15 @@ const cronDispatch: Handler = async ({ req, res, query }) => {
 const safeName = (s: string) => s.replace(/[^\w\- ]+/g, '').trim().slice(0, 60) || 'video';
 
 async function jobVideoUrl(j: any): Promise<string> {
-  const st = String(j.status_url);
-  const s: any = st.startsWith('deapi:') ? await deapiStatus(st.slice(6)) : await falStatus(j.status_url, j.response_url);
+  // A finished scene already has its video address saved. Use it: asking the video provider again for every download
+  // burns its status allowance (deAPI basic accounts get only a few hundred checks a day) and fails once the job record expires.
+  if (j.status === 'done' && j.video_url) return String(j.video_url);
+  let s: any;
+  try { s = await refreshJob(j); }
+  catch (e: any) {
+    if (e instanceof HttpError && e.code === 'DEAPI') throw new HttpError(424, 'The video engine could not confirm this scene right now. Please try the download again in a minute.', 'DOWNLOAD');
+    throw e;
+  }
   if (s.state !== 'done' || !s.videoUrl) throw new HttpError(409, 'This scene is not ready yet. Please try again in a moment.');
   return String(s.videoUrl);
 }
