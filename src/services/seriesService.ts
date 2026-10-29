@@ -104,6 +104,8 @@ export const Series = {
   }),
   /** Puts a stopped part back to work. Clips that already finished are kept. */
   retry: (id: string) => api.post<{ ok: boolean }>('/episodes/retry', { id }),
+  /** Stops an active script or render process. Finished clips are preserved for a later resume. */
+  stop: (id: string) => api.post<{ ok: boolean; stopped: boolean; status: EpisodeStatus }>('/episodes/stop', { id }),
   /** Reads the episode and moves it one step forward on the server. */
   status: (id: string) => api.get<{ episode: Episode }>(`/episodes/status?id=${encodeURIComponent(id)}`).then((r) => r.episode),
 };

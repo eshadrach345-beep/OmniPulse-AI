@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Loader2, Play, Plus, ChevronRight, Clock, Film, Camera, Check, AlertTriangle, Download, ArrowLeft, Clapperboard, RotateCcw, FileText, Users, Sparkles } from 'lucide-react';
+import { Loader2, Play, Plus, ChevronRight, Clock, Film, Camera, Check, AlertTriangle, Download, ArrowLeft, Clapperboard, RotateCcw, FileText, Users, Sparkles, Square } from 'lucide-react';
 import { AspectRatioType, CameraProfileId, CastId, DialogueId, EndingId, GenreId, IntensityId, PresentationId, StoryMoodId, TropeId } from '../types';
 import { StoryFormat } from '../services/aiService';
 import { Episode, ProjectDetail, ProjectSummary, Series, isActive } from '../services/seriesService';
@@ -269,6 +269,22 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
     finally { setBusy(false); }
   };
 
+  const stopCurrent = async () => {
+    if (!episode || !isActive(episode.status) || busy) return;
+    const ok = window.confirm('Stop this process now? Any finished clips will be kept. You can resume this part later.');
+    if (!ok) return;
+    setBusy(true); setError(null);
+    try {
+      await Series.stop(episode.id);
+      setEpisode({ ...episode, status: 'FAILED', error: 'Stopped by you. Finished clips are kept; tap Resume to continue later.', note: '' });
+      setPollKey((k) => k + 1);
+      usageRef.current?.();
+      void loadList();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'The process could not be stopped. Please try again.');
+    } finally { setBusy(false); }
+  };
+
   const downloadFull = async (ep: Episode) => {
     if (!ep.finalVideoUrl) return;
     setDl({ busy: true, msg: 'Joining your clips into one video. This can take up to a minute.' });
@@ -309,14 +325,18 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
               <div className="h-2 rounded-full bg-slate-800 overflow-hidden"><div className="h-full bg-indigo-500 transition-all duration-700" style={{ width: `${pct}%` }} /></div>
               <p className="text-xs text-slate-300 flex items-center gap-2"><Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-400" />{stage}{episode?.status === 'RENDERING' && episode.partsTotal ? `: ${episode.partsDone} of ${episode.partsTotal} clips ready` : '...'}</p>
               {episode?.note && <p className="text-[11px] text-amber-300 bg-amber-950/30 border border-amber-900/60 rounded-lg px-3 py-2">{episode.note}</p>}
-              <p className="text-[11px] text-slate-500">This runs on our servers, so you can leave this page. Errors are retried by themselves, and your part appears here when it is ready.</p>
+              {episode && isActive(episode.status) && <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-[11px] text-slate-500 flex-1 min-w-[150px]">This process runs on the server. You can stop it here; finished clips will be kept.</p>
+                <button type="button" onClick={stopCurrent} disabled={busy} className="inline-flex items-center gap-1.5 rounded-lg border border-rose-800 bg-rose-950/50 px-3 py-2 text-xs font-semibold text-rose-200 hover:bg-rose-900/70 disabled:opacity-50"><Square className="h-3.5 w-3.5 fill-current" />{busy ? 'Stopping…' : 'Stop process'}</button>
+              </div>}
+              {!episode && <p className="text-[11px] text-slate-500">Starting your process…</p>}
             </>
           )}
 
           {episode?.status === 'FAILED' && (
             <div className="space-y-2">
               <div role="alert" className="text-xs text-red-300 bg-red-950/40 border border-red-900 rounded-lg px-3 py-2">{episode.error || 'This part could not be made.'}</div>
-              <button type="button" onClick={retry} disabled={busy} className="px-3 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-xs font-semibold text-white flex items-center gap-1.5"><RotateCcw className="w-3.5 h-3.5" />Retry (finished clips are kept)</button>
+              <button type="button" onClick={retry} disabled={busy} className="px-3 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-xs font-semibold text-white flex items-center gap-1.5"><RotateCcw className="w-3.5 h-3.5" />Resume (finished clips are kept)</button>
             </div>
           )}
 

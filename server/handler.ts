@@ -1601,11 +1601,11 @@ async function stageScript(row: any, user: ReturnType<typeof toUser>, ep: any) {
     ? await adaptPastedScript(row, user, storyInput)
     : await writeStoryboard(row, user, storyInput, ep.storyboard_json?.draft);
   if ('draft' in out) {
-    await sql()`UPDATE episodes SET storyboard_json = ${jsonb({ draft: out.draft })}::jsonb, attempts = 0, updated_at = now() WHERE id = ${ep.id}`;
+    await sql()`UPDATE episodes SET storyboard_json = ${jsonb({ draft: out.draft })}::jsonb, attempts = 0, updated_at = now() WHERE id = ${ep.id} AND status = 'PROCESSING'`;
     return;
   }
   const sb = (out as { sb: any }).sb;
-  await sql()`UPDATE episodes SET storyboard_json = ${jsonb(sb)}::jsonb, status = 'RENDERING', render_jobs = NULL, error = NULL, attempts = 0, updated_at = now() WHERE id = ${ep.id}`;
+  await sql()`UPDATE episodes SET storyboard_json = ${jsonb(sb)}::jsonb, status = 'RENDERING', render_jobs = NULL, error = NULL, attempts = 0, updated_at = now() WHERE id = ${ep.id} AND status = 'PROCESSING'`;
   await sql()`UPDATE projects SET title = CASE WHEN title = '' THEN ${str(sb.title, 100)} ELSE title END, updated_at = now() WHERE id = ${ep.project_id}`;
 }
 
@@ -1656,7 +1656,7 @@ async function stageRender(row: any, user: ReturnType<typeof toUser>, ep: any): 
   const aspect = String(ep.brief?.aspect || '9:16');
   const entries = normalizeEntries(ep.render_jobs, scenes);
   const t0 = Date.now(), left = () => STEP_BUDGET_MS - (Date.now() - t0);
-  const save = () => sql()`UPDATE episodes SET render_jobs = ${jsonb(entries)}::jsonb, updated_at = now() WHERE id = ${ep.id}`;
+  const save = () => sql()`UPDATE episodes SET render_jobs = ${jsonb(entries)}::jsonb, updated_at = now() WHERE id = ${ep.id} AND status = 'RENDERING'`;
   let wait = 0;
   let note: string | null = null;
 
@@ -1750,7 +1750,7 @@ async function advanceEpisode(row: any, user: ReturnType<typeof toUser>, ep: any
     const attempts = (cur.attempts || 0) + 1;
     const permanent = e instanceof HttpError && [400, 402, 403, 409].includes(e.status);
     if (permanent || attempts >= MAX_SCRIPT_ATTEMPTS) await failEpisode(ep.id, String(e?.message || 'Something went wrong while making this part.'));
-    else { const pause = Math.min(45, 4 * 2 ** (attempts - 1)); const reason = String(e?.message || 'The AI provider failed without a message.').replace(/[\r\n]+/g, ' ').slice(0, 260); await sql()`UPDATE episodes SET attempts = ${attempts}, error = ${reason}, locked_until = now() + ${pause}::int * interval '1 second' WHERE id = ${ep.id}`; } // preserve the actual cause for the UI while retrying
+    else { const pause = Math.min(45, 4 * 2 ** (attempts - 1)); const reason = String(e?.message || 'The AI provider failed without a message.').replace(/[\r\n]+/g, ' ').slice(0, 260); await sql()`UPDATE episodes SET attempts = ${attempts}, error = ${reason}, locked_until = now() + ${pause}::int * interval '1 second' WHERE id = ${ep.id} AND status = ${cur.status}`; } // preserve the actual cause for the UI while retrying
   }
   return reload();
 }
@@ -1769,6 +1769,18 @@ const episodeRetry: Handler = async ({ req, res, body }) => {
     await sql()`UPDATE episodes SET status = 'RENDERING', render_jobs = ${jsonb(entries)}::jsonb, error = NULL, attempts = 0, locked_until = NULL, created_at = now(), updated_at = now() WHERE id = ${ep.id}`;
   }
   json(res, 200, { ok: true });
+};
+
+const episodeStop: Handler = async ({ req, res, body }) => {
+  const { row } = await requireAccess(req);
+  const id = str(body.id, 80);
+  const ep = await loadOwnedEpisode(row.id, id);
+  if (!ACTIVE_STATUSES.includes(ep.status)) {
+    json(res, 200, { ok: true, stopped: false, status: ep.status, message: 'This process is no longer running.' });
+    return;
+  }
+  const stopped = (await sql()`UPDATE episodes SET status = 'FAILED', error = 'Stopped by you. Finished clips are kept; tap Resume to continue later.', locked_until = NULL, updated_at = now() WHERE id = ${id} AND status IN ('PROCESSING', 'RENDERING') RETURNING id`) as any[];
+  json(res, 200, { ok: true, stopped: stopped.length > 0, status: stopped.length ? 'FAILED' : 'PROCESSING' });
 };
 
 const episodeStatus: Handler = async ({ req, res, query }) => {
@@ -1836,7 +1848,7 @@ const routes: Record<string, Handler> = {
   'POST /video/render': videoRender, 'GET /video/status': videoStatus,
   'GET /social/accounts': socialAccounts, 'POST /social/sync': socialSync, 'GET /video/download': videoDownload, 'GET /video/merge': videoMerge, 'GET /social/connect': socialConnect, 'GET /social/callback': socialCallback,
   'POST /social/disconnect': socialDisconnect, 'GET /social/metrics': socialMetricsRoute, 'POST /social/publish': socialPublish,
-  'POST /episodes/create': episodeCreate, 'POST /episodes/retry': episodeRetry, 'GET /episodes/status': episodeStatus, 'GET /episodes/video': episodeVideo, 'GET /projects': projectsList, 'GET /projects/get': projectGet,
+  'POST /episodes/create': episodeCreate, 'POST /episodes/retry': episodeRetry, 'POST /episodes/stop': episodeStop, 'GET /episodes/status': episodeStatus, 'GET /episodes/video': episodeVideo, 'GET /projects': projectsList, 'GET /projects/get': projectGet,
   'GET /cron/dispatch': cronDispatch, 'POST /cron/dispatch': cronDispatch,
   'GET /system/check': systemCheck,
   'GET /health': async ({ res }) => json(res, 200, {
