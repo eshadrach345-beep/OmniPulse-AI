@@ -214,7 +214,7 @@ function noteGeminiFailure(f: GeminiFail) {
 }
 
 /** For the System check screen. */
-export const aiWriterStatus = () => ({ geminiBlockedSeconds: Math.max(0, Math.ceil((geminiBlockedUntil - Date.now()) / 1000)), backupConfigured: haveFallbackLlm(), backupModel: (process.env.LLM_MODEL || 'llama-3.3-70b-versatile').trim() });
+export const aiWriterStatus = () => ({ geminiBlockedSeconds: Math.max(0, Math.ceil((geminiBlockedUntil - Date.now()) / 1000)), backupConfigured: haveFallbackLlm(), backupModel: (process.env.LLM_MODEL || 'openai/gpt-oss-120b').trim() });
 
 const haveGemini = () => !!lookupEnv('GEMINI_API_KEY') || !!lookupEnv('GOOGLE_API_KEY');
 const fallbackKey = () => lookupEnv('LLM_API_KEY')?.value || '';
@@ -224,7 +224,7 @@ const haveFallbackLlm = () => !!fallbackKey();
 async function callCompat(prompt: string, o: { json: boolean; timeoutMs: number; maxTokens?: number }): Promise<string> {
   const key = fallbackKey();
   const base = (process.env.LLM_BASE_URL || (process.env.OPENROUTER_API_KEY ? 'https://openrouter.ai/api/v1' : process.env.OPENAI_API_KEY ? 'https://api.openai.com/v1' : process.env.MISTRAL_API_KEY ? 'https://api.mistral.ai/v1' : 'https://api.groq.com/openai/v1')).trim().replace(/\/+$/, '');
-  const model = (process.env.LLM_MODEL || (process.env.OPENROUTER_API_KEY ? 'meta-llama/llama-3.3-70b-instruct' : process.env.OPENAI_API_KEY ? 'gpt-4o-mini' : process.env.MISTRAL_API_KEY ? 'mistral-small-latest' : 'llama-3.3-70b-versatile')).trim();
+  const model = (process.env.LLM_MODEL || (process.env.OPENROUTER_API_KEY ? 'meta-llama/llama-3.3-70b-instruct' : process.env.OPENAI_API_KEY ? 'gpt-4o-mini' : process.env.MISTRAL_API_KEY ? 'mistral-small-latest' : 'openai/gpt-oss-120b')).trim();
   let r: Response;
   try {
     r = await fetch(`${base}/chat/completions`, {
@@ -280,7 +280,7 @@ export async function llmGenerate(prompt: string, o: { json?: boolean; timeoutMs
       const text = await callCompat(prompt, { json, timeoutMs: Math.min(o.timeoutMs || 40_000, left), maxTokens: o.maxTokens });
       // Treat malformed backup output as a provider failure so the other provider can be attempted.
       if (json) extractJson(text);
-      const model = (process.env.LLM_MODEL || 'llama-3.3-70b-versatile').trim();
+      const model = (process.env.LLM_MODEL || 'openai/gpt-oss-120b').trim();
       console.info('AI writer succeeded', { provider: 'backup', model });
       return { text, provider: 'backup' as const, model };
     } catch (e: any) { errs.push(e instanceof GeminiFail ? e : new GeminiFail(0, e?.message || 'Backup AI failed')); return null; }

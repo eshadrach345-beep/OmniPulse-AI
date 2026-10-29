@@ -6,7 +6,7 @@ OmniPulse's script writer now reserves time for the backup provider instead of s
 
 - `GEMINI_API_KEY`: your Google AI Studio API key (optional if you want Groq-only writing).
 - `GROQ_API_KEY`: your Groq API key. This is recognized as the backup key automatically.
-- `LLM_MODEL`: optional Groq model override. If omitted, the app uses `llama-3.3-70b-versatile`.
+- `LLM_MODEL`: optional Groq model override. If omitted, the app uses `openai/gpt-oss-120b`.
 - `LLM_BASE_URL`: leave unset for Groq. If set, it must be an OpenAI-compatible API base URL; it overrides the provider default.
 - `LLM_PRIMARY`: set to `backup` only if you want Groq first for writing. Otherwise Gemini is tried first and Groq is the fallback.
 
