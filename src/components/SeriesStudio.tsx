@@ -1,11 +1,13 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Loader2, Play, Plus, ChevronRight, Clock, Film, Camera, Check, AlertTriangle, Download, ArrowLeft, Clapperboard, RotateCcw, FileText, Users, Sparkles } from 'lucide-react';
-import { AspectRatioType, CameraProfileId, StoryMoodId } from '../types';
+import { AspectRatioType, CameraProfileId, CastId, DialogueId, EndingId, GenreId, IntensityId, PresentationId, StoryMoodId, TropeId } from '../types';
 import { StoryFormat } from '../services/aiService';
 import { Episode, ProjectDetail, ProjectSummary, Series, isActive } from '../services/seriesService';
 import { ApiError } from '../services/api';
+import { MoviePoster } from './MoviePoster';
 import {
-  CAMERA_OPTIONS, LENGTH_CHOICES, MAX_PART_SECONDS, MIN_PART_SECONDS, MOOD_OPTIONS, buildBrief, clampSeconds, formatSeconds, sceneCountFor,
+  CAMERA_OPTIONS, CAST_OPTIONS, DIALOGUE_OPTIONS, ENDING_OPTIONS, GENRE_OPTIONS, IDEA_STARTERS, INTENSITY_OPTIONS, LENGTH_CHOICES, MAX_PART_SECONDS, MIN_PART_SECONDS, MOOD_OPTIONS, PRESENTATION_OPTIONS, TROPE_OPTIONS, TROPE_STARTERS,
+  buildBrief, clampSeconds, formatSeconds, sceneCountFor, type StyleOption,
 } from '../data/storyOptions';
 
 interface Props {
@@ -34,6 +36,24 @@ type View = 'list' | 'compose' | 'progress';
 const chip = (on: boolean) => `px-3 py-2 rounded-lg border text-xs font-medium text-left transition-colors ${on ? 'bg-indigo-950 border-indigo-500 text-white' : 'bg-slate-950 border-slate-800 text-slate-300 hover:border-slate-600'}`;
 const selectCls = 'w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2.5 text-xs text-slate-100 focus:outline-hidden focus:border-indigo-500';
 const areaCls = 'w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-slate-100 placeholder-slate-600';
+
+/** A row of option buttons with an emoji, a label and a one-line hint. */
+function OptionRow<T extends string>({ legend, value, onChange, options, cols }: { legend: string; value: T; onChange: (v: T) => void; options: StyleOption<T>[]; cols: 2 | 3 | 4 | 5 }) {
+  const grid = { 2: 'grid-cols-2', 3: 'grid-cols-2 sm:grid-cols-3', 4: 'grid-cols-2 sm:grid-cols-4', 5: 'grid-cols-2 sm:grid-cols-5' }[cols];
+  return (
+    <div>
+      <p className="text-xs font-semibold text-slate-300 mb-1.5">{legend}</p>
+      <div className={`grid ${grid} gap-2`} role="group" aria-label={legend}>
+        {options.map((o) => (
+          <button key={o.id} type="button" onClick={() => onChange(o.id)} aria-pressed={value === o.id} title={o.hint} className={chip(value === o.id)}>
+            <span className="block font-bold"><span aria-hidden="true">{o.emoji}</span> {o.label}</span>
+            <span className="block text-[10px] text-slate-400 font-normal mt-0.5 leading-snug">{o.hint}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 const saveBlob = (blob: Blob, name: string) => {
   const url = URL.createObjectURL(blob);
@@ -110,7 +130,16 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
   const [parts, setParts] = useState(3);
   const [deliver, setDeliver] = useState<'all' | 'one'>('one');
   const [mood, setMood] = useState<StoryMoodId>('cinematic_trailer');
-  const [camera, setCamera] = useState<CameraProfileId>('steady_pan');
+  const [camera, setCamera] = useState<CameraProfileId>('kinetic_tracking');
+  const [presentation, setPresentation] = useState<PresentationId>('movie');
+  const [genre, setGenre] = useState<GenreId>('auto');
+  const [intensity, setIntensity] = useState<IntensityId>('balanced');
+  const [dialogue, setDialogue] = useState<DialogueId>('normal');
+  const [ending, setEnding] = useState<EndingId>('cliffhanger');
+  const [cast, setCast] = useState<CastId>('people');
+  const [animalsTalk, setAnimalsTalk] = useState(false);
+  const [trope, setTrope] = useState<TropeId>('none');
+  const startersFor = () => [...(presentation === 'shortdrama' ? [TROPE_STARTERS[trope]] : []), ...(IDEA_STARTERS[genre] || IDEA_STARTERS.auto)];
   const [lockEnabled, setLockEnabled] = useState(false);
   const [lockName, setLockName] = useState('');
   const [lockDescriptor, setLockDescriptor] = useState('');
@@ -203,7 +232,7 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
       if (def?.format) setFormat(def.format);
       if (def?.look) setLook(def.look);
       if (def?.aspect) setRatio(def.aspect);
-      if (def?.brief) { setMood(def.brief.mood); setCamera(def.brief.cameraProfile); if (def.brief.requestedSeconds) setSeconds(def.brief.requestedSeconds); if (def.brief.sceneSeconds) setSceneSeconds(def.brief.sceneSeconds); }
+      if (def?.brief) { setMood(def.brief.mood); setCamera(def.brief.cameraProfile); if (def.brief.presentation) setPresentation(def.brief.presentation); if (def.brief.genre) setGenre(def.brief.genre); if (def.brief.intensity) setIntensity(def.brief.intensity); if (def.brief.dialogue) setDialogue(def.brief.dialogue); if (def.brief.ending) setEnding(def.brief.ending); if (def.brief.cast) setCast(def.brief.cast); if (def.brief.animalsTalk !== undefined) setAnimalsTalk(def.brief.animalsTalk); if (def.brief.trope) setTrope(def.brief.trope); if (def.brief.requestedSeconds) setSeconds(def.brief.requestedSeconds); if (def.brief.sceneSeconds) setSceneSeconds(def.brief.sceneSeconds); }
       setDetail(d); setIdea(''); setScript(''); setLockEnabled(false); setWriter(d.recap?.hasRemainingScript ? 'paste' : 'ai'); setView('compose');
     } catch (e) { setError(e instanceof Error ? e.message : 'This series could not be opened.'); }
     finally { setBusy(false); }
@@ -212,7 +241,7 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
   const submit = async () => {
     if (writer === 'ai' && !continuing && idea.trim().length < 10) { setError('Describe your story in a sentence or two: the title and what it is about.'); return; }
     if (writer === 'paste' && script.trim().length < 40 && !(continuing && detail?.recap?.hasRemainingScript)) { setError('Paste your script first. A few lines is enough to start.'); return; }
-    const built = buildBrief({ seconds, sceneSeconds, mood, camera, lockEnabled: !continuing && lockEnabled, lockName, lockDescriptor, secondsLeft });
+    const built = buildBrief({ seconds, sceneSeconds, mood, camera, presentation: format === 'documentary' ? 'narrated' : presentation, genre, intensity, dialogue, ending, cast, animalsTalk, trope, lockEnabled: !continuing && lockEnabled, lockName, lockDescriptor, secondsLeft });
     if (built.ok === false) { setError(built.error); return; }
     setError(null); setBusy(true);
     try {
@@ -302,7 +331,8 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
                   </button>
                 )}
                 {single
-                  ? <button type="button" onClick={backToList} className="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-white flex items-center gap-1.5"><Plus className="w-3.5 h-3.5" />Make another video</button>
+                  ? <><button type="button" onClick={backToList} className="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-white flex items-center gap-1.5"><Plus className="w-3.5 h-3.5" />Make another video</button>
+                  <button type="button" onClick={() => { backToList(); const pool = startersFor(); setIdea(pool[Math.floor(Math.random() * pool.length)]); }} className="px-3 py-2 rounded-lg bg-linear-to-r from-indigo-600 to-fuchsia-600 hover:opacity-90 text-xs font-semibold text-white flex items-center gap-1.5"><Sparkles className="w-3.5 h-3.5" />Remix: new idea, same style</button></>
                   : !nextPartPending && <button type="button" onClick={async () => { const p = projects?.find((x) => x.id === episode.projectId); if (p) await continueSeries(p); else backToList(); }} className="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-white flex items-center gap-1.5"><Plus className="w-3.5 h-3.5" />Generate Next Part / Continue Script</button>}
               </div>
               {dl.msg && <p role={dl.busy ? 'status' : 'alert'} className={`text-[11px] ${dl.busy ? 'text-slate-400' : 'text-red-300'}`}>{dl.msg}</p>}
@@ -322,6 +352,11 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
             </div>
           </div>
         )}
+        {episode?.status === 'COMPLETED' && (() => {
+          const g = episode.brief?.brief?.genre ?? 'auto';
+          return <MoviePoster title={episode.title} tagline={episode.logline} cast={episode.characters.filter((c) => c.name.toLowerCase() !== 'narrator').map((c) => c.name)}
+            genre={g} genreLabel={GENRE_OPTIONS.find((o) => o.id === g)?.label} partLabel={episode.partNumber > 1 || (episode.targetParts ?? 1) > 1 ? `Part ${episode.partNumber}` : undefined} />;
+        })()}
         {episode && episode.notes.length > 0 && <div className="space-y-1">{episode.notes.map((n) => <p key={n} className="text-[11px] text-amber-300">{n}</p>)}</div>}
 
         {episode && episode.scenes.length > 0 && (
@@ -392,7 +427,7 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
               <input id="series-title" value={title} onChange={(e) => setTitle(e.target.value)} maxLength={100} placeholder={writer === 'ai' ? 'The name of your story' : 'We will name it from your script if you leave this empty'} className={selectCls} />
             </div>
             <div className="grid grid-cols-3 gap-2">
-              {FORMATS.map((f) => <button key={f.id} type="button" onClick={() => { setFormat(f.id); setLook(f.look); }} aria-pressed={format === f.id} className={chip(format === f.id)}><span className="block font-bold">{f.title}</span></button>)}
+              {FORMATS.map((f) => <button key={f.id} type="button" onClick={() => { setFormat(f.id); setLook(f.look); if (f.id === 'documentary') setPresentation('narrated'); else if (presentation === 'narrated') setPresentation('movie'); }} aria-pressed={format === f.id} className={chip(format === f.id)}><span className="block font-bold">{f.title}</span></button>)}
             </div>
             <div className="flex gap-2">{RATIOS.map((r) => <button key={r} type="button" onClick={() => setRatio(r)} aria-pressed={ratio === r} className={chip(ratio === r)}>{r}</button>)}</div>
           </>
@@ -404,6 +439,22 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
             <textarea id="series-idea" value={idea} onChange={(e) => setIdea(e.target.value)} rows={4} maxLength={800}
               placeholder={continuing ? 'Leave this empty and the AI decides what happens next, or tell it: Odalys finds the letter and confronts Bram...' : 'Who is it about, where, what goes wrong, what tone, how it should end...'}
               className={areaCls} />
+            {!continuing && (
+              <div className="mt-2 space-y-1.5">
+                <div className="flex flex-wrap items-center gap-2">
+                  <button type="button" onClick={() => { const pool = startersFor(); setIdea(pool[Math.floor(Math.random() * pool.length)]); }}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-linear-to-r from-indigo-600 to-fuchsia-600 text-white text-[11px] font-bold hover:opacity-90">
+                    <Sparkles className="w-3 h-3" />Surprise me
+                  </button>
+                  <span className="text-[11px] text-slate-500">or tap a story starter{genre !== 'auto' ? ` for ${GENRE_OPTIONS.find((g) => g.id === genre)?.label}` : ''}:</span>
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  {startersFor().map((t) => (
+                    <button key={t} type="button" onClick={() => setIdea(t)} className="text-left text-[11px] leading-snug text-slate-300 px-3 py-2 rounded-lg border border-slate-800 bg-slate-950 hover:border-indigo-500/60 hover:text-white transition-colors">{t}</button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         ) : (
           <div>
@@ -451,6 +502,39 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
           </p>
           {showSeriesChoice && kind === 'series' && deliver === 'all' && <p className="text-[11px] text-slate-400">The whole series of {parts} parts needs about {formatSeconds(wholeSeries)} of video.</p>}
           {lengthWarn && <p className="text-[11px] text-amber-300">That is more than the {secondsLeft} seconds you have left. It will be made until your seconds run out; you can buy extra seconds at any time and continue.</p>}
+        </fieldset>
+
+        <fieldset className="rounded-xl border border-indigo-500/30 bg-linear-to-b from-indigo-950/40 to-slate-950/60 p-3 space-y-3.5">
+          <legend className="px-1 text-xs font-bold text-indigo-200 flex items-center gap-1.5"><Clapperboard className="w-3.5 h-3.5" />Director's chair</legend>
+          <div>
+            <p className="text-xs font-semibold text-slate-300 mb-1.5">Is it a movie?</p>
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-2" role="group" aria-label="Movie or not">
+              {PRESENTATION_OPTIONS.map((o) => {
+                const on = (format === 'documentary' ? 'narrated' : presentation) === o.id;
+                return (
+                  <button key={o.id} type="button" disabled={format === 'documentary' && o.id !== 'narrated'} onClick={() => setPresentation(o.id)} aria-pressed={on}
+                    className={`p-3 rounded-xl border text-left transition-all disabled:opacity-40 ${on ? 'bg-linear-to-br from-indigo-600/30 to-fuchsia-600/20 border-indigo-400 text-white shadow-lg shadow-indigo-900/40' : 'bg-slate-950 border-slate-800 text-slate-300 hover:border-slate-600'}`}>
+                    <span className="block text-xl" aria-hidden="true">{o.emoji}</span>
+                    <span className="block text-xs font-bold mt-1">{o.label}</span>
+                    <span className="block text-[10px] text-slate-400 font-normal mt-0.5 leading-snug">{o.hint}</span>
+                  </button>
+                );
+              })}
+            </div>
+            {format === 'documentary' && <p className="text-[11px] text-slate-500 mt-1">Documentaries are always narrated. Choose Drama or Animation to make a movie.</p>}
+          </div>
+          <OptionRow legend="Genre" value={genre} onChange={setGenre} options={GENRE_OPTIONS} cols={5} />
+          <OptionRow legend="Who stars in it?" value={cast} onChange={setCast} options={CAST_OPTIONS} cols={4} />
+          {cast !== 'people' && (
+            <label className="flex items-start gap-2 text-xs text-slate-300 cursor-pointer">
+              <input type="checkbox" checked={animalsTalk} onChange={(e) => setAnimalsTalk(e.target.checked)} className="mt-0.5 accent-indigo-500" />
+              <span><span className="font-semibold">Let animals and creatures talk.</span> Off keeps them realistic: they act and make sounds. On gives each one a voice, like an animated film.</span>
+            </label>
+          )}
+          {presentation === 'shortdrama' && format !== 'documentary' && <OptionRow legend="Story engine" value={trope} onChange={setTrope} options={TROPE_OPTIONS} cols={5} />}
+          {presentation === 'movie' && format !== 'documentary' && <OptionRow legend="Action level" value={intensity} onChange={setIntensity} options={INTENSITY_OPTIONS} cols={3} />}
+          {format !== 'documentary' && presentation !== 'narrated' && <OptionRow legend="Dialogue" value={dialogue} onChange={setDialogue} options={DIALOGUE_OPTIONS} cols={3} />}
+          <OptionRow legend="How should it end?" value={ending} onChange={setEnding} options={ENDING_OPTIONS} cols={3} />
         </fieldset>
 
         <div className="grid sm:grid-cols-2 gap-3">

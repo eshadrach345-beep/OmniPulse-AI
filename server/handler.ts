@@ -6,7 +6,8 @@ import {
 import { sql, ensureSchema } from './lib/db.js';
 import { PLANS, TIERS, Tier, Cycle, planId, tierFromPlanId, priceFor, BILLING_CURRENCY, TRIAL, TOPUPS, trialPrice } from './lib/plans.js';
 import { mail, flw, verifyFlwSignature, lookupEnv, geminiJson, geminiRaw, geminiSearch, geminiFormat, aiWriterStatus, falSubmit, falStatus, deapiSubmit, deapiStatus, deapiAnimate, RateLimited, synthesize } from './lib/services.js';
-import { trendsResearchPrompt, trendsFormatPrompt, scriptPrompt, abPrompt, competitorPrompt, outrankPrompt, parseStoryBrief, type SeriesContinuity, type StoryBriefInput, storyBeats, STORY_MOODS, CAMERA_PROFILES, STORY_LIMITS, planScenes, castMinimum, storyboardPrompt, outlinePrompt, chunkPrompt, adaptPrompt, PART_SECONDS, SCENES_PER_WRITER_CALL, MAX_WORDS_PER_CLIP } from './lib/prompts.js';
+import { trendsResearchPrompt, trendsFormatPrompt, scriptPrompt, abPrompt, competitorPrompt, outrankPrompt, parseStoryBrief, type SeriesContinuity, type StoryBriefInput, storyBeats, STORY_MOODS, CAMERA_PROFILES, GENRES, INTENSITIES, ENDINGS, PRESENTATIONS, CASTS, TROPES, styleBlock, STORY_LIMITS, planScenes, castMinimum, storyboardPrompt, outlinePrompt, chunkPrompt, adaptPrompt, PART_SECONDS, SCENES_PER_WRITER_CALL, MAX_WORDS_PER_CLIP } from './lib/prompts.js';
+import { refineScene, shownInstruction, proseToUnits, thoughtToVisual, type SpokenLine } from './lib/screenplay.js';
 import { ppConfigured, ppConnectUrl, ppSync, ppForget, ppPublish, ppHealth } from './lib/postpeer.js';
 import { mergeClips, lastFrameJpeg } from './lib/merge.js';
 import { PROVIDERS, PLATFORM_IDS, Platform, isPlatform, isConfigured, redirectUri, socialPkce, socialAuthorizeUrl, exchangeSocialCode, saveSocialConnection, listSocialAccounts, removeSocialConnection, publishToPlatform, socialMetrics } from './lib/social.js';
@@ -575,8 +576,12 @@ async function prepareStory(row: any, user: { secondsLimit: number }, input: Sto
     : brief.requestedSeconds > defaultLen ? 'Unhurried and immersive. Allow atmosphere, small details and a slower build before each turn.'
     : 'Balanced. Steady build with room for one or two breathing moments.';
   const mood = STORY_MOODS[brief.mood], cam = CAMERA_PROFILES[brief.cameraProfile];
-  const base = { idea, format, look, niche: input.niche, aspectRatio: aspect, scenes: plan.scenes, mood: brief.mood, cameraProfile: brief.cameraProfile, pacing, characterLock: brief.characterLock, continuity };
-  return { idea, format, look, aspect, brief, continuity, script, available, plan, notes, mood, cam, base, castMin: castMinimum(plan.targetSeconds, format) };
+  // a documentary is always narrated; everything else follows the chosen presentation
+  const presentation = format === 'documentary' ? 'narrated' as const : brief.presentation;
+  const silentCast = presentation === 'narrated' || (brief.dialogue === 'none' && presentation !== 'dialogue' && presentation !== 'shortdrama') || (brief.cast === 'animals' && !brief.animalsTalk);
+  const style = styleBlock({ presentation, genre: brief.genre, intensity: brief.intensity, dialogue: brief.dialogue, ending: brief.ending, cast: brief.cast, animalsTalk: brief.animalsTalk, trope: brief.trope });
+  const base = { idea, format, look, niche: input.niche, aspectRatio: aspect, scenes: plan.scenes, mood: brief.mood, cameraProfile: brief.cameraProfile, pacing, characterLock: brief.characterLock, continuity, style, silentCast };
+  return { idea, format, look, aspect, brief, continuity, script, available, plan, notes, mood, cam, base, presentation, silentCast, castMin: castMinimum(plan.targetSeconds, format) };
 }
 
 type StoryCtx = Awaited<ReturnType<typeof prepareStory>>;
@@ -588,10 +593,10 @@ const CHUNK = 6;
  * Up to 8 scenes (or a pasted script) are written in one request. Longer parts are written as an outline first and then in chunks,
  * one step per call, so no single request ever has to hold a whole 10 minute script. Returns `done:false` with a draft to save while more steps remain.
  */
-async function writeStoryboard(row: any, user: { secondsLimit: number }, input: StoryInput, draft?: any, single = false): Promise<{ done: true; sb: any } | { done: false; draft: any }> {
+async function writeStoryboard(row: any, user: { secondsLimit: number }, input: StoryInput, draft?: any, single = false, scriptOpts = WRITER_OPTS): Promise<{ done: true; sb: any } | { done: false; draft: any }> {
   const ctx = await prepareStory(row, user, input, single);
   const { base, plan, castMin, script } = ctx;
-  if (script) return { done: true, sb: finishStory(ctx, (await geminiRaw(adaptPrompt({ ...base, script: script.slice(0, 20000), castMin }), WRITER_OPTS)).data || {}, input) };
+  if (script) return { done: true, sb: finishStory(ctx, (await geminiRaw(adaptPrompt({ ...base, script: script.slice(0, 20000), castMin }), scriptOpts)).data || {}, input) };
   if (plan.scenes.length <= SCENES_PER_WRITER_CALL) return { done: true, sb: finishStory(ctx, (await geminiRaw(storyboardPrompt({ ...base, castMin }), WRITER_OPTS)).data || {}, input) };
 
   // long part: outline first
@@ -672,6 +677,25 @@ function scriptUnits(script: string, maxWords: number, proseSpoken = false): Scr
   return units;
 }
 
+/** Plain prose becomes screenplay units: quoted speech is dialogue, actions and thoughts become what the camera shows, and only a short time jump is narrated. */
+function proseScriptUnits(script: string, maxWords: number): ScriptUnit[] {
+  const units: ScriptUnit[] = [];
+  let action = '';
+  const blank = { setting: '', cue: '', look: '' };
+  for (const u of proseToUnits(script)) {
+    if (u.kind === 'speech') {
+      const w = words(u.text);
+      for (let i = 0; i < w.length; i += maxWords) { units.push({ speaker: u.speaker, text: w.slice(i, i + maxWords).join(' '), action: i === 0 ? action : '', ...blank }); if (i === 0) action = ''; }
+    } else if (u.kind === 'narration') { units.push({ speaker: 'Narrator', text: u.text, action, ...blank }); action = ''; }
+    else {
+      action = `${action} ${u.kind === 'thought' ? thoughtToVisual(u.text) : u.text}`.trim();
+      if (words(action).length > 40) { units.push({ speaker: '', text: '', action, ...blank }); action = ''; }
+    }
+  }
+  if (action) units.push({ speaker: '', text: '', action, ...blank });
+  return units;
+}
+
 const LOOKS = {
   female: ['a woman in her early 30s with shoulder-length dark wavy hair, warm brown eyes, a cream linen blouse and a thin gold chain', 'a woman in her late 20s with braids tied back, a fitted olive jacket and small hoop earrings', 'a woman in her 50s with short grey-streaked hair, a kind lined face and a deep blue cardigan', 'a young woman around 22 with a high ponytail, a denim jacket over a white tee and light makeup'],
   male: ['a man in his mid 30s with short black hair and a trimmed beard, a charcoal shirt with rolled sleeves', 'a man in his late 40s, broad build, greying temples, a navy blazer over an open collar', 'a lanky young man around 24 with a shaved head, a plain white tee and a light bomber jacket', 'an older man in his 60s with a weathered face, white stubble and a brown cardigan'],
@@ -696,8 +720,9 @@ async function adaptScriptLocally(row: any, user: { secondsLimit: number }, inpu
   const totalCap = plan.scenes.reduce((n, len) => n + capOf(len), 0);
   let units = scriptUnits(script, LINE_WORDS);
   const hasDialogue = units.length > 0;
-  if (!hasDialogue) units = scriptUnits(script, LINE_WORDS, true); // no dialogue at all: a narrator reads it
-  const totalWords = units.reduce((n, u) => n + words(u.text).length, 0);
+  if (!hasDialogue) units = proseScriptUnits(script, LINE_WORDS); // plain prose: quoted speech is spoken, everything that happens is shown, nothing is read out by a narrator
+  const weightOf = (u: ScriptUnit) => words(u.text).length || Math.min(10, Math.ceil(words(u.action).length / 3));
+  const totalWords = units.reduce((n, u) => n + weightOf(u), 0);
   // spread the words evenly over the scenes they need, so the story is not crammed into the first ones
   const fit = Math.min(totalWords, totalCap);
   // A short script is still spread over the length that was asked for (about 6 words or more per scene), so a 3 minute choice is not cut to a minute.
@@ -706,7 +731,7 @@ async function adaptScriptLocally(row: any, user: { secondsLimit: number }, inpu
   const wordCount = (ls: { text: string }[]) => ls.reduce((n, l) => n + words(l.text).length, 0);
 
   // who is in the story: a fixed look and voice for each, so they stay the same person in every scene
-  const speakers = [...new Set(units.map((u) => u.speaker).filter((x) => x !== 'Narrator'))].slice(0, 6);
+  const speakers = [...new Set(units.map((u) => u.speaker).filter((x) => x && x !== 'Narrator'))].slice(0, 6);
   const genderOf = (n: string): 'male' | 'female' => {
     if (FEMALE_NAMES.test(n.split(' ')[0])) return 'female';
     const near = [...script.matchAll(new RegExp(`\\b${n.replace(/[^\w ]/g, '')}\\b([^.\\n]{0,80})`, 'gi'))].map((m) => m[1]).join(' ');
@@ -732,11 +757,11 @@ async function adaptScriptLocally(row: any, user: { secondsLimit: number }, inpu
     let used = 0;
     const startAt = at;
     while (at < units.length) {
-      const u = units[at], w = words(u.text).length;
+      const u = units[at], w = weightOf(u);
       if (used > 0 && used + w > target) break;
       const next = lines.map((l) => ({ ...l }));
       const last = next[next.length - 1];
-      if (last && last.speaker === u.speaker) last.text += ` ${u.text}`; else next.push({ speaker: u.speaker, text: u.text, half: 1 });
+      if (u.text) { if (last && last.speaker === u.speaker) last.text += ` ${u.text}`; else next.push({ speaker: u.speaker, text: u.text, half: 1 }); }
       if (used > 0 && wordCount(packLines(next, halves)) < wordCount(next)) break; // the scene's two clips cannot say all of this in time
       lines = next; used += w; at++;
     }
@@ -745,7 +770,7 @@ async function adaptScriptLocally(row: any, user: { secondsLimit: number }, inpu
     const acts = here.map((u) => u.action).filter(Boolean);
     const cues = here.map((u) => u.cue).filter(Boolean);
     const who = [...new Set(here.map((u) => u.speaker).filter((x) => x !== 'Narrator' && lookOf.has(x)))].slice(0, 3);
-    const first = here[0];
+    const first = here.find((u) => u.text) || here[0];
     const mood = /!/.test(first.text) ? 'intense, charged emotion, raised energy' : /\?/.test(first.text) ? 'uncertain, searching, tense' : 'quiet, restrained, believable emotion';
     // shot: an opening wide shot, a two-shot when two people share the scene, otherwise a close-up on the speaker
     const shot = k === 0 && !ctx.continuity ? `Wide establishing shot${setting ? ` of ${setting}` : ''}, then settling on ${who.length ? who.join(' and ') : 'the scene'}`
@@ -753,18 +778,21 @@ async function adaptScriptLocally(row: any, user: { secondsLimit: number }, inpu
       : who.length === 1 ? `Tracking shot following ${who[0]} as they move through the place`
       : 'Cinematic establishing view of the place';
     const people = who.map((n) => `${n} is ${lookOf.get(n)}`).join('. ');
-    const doing = (acts.length ? acts.join(' ') : cues.length ? `${who[0] || 'The speaker'} is ${cues[0]}` : `${who[0] || 'The character'} moves urgently through the place, grabbing, pushing or reaching for things, and speaks while moving`).replace(/[.\s]+$/, '');
+    const split = halves === 2 && acts.length >= 2 ? Math.ceil(acts.length / 2) : acts.length;
+    const firstActs = acts.slice(0, split), laterActs = acts.slice(split);
+    const doing = (acts.length ? firstActs.join(' ') : cues.length ? `${who[0] || 'The speaker'} is ${cues[0]}` : `${who[0] || 'The character'} moves urgently through the place, grabbing, pushing or reaching for things, and speaks while moving`).replace(/[.\s]+$/, '');
     rawScenes.push({
       lines,
       visualPrompt: `${shot}. ${setting && k !== 0 ? `Setting: ${setting}. ` : ''}${people ? `${people}. ` : ''}${doing}. Mood: ${mood}. Photorealistic live-action film, real human proportions, natural skin texture and expressions, realistic fabric and hair movement, motivated natural lighting, shallow depth of field, shot on a 35mm cinema camera.`.replace(/\s+/g, ' '),
       secondHalfAction: (() => {
+        if (laterActs.length) return `${laterActs.join(' ')} The camera stays in the same place, no cut and no repeat of what already happened.`;
         const talker = lines[lines.length - 1]?.speaker;
         const listener = who.find((x) => x !== talker);
         return talker && talker !== 'Narrator' ? `The action escalates: ${talker} keeps moving and speaking${listener ? ` while ${listener} reacts physically, lunging, ducking or blocking the way` : ', pushing forward through the danger'}. The camera stays in the same place, no cut and no repeat of what already happened.` : 'The action escalates with the same people in the same place: a sudden movement, a crash or a new danger, no cut and no repeat of what already happened.';
       })(),
     });
   }
-  const remainingScript = units.slice(at).map((u) => `${u.action ? `${u.action}\n` : ''}${u.speaker === 'Narrator' && !hasDialogue ? u.text : `${u.speaker}: ${u.text}`}`).join('\n');
+  const remainingScript = units.slice(at).map((u) => (u.text ? `${u.action ? `${u.action}\n` : ''}${u.speaker}: ${u.text}` : u.action)).join('\n');
   // a short script makes a short part: only the scenes that have something to say are made
   const shortCtx = { ...ctx, plan: { ...plan, scenes: plan.scenes.slice(0, Math.max(1, rawScenes.length)), targetSeconds: sumSeconds(plan.scenes.slice(0, Math.max(1, rawScenes.length))) } };
 
@@ -778,6 +806,24 @@ async function adaptScriptLocally(row: any, user: { secondsLimit: number }, inpu
   }, input);
   sb.notes = [...(sb.notes || []), 'Your script was used exactly as you wrote it: spoken lines are said by the characters, and action lines are shown on screen instead of being read out.'];
   return sb;
+}
+
+/**
+ * A pasted script is read like a director would read it. The AI breaks it down first (what is said, what is shown, what is only a thought),
+ * and if the AI is busy or fails, the built-in reader does the same job with fixed rules, so the video never waits on a failed request.
+ */
+async function adaptPastedScript(row: any, user: { secondsLimit: number }, input: StoryInput): Promise<{ done: true; sb: any }> {
+  try {
+    const r = await writeStoryboard(row, user, input, undefined, false, { timeoutMs: 34_000, deadlineMs: 40_000, maxTokens: 12_000 });
+    if (r.done) {
+      r.sb.notes = [...(r.sb.notes || []), 'Your script was broken down like a screenplay: spoken lines are said by the characters, actions are performed on screen, and thoughts are shown as pictures.'];
+      return r;
+    }
+  } catch (e: any) {
+    if (e instanceof HttpError && (e.code === 'LIMIT' || e.status === 403)) throw e;
+    console.error('AI script breakdown failed, using the built-in reader:', e?.message || e);
+  }
+  return { done: true, sb: await adaptScriptLocally(row, user, input) };
 }
 
 /** Shortens text to at most `max` words, ending at a full sentence or clause where possible so nobody is cut off mid-thought. */
@@ -808,11 +854,12 @@ function splitLine(text: string, maxWords: number): [string, string] | null {
  * at a sentence break and continues in the next clip, or moves there whole. Nothing is ever cut off in the middle of a sentence, and a
  * 20 second scene gives both of its clips something to say whenever it has two or more lines.
  */
-function packLines(lines: { speaker: string; text: string }[], halves: number): { speaker: string; text: string; half: 1 | 2 }[] {
-  const out: { speaker: string; text: string; half: 1 | 2 }[] = [];
+type PackLine = { speaker: string; text: string; emotion?: string; doing?: string };
+function packLines(lines: PackLine[], halves: number): (PackLine & { half: 1 | 2 })[] {
+  const out: (PackLine & { half: 1 | 2 })[] = [];
   let half: 1 | 2 = 1;
   const inHalf = (h: number) => out.filter((l) => l.half === h);
-  const queue = lines.map((l) => ({ speaker: l.speaker, text: fitText(l.text, MAX_WORDS_PER_CLIP * halves) }));
+  const queue: PackLine[] = lines.map((l) => ({ ...l, text: fitText(l.text, MAX_WORDS_PER_CLIP * halves) }));
   while (queue.length) {
     const l = queue.shift()!;
     const room = () => speechCap - speechSeconds(inHalf(half));
@@ -822,11 +869,11 @@ function packLines(lines: { speaker: string; text: string }[], halves: number): 
       const ws = l.text.trim().split(/\s+/);
       // best: split at a sentence or clause break; if there is none, split by words so the sentence simply carries on in the next clip
       const sp = fitWords >= 4 ? (splitLine(l.text, fitWords) || (fitWords >= 6 && ws.length > fitWords + 2 ? [ws.slice(0, fitWords).join(' '), ws.slice(fitWords).join(' ')] as [string, string] : null)) : null;
-      if (sp) { out.push({ speaker: l.speaker, text: sp[0], half: 1 }); half = 2; queue.unshift({ speaker: l.speaker, text: sp[1] }); continue; }
+      if (sp) { out.push({ ...l, text: sp[0], half: 1 }); half = 2; queue.unshift({ ...l, text: sp[1] }); continue; }
       half = 2; queue.unshift(l); continue;
     }
     const fitWords = Math.max(0, Math.floor((room() - 0.5) * 2.3));
-    if (fitWords >= 3 && !inHalf(half).length) out.push({ speaker: l.speaker, text: fitText(l.text, Math.min(MAX_WORDS_PER_CLIP, fitWords)), half });
+    if (fitWords >= 3 && !inHalf(half).length) out.push({ ...l, text: fitText(l.text, Math.min(MAX_WORDS_PER_CLIP, fitWords)), half });
     // otherwise this line does not fit in what is left of the scene and is dropped, rather than cutting someone off
   }
   if (halves === 2 && !inHalf(2).length && inHalf(1).length >= 2) out[out.length - 1].half = 2;
@@ -835,62 +882,88 @@ function packLines(lines: { speaker: string; text: string }[], halves: number): 
 
 /** Turns the writer's raw JSON into a checked storyboard: cast, scenes split into 10 second clips, and a ready render prompt for every clip. */
 function finishStory(ctx: StoryCtx, d: any, input: StoryInput) {
-  const { format, look, aspect, brief, continuity, plan, mood, cam, notes, available, script, castMin } = ctx;
-  const characters: { id: string; name: string; role: string; gender: 'male' | 'female'; voice: string; description: string }[] = [];
+  const { format, look, aspect, brief, continuity, plan, mood, cam, notes, available, script, castMin, presentation, silentCast } = ctx;
+  const characters: { id: string; name: string; role: string; gender: 'male' | 'female'; voice: string; description: string; kind: 'human' | 'animal' | 'creature' }[] = [];
   const byName = new Map<string, number>();
-  const addChar = (name: string, role = '', gender: string = 'male', description = '', voice = '') => {
+  const addChar = (name: string, role = '', gender: string = 'male', description = '', voice = '', kind = '') => {
     const clean = str(name, 30); if (!clean || characters.length >= 6) return;
     const key = clean.toLowerCase(); if (byName.has(key)) return;
     byName.set(key, characters.length);
-    characters.push({ id: `c${characters.length + 1}`, name: clean, role: str(role, 60), gender: gender === 'female' ? 'female' : 'male', voice: str(voice, 90), description: str(description, 400) });
+    characters.push({ id: `c${characters.length + 1}`, name: clean, role: str(role, 60), gender: gender === 'female' ? 'female' : 'male', voice: str(voice, 90), description: str(description, 400), kind: kind === 'animal' || kind === 'creature' ? kind : 'human' });
   };
   const modelChars: any[] = Array.isArray(d.characters) ? d.characters : [];
   if (continuity?.characters.length) {
     continuity.characters.forEach((c) => addChar(c.name, c.role, c.gender, c.description, (c as any).voice));
-    modelChars.forEach((c: any) => addChar(c?.name, c?.role, c?.gender, c?.description, c?.voice));
+    modelChars.forEach((c: any) => addChar(c?.name, c?.role, c?.gender, c?.description, c?.voice, c?.kind));
   } else if (brief.characterLock) {
     const first = modelChars[0] || {};
-    addChar(brief.characterLock.name || first.name || 'Protagonist', first.role || 'main character', first.gender, brief.characterLock.descriptor, first.voice);
-    modelChars.slice(1).forEach((c: any) => addChar(c?.name, c?.role, c?.gender, c?.description, c?.voice));
-  } else modelChars.forEach((c: any) => addChar(c?.name, c?.role, c?.gender, c?.description, c?.voice));
+    addChar(brief.characterLock.name || first.name || 'Protagonist', first.role || 'main character', first.gender, brief.characterLock.descriptor, first.voice, first.kind);
+    modelChars.slice(1).forEach((c: any) => addChar(c?.name, c?.role, c?.gender, c?.description, c?.voice, c?.kind));
+  } else modelChars.forEach((c: any) => addChar(c?.name, c?.role, c?.gender, c?.description, c?.voice, c?.kind));
   const protagonist = brief.characterLock || continuity?.characters.length ? characters[0] : undefined;
 
   const aspectHint = aspect === '9:16' ? 'Vertical 9:16 framing.' : aspect === '1:1' ? 'Square 1:1 framing.' : 'Wide 16:9 framing.';
   const beats = storyBeats(plan.scenes.length);
   const lockKey = brief.characterLock ? brief.characterLock.descriptor.toLowerCase().slice(0, 40) : '';
-  const spokenFor = (ls: { speaker: string; text: string }[]) => ls.map((l) => {
+  const spokenFor = (ls: { speaker: string; text: string; emotion?: string; doing?: string }[]) => ls.map((l) => {
     const ch = characters.find((c) => c.name.toLowerCase() === l.speaker.toLowerCase());
     const v = ch?.voice || (ch?.gender === 'female' ? 'a female voice' : 'a male voice');
     const words = l.text.replace(/"/g, "'");
-    return l.speaker.toLowerCase() === 'narrator' ? `A narrator, off screen, speaking in the voice of ${v}, says: "${words}"` : `${l.speaker}, speaking in the voice of ${v}, says: "${words}"`;
+    const how = l.emotion ? `, ${l.emotion.replace(/[.\s]+$/, '')}` : '', act = l.doing ? ` while ${l.doing.replace(/^while\s+/i, '').replace(/[.\s]+$/, '')}` : '';
+    return l.speaker.toLowerCase() === 'narrator' ? `A narrator, off screen, speaking in the voice of ${v}, says: "${words}"` : `${l.speaker}, speaking in the voice of ${v}${how}${act}, says: "${words}"`;
   }).join(' Then ');
 
-  type Line = { speaker: string; text: string; half: 1 | 2 };
+  type Line = { speaker: string; text: string; half: 1 | 2; emotion?: string; doing?: string };
   const scenes: any[] = [];
+  const narration = { narratorLines: 0 };
   const rawScenes: any[] = Array.isArray(d.scenes) ? d.scenes : [];
   for (let i = 0; i < plan.scenes.length && i < rawScenes.length; i++) {
     const sc = rawScenes[i], len = plan.scenes[i], halves = len / PART_SECONDS;
 
     // dialogue: structured lines first, then plain voiceover text read by the narrator
-    let lines: Line[] = (Array.isArray(sc?.lines) ? sc.lines : []).map((l: any) => ({ speaker: str(l?.speaker, 30), text: str(l?.text, 260), half: Number(l?.half) === 2 ? 2 : 1 })).filter((l: any) => l.speaker && l.text);
+    let lines: Line[] = (Array.isArray(sc?.lines) ? sc.lines : []).map((l: any) => ({ speaker: str(l?.speaker, 30), text: str(l?.text, 260), emotion: str(l?.emotion, 30), doing: str(l?.doing, 70), half: Number(l?.half) === 2 ? 2 : 1 })).filter((l: any) => l.speaker && l.text);
     if (!lines.length && str(sc?.voiceoverText, 400)) lines = [{ speaker: 'Narrator', text: str(sc.voiceoverText, 260), half: 1 }];
+    // dialogue amount and presentation decide who may speak
+    if (presentation === 'narrated') lines = lines.map((l) => ({ ...l, speaker: 'Narrator' }));
+    else if (brief.dialogue === 'none') lines = [];
+    else if (brief.dialogue === 'minimal') lines = lines.slice(0, 1);
     lines.forEach((l) => { if (!byName.has(l.speaker.toLowerCase())) addChar(l.speaker); });
     lines = lines.filter((l) => byName.has(l.speaker.toLowerCase()));
+    // What is SAID versus SHOWN: a line that only describes an action ("The lion fell.") is shown by the actors instead of being read out,
+    // and narration is kept only for the opening, a jump in time or place, and the close.
+    const refined = refineScene(lines as SpokenLine[], { sceneIndex: i, policy: { narratorCarriesStory: presentation === 'narrated', scenes: plan.scenes.length }, names: characters.map((c) => c.name), state: narration });
+    lines = refined.lines as Line[];
+    const shownText = shownInstruction(refined.shown);
     // lay the dialogue out over the clips by speaking time (the writer's own half tags are only a hint)
     lines = packLines(lines, halves);
 
     const vp = str(sc?.visualPrompt, 900) || str(sc?.setting, 300);
     if (vp.length < 10) continue;
-    const visualBase = brief.characterLock && !vp.toLowerCase().includes(lockKey) ? `Main character, identical in every scene: ${brief.characterLock.descriptor}. ${vp}` : vp;
+    const visualCore = brief.characterLock && !vp.toLowerCase().includes(lockKey) ? `Main character, identical in every scene: ${brief.characterLock.descriptor}. ${vp}` : vp;
+    const visualBase = shownText ? `${visualCore} ${shownText}` : visualCore;
+    const soundText = str(sc?.sound, 160);
     const modelCam = str(sc?.cameraMotion, 220);
     const cameraMotion = modelCam.length >= 8 ? modelCam : cam.direct;
     const second = str(sc?.secondHalfAction, 400);
 
-    const fixed = `Cinematic live-action movie scene with continuous physical action: the people are always moving and doing things, interacting with the place and each other, never posing, never facing the camera, never giving a speech. Camera: ${cameraMotion}. Mood and grade: ${mood.render}. Visual look: ${look}. ${aspectHint} No text, captions or subtitles in the picture.`;
+    const genreLook = GENRES[brief.genre]?.render, energy = presentation === 'movie' ? INTENSITIES[brief.intensity]?.render : '';
+    const openers = {
+      movie: 'Cinematic live-action movie scene with continuous physical action: the people are always moving and doing things, interacting with the place and each other, never posing, never facing the camera, never giving a speech.',
+      dialogue: 'Cinematic dramatic scene with natural, believable acting: the people talk to each other in the place, with natural gestures and movement, never looking into the camera.',
+      narrated: 'Cinematic film footage of the story with natural movement: nobody speaks on camera and no lips move.',
+      shortdrama: 'Cinematic vertical short-drama scene with emotionally intense, believable acting: people confront each other in the place, with tight reaction close-ups, strong body language and movement, never looking into the camera.',
+    } as const;
+    const fixed = `${openers[presentation]} Camera: ${cameraMotion}. Mood and grade: ${mood.render}.${genreLook ? ` Genre look: ${genreLook}.` : ''}${energy ? ` Energy: ${energy}.` : ''} Visual look: ${look}. ${aspectHint} No text, captions or subtitles in the picture.`;
     const parts = [];
     for (let h = 1; h <= halves; h++) {
       const mine = lines.filter((l) => l.half === h);
-      const tail = mine.length ? `Audio: the lines below are spoken inside the scene, in the middle of the action and never to the camera, with accurate lip sync and realistic sound effects (footsteps, impacts, wind, crashes, breathing). No music. Each person finishes their whole sentence and stops speaking a moment before the clip ends. ${spokenFor(mine)}` : 'Audio: realistic sound effects and ambient sound of the action (footsteps, impacts, wind, crashes), no music, no speech.';
+      const tails = {
+        movie: mine.length ? `Audio: the lines below are spoken inside the scene, in the middle of the action and never to the camera, with accurate lip sync and realistic sound effects (footsteps, impacts, wind, crashes, breathing). No music. Each person finishes their whole sentence and stops speaking a moment before the clip ends. ${spokenFor(mine)}` : 'Audio: realistic sound effects and ambient sound of the action (footsteps, impacts, wind, crashes), no music, no speech.',
+        dialogue: mine.length ? `Audio: clear natural spoken dialogue, unhurried and human, with accurate lip sync and matching room sound, no music. Each person finishes their whole sentence and stops speaking a moment before the clip ends. ${spokenFor(mine)}` : 'Audio: natural room sound, no music, no speech.',
+        shortdrama: mine.length ? `Audio: clear, emotional spoken dialogue delivered to the other person in the scene, with accurate lip sync and matching room sound, no music. Each person finishes their whole sentence and stops speaking a moment before the clip ends. ${spokenFor(mine)}` : 'Audio: tense room sound and small realistic sounds, no music, no speech.',
+        narrated: mine.length ? `Audio: a calm off-screen narrator reads the line below as a voice-over, over natural ambient sound. No music. Nobody on screen speaks. ${spokenFor(mine)}` : 'Audio: natural ambient sound, no music, no speech.',
+      } as const;
+      const tail = `${tails[presentation]}${soundText && h === 1 ? ` Sounds in this scene: ${soundText}.` : ''}`;
       const lead = h === 1 ? '' : `Continuing seamlessly from the previous moment, with no cut, in the same place and with the same characters: ${(second || 'the action carries on naturally and the moment develops').replace(/[.\s]+$/, '')}. `;
       // The second half starts from the first half's last picture, so it only describes the next beat. Repeating the opening description makes the video jump back.
       const visual = h === 1 ? str(visualBase, Math.max(200, RENDER_PROMPT_MAX - fixed.length - tail.length - lead.length - 4)) : 'The same people, place and light as in the picture it starts from.';
@@ -898,7 +971,7 @@ function finishStory(ctx: StoryCtx, d: any, input: StoryInput) {
     }
     scenes.push({
       id: `s${scenes.length + 1}`, sceneId: `scene-${String(scenes.length + 1).padStart(2, '0')}`, sceneNumber: scenes.length + 1, beat: beats[i] || '',
-      visualPrompt: str(visualBase, 900), secondHalfAction: second, voiceoverText: lines.map((l) => l.text).join(' '), cameraMotion,
+      visualPrompt: str(visualBase, 900), secondHalfAction: second, voiceoverText: lines.map((l) => l.text).join(' '), cameraMotion, sound: soundText,
       lines: lines.map((l) => ({ speaker: l.speaker, text: l.text, half: l.half })), clipSeconds: len, parts,
     });
   }
@@ -909,15 +982,17 @@ function finishStory(ctx: StoryCtx, d: any, input: StoryInput) {
 
   const used = new Set(scenes.flatMap((s) => s.lines.map((l: any) => l.speaker.toLowerCase())));
   if (protagonist) used.add(protagonist.name.toLowerCase());
-  const cast = characters.filter((c) => used.has(c.name.toLowerCase())).map((c, i) => ({ ...c, id: `c${i + 1}` }));
+  const cast = characters.filter((c) => silentCast || c.kind !== 'human' || used.has(c.name.toLowerCase())).map((c, i) => ({ ...c, id: `c${i + 1}` }));
   // A small cast makes every script sound the same, so a part with too few voices is written again.
-  if (!script && !continuity && scenes.length >= 2 && cast.length < Math.max(2, castMin - 1)) throw new HttpError(424, `The script only had ${cast.length} speaking characters, fewer than the ${castMin} it needs. Retrying with a bigger cast.`, 'GEMINI');
+  if (!silentCast && !script && !continuity && scenes.length >= 2 && cast.length < Math.max(2, castMin - 1)) throw new HttpError(424, `The script only had ${cast.length} speaking characters, fewer than the ${castMin} it needs. Retrying with a bigger cast.`, 'GEMINI');
   return {
     success: true, title: str(d.title, 100) || 'Untitled production', logline: str(d.logline, 300), storySoFar: str(d.storySoFar, 900), format,
     remainingScript: script ? str(d.remainingScript, 20000) : '',
     brief: {
       durationMode: brief.durationMode, requestedSeconds: brief.requestedSeconds, targetSeconds: plan.targetSeconds, sceneSeconds: brief.sceneSeconds,
       mood: brief.mood, moodLabel: mood.label, cameraProfile: brief.cameraProfile, cameraLabel: cam.label, characterLock: brief.characterLock,
+      presentation, presentationLabel: PRESENTATIONS[presentation].label, genre: brief.genre, genreLabel: GENRES[brief.genre].label, intensity: brief.intensity, dialogue: brief.dialogue, ending: brief.ending, endingLabel: ENDINGS[brief.ending].label,
+      cast: brief.cast, castLabel: CASTS[brief.cast].label, animalsTalk: brief.animalsTalk, trope: brief.trope, tropeLabel: TROPES[brief.trope].label,
     },
     characters: cast, scenes, totalSeconds: total, secondsAvailable: available, notes,
     hashtags: (Array.isArray(d.hashtags) ? d.hashtags : []).map((h: any) => str(h, 40)).filter(Boolean).slice(0, 8), callToAction: str(d.callToAction, 200),
@@ -1523,7 +1598,7 @@ async function stageScript(row: any, user: ReturnType<typeof toUser>, ep: any) {
   const storyInput: StoryInput = { idea: ep.prompt_input, format: cfg.format || 'drama', look: cfg.look || 'cinematic', aspect: cfg.aspect || '9:16', niche: cfg.niche || 'general audience', brief, continuity, script };
   // A pasted script never waits for the AI: it is split into scenes right here and the video starts at once.
   const out: Awaited<ReturnType<typeof writeStoryboard>> = script.trim()
-    ? { done: true, sb: await adaptScriptLocally(row, user, storyInput) }
+    ? await adaptPastedScript(row, user, storyInput)
     : await writeStoryboard(row, user, storyInput, ep.storyboard_json?.draft);
   if ('draft' in out) {
     await sql()`UPDATE episodes SET storyboard_json = ${jsonb({ draft: out.draft })}::jsonb, attempts = 0, updated_at = now() WHERE id = ${ep.id}`;

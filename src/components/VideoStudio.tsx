@@ -16,7 +16,7 @@ import {
   StudioAudioService,
 } from '../services/aiService';
 import { STUDIO_VOICES, StudioVoice } from '../data/voicesData';
-import { CAMERA_OPTIONS, MOOD_OPTIONS, formatSeconds } from '../data/storyOptions';
+import { CAMERA_OPTIONS, GENRE_OPTIONS, MOOD_OPTIONS, PRESENTATION_OPTIONS, formatSeconds } from '../data/storyOptions';
 import { 
   Play, 
   Pause, 
@@ -493,6 +493,8 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
           <span className="flex items-center gap-1 px-2 py-1 rounded-full bg-slate-900 border border-slate-700 text-slate-300"><Clock className="w-3 h-3 text-indigo-400" />{activeVideo.brief.durationMode === 'long' ? 'Long form' : 'Short form'} · {formatSeconds(activeVideo.estimatedDuration)}</span>
           <span className="flex items-center gap-1 px-2 py-1 rounded-full bg-slate-900 border border-slate-700 text-slate-300"><Video className="w-3 h-3 text-indigo-400" />{MOOD_OPTIONS.find((m) => m.id === activeVideo.brief?.mood)?.label || activeVideo.brief.mood}</span>
           <span className="flex items-center gap-1 px-2 py-1 rounded-full bg-slate-900 border border-slate-700 text-slate-300"><Camera className="w-3 h-3 text-indigo-400" />{CAMERA_OPTIONS.find((c) => c.id === activeVideo.brief?.cameraProfile)?.label || activeVideo.brief.cameraProfile}</span>
+          {activeVideo.brief.presentation && <span className="flex items-center gap-1 px-2 py-1 rounded-full bg-indigo-950 border border-indigo-700 text-indigo-200">{PRESENTATION_OPTIONS.find((o) => o.id === activeVideo.brief?.presentation)?.emoji} {PRESENTATION_OPTIONS.find((o) => o.id === activeVideo.brief?.presentation)?.label}</span>}
+          {activeVideo.brief.genre && activeVideo.brief.genre !== 'auto' && <span className="flex items-center gap-1 px-2 py-1 rounded-full bg-slate-900 border border-slate-700 text-slate-300">{GENRE_OPTIONS.find((o) => o.id === activeVideo.brief?.genre)?.emoji} {GENRE_OPTIONS.find((o) => o.id === activeVideo.brief?.genre)?.label}</span>}
           {activeVideo.brief.characterLock && <span className="flex items-center gap-1 px-2 py-1 rounded-full bg-slate-900 border border-amber-500/40 text-amber-300"><Lock className="w-3 h-3" />{activeVideo.brief.characterLock.name || 'Main character'} locked</span>}
         </div>
       ) : null}

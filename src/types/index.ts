@@ -114,6 +114,13 @@ export type DurationMode = 'short' | 'long';
 export type StoryMoodId = 'dramatic_suspense' | 'melodrama' | 'viral_hook' | 'emotional_heartfelt' | 'cinematic_trailer';
 /** Directorial camera profile. Translated into a concrete cameraMotion instruction for every scene. */
 export type CameraProfileId = 'slow_dramatic_zoom' | 'steady_pan' | 'static_narrative' | 'kinetic_tracking';
+export type PresentationId = 'movie' | 'dialogue' | 'narrated' | 'shortdrama';
+export type CastId = 'people' | 'animals' | 'mythical' | 'mixed';
+export type TropeId = 'none' | 'hidden_identity' | 'revenge' | 'contract_marriage' | 'betrayal' | 'rags_to_riches' | 'secret_child' | 'love_triangle' | 'family_secret' | 'ceo_romance' | 'fake_dating';
+export type GenreId = 'auto' | 'action' | 'thriller' | 'scifi' | 'fantasy' | 'horror' | 'romance' | 'comedy' | 'noir' | 'western' | 'superhero' | 'mystery' | 'adventure' | 'heist' | 'disaster' | 'wildlife' | 'mythical' | 'monster';
+export type IntensityId = 'calm' | 'balanced' | 'max';
+export type DialogueId = 'none' | 'minimal' | 'normal';
+export type EndingId = 'cliffhanger' | 'resolved' | 'twist';
 
 /** The creative brief the user configured. Sent to the script writer and stored on the finished video. */
 export interface StoryBrief {
@@ -124,6 +131,15 @@ export interface StoryBrief {
   sceneSeconds?: 10 | 20;
   mood: StoryMoodId;
   cameraProfile: CameraProfileId;
+  /** Movie, dialogue drama or narrated story. Videos made before this option existed have none of these. */
+  presentation?: PresentationId;
+  genre?: GenreId;
+  intensity?: IntensityId;
+  dialogue?: DialogueId;
+  ending?: EndingId;
+  cast?: CastId;
+  animalsTalk?: boolean;
+  trope?: TropeId;
   /** Optional main-character lock: this descriptor is repeated in every scene so the person looks the same. */
   characterLock?: { name?: string; descriptor: string };
 }

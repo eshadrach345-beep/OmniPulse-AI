@@ -1,14 +1,21 @@
 import React, { useEffect, useState } from 'react';
-import { Zap, Video, TrendingUp, CalendarClock, Split, Share2, Mic, Check, ChevronDown } from 'lucide-react';
+import { Zap, Video, TrendingUp, CalendarClock, Split, Share2, Mic, Check, ChevronDown, Clapperboard, Layers, UserRound, Sparkles, Image } from 'lucide-react';
 import { Auth, PlanInfo } from '../services/authService';
 import { COMPANY, SUPPORT_EMAIL, LegalLinks } from './Legal';
 import { formatMoney, annualSavingPct } from '../services/money';
+import { GENRE_OPTIONS, PRESENTATION_OPTIONS } from '../data/storyOptions';
+import { SHOWCASE } from '../data/showcase';
 
 const FEATURES = [
   { icon: TrendingUp, title: 'Research what is trending right now', text: 'Live web research on your niche: the topics, hashtags and creators gaining ground this week, with hooks you can use today.' },
   { icon: Video, title: 'Turn an idea into a finished video', text: 'Describe the story. OmniPulse writes the script with characters, tells you the length before it renders, then produces every scene.' },
   { icon: CalendarClock, title: 'Schedule everywhere from one calendar', text: 'Queue posts for all your connected channels and publish them directly, without logging into each app.' },
   { icon: Split, title: 'Test two hooks and keep the winner', text: 'Publish two versions of a post and compare real results with a significance check before you commit.' },
+  { icon: Clapperboard, title: 'Direct it like a movie', text: 'Choose Movie, Dialogue drama or Narrated story, then set the genre, how much action, how much dialogue and how it ends.' },
+  { icon: UserRound, title: 'The same hero in every scene', text: 'Describe your main character once and they keep the same face, hair and clothes across every scene and every part.' },
+  { icon: Layers, title: 'Multi-part series', text: 'Plan a series, make one part at a time or the whole thing, and each part picks up where the story stopped.' },
+  { icon: Image, title: 'A poster for every story', text: 'Each finished story gets a movie poster with its title, tagline and cast, in colours that match the genre. Download it and share it anywhere.' },
+  { icon: Sparkles, title: 'Story starters', text: 'Stuck for an idea? Tap Surprise me, or pick a starter for your genre and edit it into your own.' },
   { icon: Mic, title: 'Characters that speak', text: 'Dramas, documentaries and animations where every character talks, with the voices made together with the picture.' },
   { icon: Share2, title: 'Connect in one tap', text: 'Sign in on each network\'s own page and approve access. OmniPulse never sees your password.' },
 ];
@@ -73,7 +80,7 @@ export const Landing: React.FC<{ onGetStarted: (mode: 'signup' | 'signin') => vo
           Know what to post, make the video, publish it everywhere.
         </h1>
         <p className="mt-6 text-slate-300 text-lg sm:text-xl max-w-2xl leading-relaxed">
-          OmniPulse is an AI video generator and social media scheduler. It researches your niche live, writes and renders short videos with a voice-over, then schedules them to every channel you connect.
+          OmniPulse is an AI movie and video studio with a social media scheduler. It researches your niche live, writes and renders action movies, dramas and narrated stories in 17 genres, then schedules them to every channel you connect.
         </p>
         <div className="mt-8 flex flex-wrap gap-3">
           <button onClick={() => onGetStarted('signup')} className="bg-indigo-600 hover:bg-indigo-500 text-white font-semibold rounded-xl px-6 py-3.5 transition-colors">Create your account</button>
@@ -96,6 +103,41 @@ export const Landing: React.FC<{ onGetStarted: (mode: 'signup' | 'signin') => vo
           ))}
         </ol>
       </section>
+
+      <section className="max-w-6xl mx-auto px-4 sm:px-6 pb-16 sm:pb-24">
+        <p className="font-mono text-xs text-indigo-300">DIRECTOR'S CHAIR</p>
+        <h2 className="font-display text-3xl sm:text-4xl font-bold text-white max-w-2xl mt-1">Pick the kind of film. Pick the genre. Press go.</h2>
+        <p className="text-slate-400 mt-3 max-w-2xl leading-relaxed">Not every story is a person talking to the camera. Choose how it is told, then shape it.</p>
+        <div className="mt-8 grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          {PRESENTATION_OPTIONS.map((o) => (
+            <div key={o.id} className="rounded-2xl border border-slate-700 bg-linear-to-br from-indigo-950/60 to-slate-900 p-5">
+              <span className="text-3xl" aria-hidden="true">{o.emoji}</span>
+              <h3 className="font-display font-bold text-white text-lg mt-2">{o.label}</h3>
+              <p className="text-slate-400 text-sm mt-1 leading-relaxed">{o.hint}</p>
+            </div>
+          ))}
+        </div>
+        <div className="mt-6 flex flex-wrap gap-2" aria-label="Genres you can choose">
+          {GENRE_OPTIONS.filter((g) => g.id !== 'auto').map((g) => (
+            <span key={g.id} className="px-3.5 py-2 rounded-full border border-slate-700 bg-slate-900 text-sm text-slate-200"><span aria-hidden="true">{g.emoji}</span> {g.label}</span>
+          ))}
+        </div>
+      </section>
+
+      {SHOWCASE.length > 0 && (
+        <section className="max-w-6xl mx-auto px-4 sm:px-6 pb-16 sm:pb-24" aria-label="Videos made with OmniPulse">
+          <p className="font-mono text-xs text-indigo-300">MADE WITH OMNIPULSE</p>
+          <h2 className="font-display text-3xl sm:text-4xl font-bold text-white max-w-2xl mt-1">See what one idea becomes</h2>
+          <div className="mt-8 grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {SHOWCASE.map((v) => (
+              <figure key={v.src} className="rounded-2xl border border-slate-800 bg-slate-900 overflow-hidden">
+                <video className="w-full aspect-9/16 bg-black object-cover" src={v.src} poster={v.poster} controls playsInline preload="none" aria-label={v.title} />
+                <figcaption className="p-3 flex items-center justify-between gap-2 text-sm"><span className="font-semibold text-white">{v.title}</span><span className="text-xs text-indigo-300">{v.tag}</span></figcaption>
+              </figure>
+            ))}
+          </div>
+        </section>
+      )}
 
       <section className="max-w-6xl mx-auto px-4 sm:px-6 pb-16 sm:pb-24">
         <h2 className="font-display text-3xl sm:text-4xl font-bold text-white max-w-2xl">Everything between the idea and the post</h2>
