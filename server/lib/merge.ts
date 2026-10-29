@@ -65,10 +65,38 @@ function fluentRun(cmd: any, outPath: string, timeoutMs: number): Promise<void> 
 /** Web-friendly output flags: the moov atom goes first so the file starts playing before it has fully downloaded. */
 const WEB_FLAGS = ['-movflags +faststart'];
 
-export interface MergeResult { file: string; cleanup: () => Promise<void> }
+export interface MergeResult { file: string; cleanup: () => Promise<void>; cached?: boolean }
+
+/**
+ * A recently joined video is kept in the server's temporary folder (a few files, for a short time), so pressing Download again,
+ * or downloading after a retry, is instant instead of joining the scenes all over again.
+ */
+const CACHE_KEEP = 3, CACHE_MS = 20 * 60_000;
+async function cachePaths(urls: string[]) {
+  const crypto = await import('node:crypto'), os = await import('node:os'), path = await import('node:path');
+  const dir = path.join(os.tmpdir(), 'op-merge-cache');
+  return { dir, file: path.join(dir, `${crypto.createHash('sha1').update(urls.join('|')).digest('hex')}.mp4`) };
+}
+async function cacheTrim(dir: string) {
+  const fs = await import('node:fs/promises'), path = await import('node:path');
+  const names = await fs.readdir(dir).catch(() => [] as string[]);
+  const stats = (await Promise.all(names.map(async (n: string) => ({ n, st: await fs.stat(path.join(dir, n)).catch(() => null) })))).filter((x) => x.st) as { n: string; st: any }[];
+  stats.sort((a, b) => b.st.mtimeMs - a.st.mtimeMs);
+  await Promise.all(stats.filter((x, i) => i >= CACHE_KEEP || Date.now() - x.st.mtimeMs > CACHE_MS).map((x) => fs.rm(path.join(dir, x.n), { force: true }).catch(() => undefined)));
+}
 
 export async function mergeClips(urls: string[]): Promise<MergeResult> {
   if (!urls.length) throw new Error('No clips to join.');
+  const fs = await import('node:fs/promises');
+  const cache = await cachePaths(urls);
+  const hit = await fs.stat(cache.file).catch(() => null);
+  if (hit && hit.size > 2000 && Date.now() - hit.mtimeMs < CACHE_MS) return { file: cache.file, cleanup: async () => undefined, cached: true };
+  const made = await mergeClipsFresh(urls);
+  try { await fs.mkdir(cache.dir, { recursive: true }); await fs.copyFile(made.file, cache.file); await cacheTrim(cache.dir); } catch { /* the cache is only a speed-up */ }
+  return made;
+}
+
+async function mergeClipsFresh(urls: string[]): Promise<MergeResult> {
   const bin = await ffmpegBinary();
   const fs = await import('node:fs/promises');
   const os = await import('node:os');
@@ -77,18 +105,20 @@ export async function mergeClips(urls: string[]): Promise<MergeResult> {
   const cleanup = async () => { await fs.rm(dir, { recursive: true, force: true }).catch(() => undefined); };
   try {
     // Download every scene at the same time. Long productions have up to 12 scenes, and one after another would eat the 60 second limit.
+    // Each clip is inspected as soon as it has arrived, in parallel with the others, instead of one after another at the end.
+    const info: ClipInfo[] = new Array(urls.length);
     const files: string[] = await Promise.all(urls.map(async (url, i) => {
-      const r = await fetch(url, { signal: AbortSignal.timeout(20_000) });
-      if (!r.ok) throw new Error(`Scene ${i + 1} could not be downloaded (${r.status}).`);
+      let r: Response | null = null;
+      for (let attempt = 0; attempt < 2 && !r?.ok; attempt++) { try { r = await fetch(url, { signal: AbortSignal.timeout(20_000) }); } catch { r = null; } } // one quick retry for a network hiccup
+      if (!r || !r.ok) throw new Error(`Scene ${i + 1} could not be downloaded${r ? ` (${r.status})` : ''}.`);
       const f = path.join(dir, `c${i}.mp4`);
       await fs.writeFile(f, Buffer.from(await r.arrayBuffer()));
+      if (urls.length > 1) info[i] = await inspect(bin, f);
       return f;
     }));
     const out = path.join(dir, 'out.mp4');
     if (files.length === 1) { await fs.copyFile(files[0], out); return { file: out, cleanup }; }
 
-    const info: ClipInfo[] = [];
-    for (const f of files) info.push(await inspect(bin, f));
     const same = info.every((c) => c.video && c.video === info[0].video && c.size === info[0].size && c.audio === info[0].audio);
 
     // Fast path: the clips share the same format, so they can be joined without re-encoding.

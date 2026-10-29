@@ -219,16 +219,14 @@ export function placeholderThumb(label: string): string {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-async function pollRender(jobId: string, onStatus?: (m: string) => void, signal?: AbortSignal): Promise<string> {
+async function pollRender(jobId: string, onStatus?: (m: string) => void): Promise<string> {
   const started = Date.now();
   let hiccups = 0;
   while (Date.now() - started < 8 * 60_000) {
-    if (signal?.aborted) throw new ApiError(0, 'Process stopped by you.', 'ABORTED');
     await sleep(5000);
-    if (signal?.aborted) throw new ApiError(0, 'Process stopped by you.', 'ABORTED');
     let s: { state: 'queued' | 'rendering' | 'done' | 'failed'; videoUrl?: string; error?: string };
-    try { s = await api.get<{ state: 'queued' | 'rendering' | 'done' | 'failed'; videoUrl?: string; error?: string }>(`/video/status?id=${encodeURIComponent(jobId)}`, { signal }); hiccups = 0; }
-    catch (e) { if (signal?.aborted || (e instanceof ApiError && e.code === 'ABORTED')) throw e; if (++hiccups > 6) throw e; continue; }
+    try { s = await api.get<{ state: 'queued' | 'rendering' | 'done' | 'failed'; videoUrl?: string; error?: string }>(`/video/status?id=${encodeURIComponent(jobId)}`); hiccups = 0; }
+    catch (e) { if (++hiccups > 6) throw e; continue; }
     if (s.state === 'done' && s.videoUrl) return s.videoUrl;
     if (s.state === 'failed') throw new Error(s.error || 'The video render failed. Please try again.');
     const secs = Math.round((Date.now() - started) / 1000);
@@ -254,7 +252,6 @@ export async function generateAIVideoScript(params: {
   seconds?: number;
   voiceMomentum?: number;
   voiceQuality?: string;
-  signal?: AbortSignal;
 }, onStatus?: (message: string) => void): Promise<GeneratedVideo> {
   const { 
     idea, 
@@ -268,10 +265,7 @@ export async function generateAIVideoScript(params: {
     voiceMomentum = 1.1,
     voiceQuality = 'AI Studio Voice',
     seconds = 5,
-    signal,
   } = params;
-  const ensureRunning = () => { if (signal?.aborted) throw new ApiError(0, 'Process stopped by you.', 'ABORTED'); };
-  ensureRunning();
 
   const chosenVoice = StudioAudioService.getVoice(voiceId);
 
@@ -291,8 +285,8 @@ export async function generateAIVideoScript(params: {
   const transient = (e: unknown) => e instanceof ApiError && ([0, 502, 503, 504].includes(e.status) || (e.status === 424 && e.code === 'GEMINI'));
   let scriptData: any;
   try {
-    try { scriptData = await api.post('/gemini/generate-script', scriptBody, { signal }); }
-    catch (e) { if (signal?.aborted || (e instanceof ApiError && e.code === 'ABORTED') || !transient(e)) throw e; onStatus?.('Script engine was busy, retrying...'); await sleep(1500); ensureRunning(); scriptData = await api.post('/gemini/generate-script', scriptBody, { signal }); }
+    try { scriptData = await api.post('/gemini/generate-script', scriptBody); }
+    catch (e) { if (!transient(e)) throw e; onStatus?.('Script engine was busy, retrying...'); await sleep(1500); scriptData = await api.post('/gemini/generate-script', scriptBody); }
   } catch (e) {
     throw new Error(`Script step failed: ${e instanceof Error ? e.message : 'unknown error'}`);
   }
@@ -301,10 +295,9 @@ export async function generateAIVideoScript(params: {
   onStatus?.('Submitting your video to the render engine...');
   const falPrompt = scriptData?.falPrompt || `${idea}. Dynamic camera motion, cinematic lighting, high detail`;
   let jobId: string;
-  try { ({ jobId } = await api.post<{ jobId: string }>('/video/render', { prompt: falPrompt, seconds }, { signal })); }
+  try { ({ jobId } = await api.post<{ jobId: string }>('/video/render', { prompt: falPrompt, seconds })); }
   catch (e) { throw new Error(`Video render step failed: ${e instanceof Error ? e.message : 'unknown error'}`); }
-  ensureRunning();
-  const generatedVideoUrl = await pollRender(jobId, onStatus, signal);
+  const generatedVideoUrl = await pollRender(jobId, onStatus);
   const falEngineName = 'fal-ai/minimax/video-01';
 
   // If Gemini generated the script, build the complete video object
@@ -469,6 +462,7 @@ export async function generateStoryDraft(p: StoryDraftRequest): Promise<StoryDra
     idea: p.idea, format: p.format, look: p.look, aspectRatio: p.aspectRatio, niche: p.niche,
     durationMode: p.brief.durationMode, requestedSeconds: p.brief.requestedSeconds,
     mood: p.brief.mood, cameraProfile: p.brief.cameraProfile, characterLock: p.brief.characterLock,
+    presentation: p.brief.presentation, genre: p.brief.genre, intensity: p.brief.intensity, dialogue: p.brief.dialogue, ending: p.brief.ending, cast: p.brief.cast, animalsTalk: p.brief.animalsTalk, trope: p.brief.trope,
   };
   const transient = (e: unknown) => e instanceof ApiError && ([0, 502, 503, 504].includes(e.status) || (e.status === 424 && e.code === 'GEMINI'));
   let draft: StoryDraft;
@@ -592,7 +586,7 @@ export function buildStoryVideo(draft: StoryDraft, clips: Record<string, { url: 
     scenes,
     characters: draft.characters,
     format: draft.format,
-    brief: draft.brief ? { durationMode: draft.brief.durationMode, requestedSeconds: draft.brief.requestedSeconds, targetSeconds: draft.brief.targetSeconds, mood: draft.brief.mood, cameraProfile: draft.brief.cameraProfile, characterLock: draft.brief.characterLock } : undefined,
+    brief: draft.brief ? { durationMode: draft.brief.durationMode, requestedSeconds: draft.brief.requestedSeconds, targetSeconds: draft.brief.targetSeconds, mood: draft.brief.mood, cameraProfile: draft.brief.cameraProfile, characterLock: draft.brief.characterLock, presentation: draft.brief.presentation, genre: draft.brief.genre, intensity: draft.brief.intensity, dialogue: draft.brief.dialogue, ending: draft.brief.ending, cast: draft.brief.cast, animalsTalk: draft.brief.animalsTalk, trope: draft.brief.trope } : undefined,
     voiceoverStyle: `${draft.characters.length} characters, voices made by the video engine`,
     backgroundMusicTrack: 'Sound made by the video engine',
     thumbnailUrl: placeholderThumb(draft.title),

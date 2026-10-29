@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { AppUser } from '../types/auth';
-import { Zap, Video, Clapperboard, Calendar, TrendingUp, Split, BarChart3, Radio, Crown, LogOut, Settings, Activity, CreditCard, ListChecks } from 'lucide-react';
+import { Zap, Video, Clapperboard, Calendar, TrendingUp, Split, BarChart3, Radio, Crown, LogOut, Settings, Activity, CreditCard } from 'lucide-react';
 
 export type TabId = 'dashboard' | 'video-studio' | 'series' | 'trends-hashtags' | 'scheduler' | 'ab-testing' | 'analytics';
 
@@ -16,7 +16,6 @@ interface TopNavProps {
   onOpenSettings: () => void;
   onOpenSystemCheck: () => void;
   onOpenPricing: () => void;
-  onOpenJobs: () => void;
 }
 
 const NAV: { id: TabId; label: string; short: string; icon: React.ElementType }[] = [
@@ -30,7 +29,7 @@ const NAV: { id: TabId; label: string; short: string; icon: React.ElementType }[
 ];
 
 export const TopNav: React.FC<TopNavProps> = ({
-  activeTab, setActiveTab, onOpenCreateVideo, autoPilotActive, toggleAutoPilot, currentUser, onLogout, onOpenSettings, onOpenSystemCheck, onOpenPricing, onOpenJobs,
+  activeTab, setActiveTab, onOpenCreateVideo, autoPilotActive, toggleAutoPilot, currentUser, onLogout, onOpenSettings, onOpenSystemCheck, onOpenPricing,
 }) => {
   const [menuOpen, setMenuOpen] = useState(false);
   const initials = currentUser.name.split(' ').map((p) => p[0]).slice(0, 2).join('').toUpperCase();
@@ -69,8 +68,6 @@ export const TopNav: React.FC<TopNavProps> = ({
               <Radio className={`w-3.5 h-3.5 ${autoPilotActive ? 'animate-pulse' : ''}`} /><span>Auto-Pilot</span>
             </button>
 
-            <button onClick={onOpenJobs} title="Jobs & Processes" className="hidden sm:flex items-center gap-1.5 px-2.5 py-2 rounded-lg border border-slate-700 text-xs font-semibold text-slate-200 hover:bg-slate-800"><ListChecks className="w-4 h-4"/><span>Jobs</span></button>
-
             <button onClick={onOpenCreateVideo} className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-white bg-indigo-600 rounded-lg hover:bg-indigo-500 transition-colors whitespace-nowrap">
               <Video className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">Direct Video</span><span className="sm:hidden">Create</span>
@@ -97,7 +94,6 @@ export const TopNav: React.FC<TopNavProps> = ({
                       <p className="text-xs text-amber-300 capitalize mt-1">{planLabel}</p>
                     </div>
                     <button role="menuitem" onClick={() => { setMenuOpen(false); toggleAutoPilot(); }} className={`${item} text-slate-200 sm:hidden`}><Radio className="w-4 h-4" /> Auto-Pilot</button>
-                    <button role="menuitem" onClick={() => { setMenuOpen(false); onOpenJobs(); }} className={`${item} text-emerald-200 sm:hidden`}><ListChecks className="w-4 h-4" /> Jobs &amp; Processes</button>
                     {currentUser.isOwner && <button role="menuitem" onClick={() => { setMenuOpen(false); onOpenSystemCheck(); }} className={`${item} text-emerald-300`}><Activity className="w-4 h-4" /> System status</button>}
                     <button role="menuitem" onClick={() => { setMenuOpen(false); onOpenSettings(); }} className={`${item} text-slate-200`}><Settings className="w-4 h-4" /> Account settings</button>
                     <button role="menuitem" onClick={() => { setMenuOpen(false); onOpenPricing(); }} className={`${item} text-slate-200`}><CreditCard className="w-4 h-4" /> Plans & billing</button>

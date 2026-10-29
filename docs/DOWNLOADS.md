@@ -15,3 +15,8 @@ The ids live in server/lib/prompts.ts (PRESENTATIONS, GENRES, INTENSITIES, DIALO
 - A line that only describes an action ("The lion fell.") is never spoken. Narration is kept only for the opening, a jump in time or place, and the close (except in Narrated stories and documentaries).
 - Test the rules with `node scripts/test-screenplay.mjs`.
 - Short drama series, 17 genres, animals and mythical creatures are chosen in the Story Studio. Add your own sample videos in src/data/showcase.ts.
+
+## Pause, review and edit (v26)
+- A part that is being made can be paused and resumed. Clips already sent to the video provider keep rendering and are collected on resume.
+- "Let me review and edit the script first" stops after the script is written (status REVIEW). No video seconds are used until the person approves. A paused part that has not started rendering can also be edited.
+- Joined videos are kept briefly in the server temp folder so a repeat download is instant.

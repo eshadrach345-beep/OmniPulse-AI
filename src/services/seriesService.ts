@@ -5,7 +5,12 @@ import { api } from './api';
 import type { AspectRatioType, StoryBrief } from '../types';
 import type { StoryFormat } from './aiService';
 
-export type EpisodeStatus = 'PROCESSING' | 'RENDERING' | 'COMPLETED' | 'FAILED';
+export type EpisodeStatus = 'PROCESSING' | 'RENDERING' | 'PAUSED' | 'REVIEW' | 'COMPLETED' | 'FAILED';
+
+/** One spoken line in the script editor. */
+export interface EditableLine { speaker: string; text: string; emotion: string; doing: string; half: 1 | 2 }
+/** One scene in the script editor. `halves` is 1 for a 10 second scene and 2 for a 20 second scene. */
+export interface EditableScene { number: number; visual: string; second: string; camera: string; sound: string; halves: number; lines: EditableLine[] }
 
 export interface EpisodeScene {
   sceneId: string;
@@ -19,6 +24,9 @@ export interface EpisodeScene {
 }
 
 export interface Episode {
+  /** Present when the script can be edited (waiting for review, or paused before any clip started). */
+  editable?: { characters: string[]; scenes: EditableScene[] } | null;
+  reviewFirst?: boolean;
   id: string;
   projectId: string;
   partNumber: number;
@@ -77,6 +85,8 @@ export interface ProjectDetail {
 }
 
 export interface CreateEpisodeRequest {
+  /** Stop after the script is written so the person can read and edit it before any video is made. */
+  reviewFirst?: boolean;
   /** Leave out to start a new series (Part 1). */
   projectId?: string;
   title?: string;
@@ -101,13 +111,20 @@ export const Series = {
   create: (r: CreateEpisodeRequest) => api.post<{ projectId: string; episodeId: string; partNumber: number; status: EpisodeStatus }>('/episodes/create', {
     projectId: r.projectId, title: r.title, idea: r.idea, mode: r.mode, script: r.script, series: r.series, format: r.format, look: r.look, aspectRatio: r.aspectRatio, niche: r.niche,
     durationMode: r.brief.durationMode, requestedSeconds: r.brief.requestedSeconds, sceneSeconds: r.brief.sceneSeconds, mood: r.brief.mood, cameraProfile: r.brief.cameraProfile, characterLock: r.brief.characterLock,
+    presentation: r.brief.presentation, genre: r.brief.genre, intensity: r.brief.intensity, dialogue: r.brief.dialogue, ending: r.brief.ending, cast: r.brief.cast, animalsTalk: r.brief.animalsTalk, trope: r.brief.trope, reviewFirst: r.reviewFirst,
   }),
+  /** Pauses a part. Clips already sent to the video provider keep rendering there. */
+  pause: (id: string) => api.post<{ ok: boolean }>('/episodes/pause', { id }),
+  /** Carries on where a paused part stopped. */
+  resume: (id: string) => api.post<{ ok: boolean; status: EpisodeStatus }>('/episodes/resume', { id }),
+  /** Saves script edits; with start = true the video is made from the edited script. */
+  edit: (id: string, title: string, scenes: EditableScene[], start: boolean) => api.post<{ ok: boolean; started: boolean }>('/episodes/edit', { id, title, scenes, start }),
   /** Puts a stopped part back to work. Clips that already finished are kept. */
   retry: (id: string) => api.post<{ ok: boolean }>('/episodes/retry', { id }),
-  /** Stops an active script or render process. Finished clips are preserved for a later resume. */
-  stop: (id: string) => api.post<{ ok: boolean; stopped: boolean; status: EpisodeStatus }>('/episodes/stop', { id }),
   /** Reads the episode and moves it one step forward on the server. */
   status: (id: string) => api.get<{ episode: Episode }>(`/episodes/status?id=${encodeURIComponent(id)}`).then((r) => r.episode),
 };
 
 export const isActive = (s: EpisodeStatus) => s === 'PROCESSING' || s === 'RENDERING';
+/** Being made, paused, or waiting for review: a story can have only one such part at a time. */
+export const isOpen = (s: EpisodeStatus) => isActive(s) || s === 'PAUSED' || s === 'REVIEW';

@@ -6,7 +6,6 @@ export const ENV_ALIASES: Record<string, string[]> = {
   FAL_KEY: ['FAL_KEY', 'FAL_AI_API_KEY', 'FAL_API_KEY', 'FAL_AI_KEY', 'FALAI_API_KEY', 'FAL_SECRET'],
   RESEND_API_KEY: ['RESEND_API_KEY', 'RESEND_KEY'],
   DEAPI_API_KEY: ['DEAPI_API_KEY', 'DEAPI_KEY', 'DE_API_KEY'],
-  LLM_API_KEY: ['LLM_API_KEY', 'GROQ_API_KEY', 'OPENROUTER_API_KEY', 'OPENAI_API_KEY', 'MISTRAL_API_KEY'],
 };
 /** Returns the value and the variable name that held it (accepts common alternative names). */
 export const lookupEnv = (name: string, ...alts: string[]): { value: string; found: string } | null => {
@@ -191,7 +190,7 @@ async function withModels(key: string, deadline: number, run: (model: string) =>
       if (Date.now() > deadline) return null;
       tried.add(model);
       try { const out = await run(model); lastGood = model; return { out, model }; }
-      catch (e: any) { last = e instanceof GeminiFail ? e : new GeminiFail(0, e?.message || 'Gemini failed'); if (last.keyBad || last.status === 429 || last.status === 503 || /quota|RESOURCE_EXHAUSTED|overloaded|rate.?limit/i.test(last.message)) return null; }
+      catch (e: any) { last = e instanceof GeminiFail ? e : new GeminiFail(0, e?.message || 'Gemini failed'); if (last.keyBad) return null; }
     }
     return null;
   };
@@ -199,117 +198,181 @@ async function withModels(key: string, deadline: number, run: (model: string) =>
   if (!hit && !last.keyBad && last.status !== 429 && Date.now() < deadline) hit = await go((await discoverModels(key)).slice(0, 2));
   if (hit) return hit;
   console.error('Gemini failed:', last.status, last.message);
-  noteGeminiFailure(last);
+  noteGeminiFailure(last, key);
   throw geminiError(last.status, last.message, last.keyBad);
 }
 
 // ---- keeping the free Gemini quota alive ---------------------------------------------------------------
-// When Google says "quota", every further call only makes things worse. Remember it and skip Gemini until it is allowed again.
-let geminiBlockedUntil = 0;
-function noteGeminiFailure(f: GeminiFail) {
+// When Google says "quota", every further call only makes things worse. Remember it per key and skip that key until it is allowed again.
+const blockedKeys = new Map<string, number>();
+const keyTag = (k: string) => k.slice(-8);
+function noteGeminiFailure(f: GeminiFail, key = '') {
   if (f.status !== 429 && !/RESOURCE_EXHAUSTED|quota/i.test(f.message)) return;
   const m = f.message.match(/retry in ([\d.]+)s/i) || f.message.match(/"retryDelay":\s*"(\d+)s"/);
   const secs = m ? Math.ceil(Number(m[1])) + 2 : /per ?day|daily|limit: 0/i.test(f.message) ? 1800 : 60;
-  geminiBlockedUntil = Date.now() + Math.min(secs, 1800) * 1000;
+  blockedKeys.set(keyTag(key), Date.now() + Math.min(secs, 1800) * 1000);
 }
 
-/** For the System check screen. */
-export const aiWriterStatus = () => ({ geminiBlockedSeconds: Math.max(0, Math.ceil((geminiBlockedUntil - Date.now()) / 1000)), backupConfigured: haveFallbackLlm(), backupModel: (process.env.LLM_MODEL || 'openai/gpt-oss-120b').trim() });
+/** Every Gemini key that is set: GEMINI_API_KEY, GOOGLE_API_KEY, GEMINI_API_KEY_2 to _5, GEMINI_API_KEYS (comma separated), and an AIza key placed in LLM_API_KEY by mistake. */
+function geminiKeyList(): string[] {
+  const out: string[] = [];
+  const add = (v?: string) => { const t = (v || '').trim(); if (t && !out.includes(t)) out.push(t); };
+  add(lookupEnv('GEMINI_API_KEY')?.value); add(lookupEnv('GOOGLE_API_KEY')?.value);
+  for (let i = 2; i <= 5; i++) add(process.env[`GEMINI_API_KEY_${i}`]);
+  (process.env.GEMINI_API_KEYS || '').split(/[,\s]+/).forEach(add);
+  if ((process.env.LLM_API_KEY || '').trim().startsWith('AIza')) add(process.env.LLM_API_KEY); // a second Gemini key put in the backup slot still works
+  return out;
+}
+const keyBlockedMs = (k: string) => Math.max(0, (blockedKeys.get(keyTag(k)) || 0) - Date.now());
+/** Time until at least one Gemini key can be used again (0 when one is ready). */
+const geminiBlockedMs = () => { const ks = geminiKeyList(); return ks.length ? Math.min(...ks.map(keyBlockedMs)) : 0; };
 
-const haveGemini = () => !!lookupEnv('GEMINI_API_KEY') || !!lookupEnv('GOOGLE_API_KEY');
-const fallbackKey = () => lookupEnv('LLM_API_KEY')?.value || '';
-const haveFallbackLlm = () => !!fallbackKey();
+// ---- backup writers (any OpenAI-compatible service, plus Anthropic) --------------------------------------
+export interface LlmBackup { id: string; label: string; kind: 'openai' | 'anthropic'; key: string; base: string; model: string }
+const SERVICES: { id: string; label: string; env: string; base: string; model: string; prefix?: string }[] = [
+  { id: 'groq', label: 'Groq', env: 'GROQ_API_KEY', base: 'https://api.groq.com/openai/v1', model: 'llama-3.3-70b-versatile', prefix: 'gsk_' },
+  { id: 'openrouter', label: 'OpenRouter', env: 'OPENROUTER_API_KEY', base: 'https://openrouter.ai/api/v1', model: 'meta-llama/llama-3.3-70b-instruct', prefix: 'sk-or-' },
+  { id: 'openai', label: 'OpenAI', env: 'OPENAI_API_KEY', base: 'https://api.openai.com/v1', model: 'gpt-4o-mini' },
+  { id: 'deepseek', label: 'DeepSeek', env: 'DEEPSEEK_API_KEY', base: 'https://api.deepseek.com/v1', model: 'deepseek-chat' },
+  { id: 'mistral', label: 'Mistral', env: 'MISTRAL_API_KEY', base: 'https://api.mistral.ai/v1', model: 'mistral-small-latest' },
+  { id: 'cerebras', label: 'Cerebras', env: 'CEREBRAS_API_KEY', base: 'https://api.cerebras.ai/v1', model: 'llama-3.3-70b', prefix: 'csk-' },
+  { id: 'together', label: 'Together', env: 'TOGETHER_API_KEY', base: 'https://api.together.xyz/v1', model: 'meta-llama/Llama-3.3-70B-Instruct-Turbo' },
+  { id: 'xai', label: 'xAI', env: 'XAI_API_KEY', base: 'https://api.x.ai/v1', model: 'grok-3-mini', prefix: 'xai-' },
+];
 
-/** Any OpenAI-compatible chat service (Groq, OpenRouter, OpenAI, Mistral...). Set LLM_API_KEY, and optionally LLM_BASE_URL and LLM_MODEL. */
-async function callCompat(prompt: string, o: { json: boolean; timeoutMs: number; maxTokens?: number }): Promise<string> {
-  const key = fallbackKey();
-  const base = (process.env.LLM_BASE_URL || (process.env.OPENROUTER_API_KEY ? 'https://openrouter.ai/api/v1' : process.env.OPENAI_API_KEY ? 'https://api.openai.com/v1' : process.env.MISTRAL_API_KEY ? 'https://api.mistral.ai/v1' : 'https://api.groq.com/openai/v1')).trim().replace(/\/+$/, '');
-  const model = (process.env.LLM_MODEL || (process.env.OPENROUTER_API_KEY ? 'meta-llama/llama-3.3-70b-instruct' : process.env.OPENAI_API_KEY ? 'gpt-4o-mini' : process.env.MISTRAL_API_KEY ? 'mistral-small-latest' : 'openai/gpt-oss-120b')).trim();
-  const maxTokens = Math.max(1024, Math.min(o.maxTokens || 2800, 2800));
-  const strictJsonPrompt = `${prompt}\n\nOUTPUT REQUIREMENT: Return exactly one syntactically valid JSON object. Do not use Markdown fences, comments, trailing commas, or text before/after the JSON. Escape all quotation marks inside strings. Ensure every opened bracket and quote is closed.`;
-  // Some compatible providers/models occasionally reject their JSON-mode validator even when the prompt is valid.
-  // Retry that specific 400 once without response_format and parse/validate the returned JSON in llmGenerate.
-  for (let attempt = 0; attempt < 2; attempt++) {
-    let r: Response;
-    const useJsonMode = o.json && attempt === 0;
-    try {
-      r = await fetch(`${base}/chat/completions`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
-        body: JSON.stringify({ model, temperature: attempt ? 0.2 : 0.7, max_tokens: maxTokens, messages: [{ role: 'user', content: attempt && o.json ? strictJsonPrompt : prompt }], ...(useJsonMode ? { response_format: { type: 'json_object' } } : {}) }),
-        signal: AbortSignal.timeout(o.timeoutMs),
-      });
-    } catch (e: any) { throw new GeminiFail(0, e?.name === 'TimeoutError' ? 'The backup AI took too long to answer.' : (e?.message || 'Network error talking to the backup AI.')); }
-    const d: any = await r.json().catch(() => ({}));
-    const message = String(d?.error?.message || `Backup AI ${r.status}`);
-    if (!r.ok) {
-      const jsonValidationFailure = o.json && attempt === 0 && r.status === 400 && /failed to validate json|failed_generation|invalid json|json validation/i.test(message);
-      if (jsonValidationFailure) {
-        console.warn('Backup AI JSON mode rejected; retrying once with an explicit JSON-only prompt.', model);
-        continue;
-      }
-      console.error('Backup AI failed', model, r.status, JSON.stringify(d).slice(0, 300));
-      throw new GeminiFail(r.status, message, r.status === 401);
+/** All backup writers that are set up, in the order they are tried. LLM_API_KEY works with any service: the service is recognised from the key, or from LLM_BASE_URL. */
+export function llmBackups(): LlmBackup[] {
+  const out: LlmBackup[] = [];
+  const generic = (process.env.LLM_API_KEY || '').trim();
+  if (generic && !generic.startsWith('AIza')) {
+    const base = (process.env.LLM_BASE_URL || '').trim().replace(/\/+$/, '');
+    if (generic.startsWith('sk-ant-')) out.push({ id: 'anthropic', label: 'Anthropic', kind: 'anthropic', key: generic, base: 'https://api.anthropic.com', model: (process.env.LLM_MODEL || 'claude-haiku-5-5').trim() });
+    else {
+      const guess = SERVICES.find((s) => s.prefix && generic.startsWith(s.prefix)) || (generic.startsWith('sk-') ? SERVICES.find((s) => s.id === 'openai') : undefined);
+      const svc = guess || SERVICES[0]; // old behaviour: Groq
+      out.push({ id: base ? 'custom' : svc.id, label: base ? 'Backup AI (custom URL)' : svc.label, kind: 'openai', key: generic, base: base || svc.base, model: (process.env.LLM_MODEL || svc.model).trim() });
     }
-    const text = String(d?.choices?.[0]?.message?.content || '');
-    if (!text.trim()) throw new GeminiFail(0, 'The backup AI returned an empty answer.');
+  }
+  for (const s of SERVICES) { const k = (process.env[s.env] || '').trim(); if (k && !out.some((o) => o.key === k)) out.push({ id: s.id, label: s.label, kind: 'openai', key: k, base: s.base, model: s.model }); }
+  const ant = (process.env.ANTHROPIC_API_KEY || '').trim();
+  if (ant && !out.some((o) => o.key === ant)) out.push({ id: 'anthropic', label: 'Anthropic', kind: 'anthropic', key: ant, base: 'https://api.anthropic.com', model: (process.env.ANTHROPIC_MODEL || 'claude-haiku-5-5').trim() });
+  return out;
+}
+const blockedBackups = new Map<string, number>();
+
+/** For the System check screen. */
+export const aiWriterStatus = () => ({ geminiBlockedSeconds: Math.ceil(geminiBlockedMs() / 1000), geminiKeys: geminiKeyList().length, backupConfigured: llmBackups().length > 0, backups: llmBackups().map((b) => ({ id: b.id, label: b.label, model: b.model })), backupModel: llmBackups()[0]?.model || '' });
+
+const haveGemini = () => geminiKeyList().length > 0;
+/** Keeps a provider's error message short and removes anything that looks like a key. */
+const tidy = (m: string) => String(m || '').replace(/[A-Za-z0-9_\-]{24,}/g, '…').replace(/\s+/g, ' ').trim().slice(0, 160);
+
+/** One call to a backup writer. Handles services that reject JSON mode by asking again without it. */
+async function callBackup(b: LlmBackup, prompt: string, o: { json: boolean; timeoutMs: number; maxTokens?: number }): Promise<string> {
+  const net = (e: any) => new GeminiFail(0, e?.name === 'TimeoutError' ? `${b.label} took too long to answer.` : (e?.message || `Network error talking to ${b.label}.`));
+  if (b.kind === 'anthropic') {
+    let r: Response;
+    try {
+      r = await fetch(`${b.base}/v1/messages`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-api-key': b.key, 'anthropic-version': '2023-06-01' },
+        body: JSON.stringify({ model: b.model, max_tokens: o.maxTokens || 8000, messages: [{ role: 'user', content: o.json ? `${prompt}\n\nReturn only the JSON, with no other text.` : prompt }] }), signal: AbortSignal.timeout(o.timeoutMs) });
+    } catch (e: any) { throw net(e); }
+    const d: any = await r.json().catch(() => ({}));
+    if (!r.ok) throw new GeminiFail(r.status, `${r.status} ${tidy(d?.error?.message || 'rejected')}`, r.status === 401);
+    const text = String((d?.content || []).map((c: any) => c?.text || '').join(''));
+    if (!text.trim()) throw new GeminiFail(0, `${b.label} returned an empty answer.`);
     return text;
   }
-  throw new GeminiFail(400, 'The backup AI could not satisfy JSON mode after a retry.');
+  const send = async (json: boolean) => {
+    try {
+      return await fetch(`${b.base}/chat/completions`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${b.key}` },
+        body: JSON.stringify({ model: b.model, temperature: 0.9, max_tokens: o.maxTokens || 8000, messages: [{ role: 'user', content: prompt }], ...(json ? { response_format: { type: 'json_object' } } : {}) }),
+        signal: AbortSignal.timeout(o.timeoutMs),
+      });
+    } catch (e: any) { throw net(e); }
+  };
+  let r = await send(o.json);
+  if (o.json && (r.status === 400 || r.status === 422)) r = await send(false); // some models do not accept JSON mode
+  const d: any = await r.json().catch(() => ({}));
+  if (!r.ok) { console.error('Backup AI failed', b.id, b.model, r.status, JSON.stringify(d).slice(0, 300)); throw new GeminiFail(r.status, `${r.status} ${tidy(d?.error?.message || d?.message || 'rejected')}`, r.status === 401); }
+  const text = String(d?.choices?.[0]?.message?.content || '');
+  if (!text.trim()) throw new GeminiFail(0, `${b.label} returned an empty answer.`);
+  return text;
 }
 
 /**
- * Writes text with the best available AI. Gemini first (unless it is out of quota), then the backup service if one is set.
- * One person action therefore never fails just because one free quota ran out.
+ * Writes text with the best available AI: every Gemini key first (skipping any that are out of quota), then every backup service.
+ * One person action therefore never fails just because one free quota ran out, and when everything fails the reason of each is reported.
  */
 export async function llmGenerate(prompt: string, o: { json?: boolean; timeoutMs?: number; deadlineMs?: number; maxTokens?: number } = {}): Promise<{ text: string; provider: 'gemini' | 'backup'; model: string }> {
   const json = o.json !== false;
   const start = Date.now();
   const deadline = start + (o.deadlineMs || 50_000);
-  const backup = haveFallbackLlm();
-  const wantsBackupFirst = (process.env.LLM_PRIMARY || '').trim().toLowerCase() === 'backup' && backup;
-  const errs: GeminiFail[] = [];
+  const backups = llmBackups();
+  const wantsBackupFirst = (process.env.LLM_PRIMARY || '').trim().toLowerCase() === 'backup' && backups.length > 0;
+  const errs: { who: string; f: GeminiFail }[] = [];
   const tryGemini = async () => {
-    if (!haveGemini()) return null;
-    if (Date.now() < geminiBlockedUntil && backup) return null; // quota is used up and a backup exists: do not waste time or requests
-    if (Date.now() < geminiBlockedUntil) throw new HttpError(424, `The AI writer has reached its free usage limit and needs about ${Math.ceil((geminiBlockedUntil - Date.now()) / 1000)} seconds. It will try again by itself.`, 'GEMINI');
-    const key = need('GEMINI_API_KEY', 'GOOGLE_API_KEY');
-    // Reserve enough of the request budget for the backup provider. When Gemini is throttled or overloaded, fail over quickly instead of spending the entire serverless window retrying models.
-    const budget = backup ? Math.min(deadline - 30_000, start + 14_000) : deadline;
-    try {
-      const { out, model } = await withModels(key, budget, (m) => callGemini(key, m, prompt, { grounded: false, json, timeoutMs: Math.max(3_000, Math.min(o.timeoutMs || 14_000, 14_000, budget - Date.now())), maxTokens: o.maxTokens }));
-      // Validate structured output before declaring Gemini successful. Invalid JSON must trigger provider failover, not a later blind episode retry.
-      if (json) extractJson(out.text);
-      console.info('AI writer succeeded', { provider: 'gemini', model });
-      return { text: out.text, provider: 'gemini' as const, model };
-    } catch (e: any) {
-      const f = e instanceof HttpError ? new GeminiFail(/usage limit|quota/i.test(e.message) ? 429 : 0, e.message) : new GeminiFail(0, e?.message || 'Gemini failed');
-      noteGeminiFailure(f); errs.push(f);
-      if (!backup) throw e;
-      return null;
+    const keys = geminiKeyList(); if (!keys.length) return null;
+    const open = keys.filter((k) => keyBlockedMs(k) === 0);
+    if (!open.length) {
+      if (backups.length) return null; // every key is resting and a backup exists: do not waste time or requests
+      throw new HttpError(424, `The AI writer has reached its free usage limit and needs about ${Math.ceil(geminiBlockedMs() / 1000)} seconds. It will try again by itself. Add a backup AI key to avoid waiting.`, 'GEMINI');
     }
+    const budget = backups.length ? Math.min(deadline, start + 24_000) : deadline;
+    let lastErr: any = null;
+    for (const key of open) {
+      if (Date.now() >= budget - 4_000) break;
+      try {
+        const { out, model } = await withModels(key, budget, (m) => callGemini(key, m, prompt, { grounded: false, json, timeoutMs: Math.max(8_000, Math.min(o.timeoutMs || 40_000, budget - Date.now())), maxTokens: o.maxTokens }));
+        return { text: out.text, provider: 'gemini' as const, model };
+      } catch (e: any) {
+        const f = e instanceof HttpError ? new GeminiFail(/usage limit|quota/i.test(e.message) ? 429 : 0, e.message) : new GeminiFail(e?.status || 0, e?.message || 'Gemini failed', !!e?.keyBad);
+        noteGeminiFailure(f, key); errs.push({ who: `Gemini${keys.length > 1 ? ` key ${keys.indexOf(key) + 1}` : ''}`, f }); lastErr = e;
+      }
+    }
+    if (!backups.length && lastErr) throw lastErr;
+    return null;
   };
-  const tryBackup = async () => {
-    if (!backup) return null;
-    try {
+  const tryBackups = async () => {
+    for (const b of backups) {
+      if ((blockedBackups.get(b.id) || 0) > Date.now()) { errs.push({ who: b.label, f: new GeminiFail(429, 'resting after hitting its own limit') }); continue; }
       const left = deadline - Date.now();
-      if (left < 6_000) throw new GeminiFail(0, 'No time left for the backup AI.');
-      const text = await callCompat(prompt, { json, timeoutMs: Math.min(o.timeoutMs || 40_000, left), maxTokens: o.maxTokens });
-      // Treat malformed backup output as a provider failure so the other provider can be attempted.
-      if (json) extractJson(text);
-      const model = (process.env.LLM_MODEL || 'openai/gpt-oss-120b').trim();
-      console.info('AI writer succeeded', { provider: 'backup', model });
-      return { text, provider: 'backup' as const, model };
-    } catch (e: any) { errs.push(e instanceof GeminiFail ? e : new GeminiFail(0, e?.message || 'Backup AI failed')); return null; }
+      if (left < 6_000) { errs.push({ who: b.label, f: new GeminiFail(0, 'no time left to try it') }); break; }
+      try { return { text: await callBackup(b, prompt, { json, timeoutMs: Math.min(o.timeoutMs || 40_000, left), maxTokens: o.maxTokens }), provider: 'backup' as const, model: `${b.id}:${b.model}` }; }
+      catch (e: any) {
+        const f = e instanceof GeminiFail ? e : new GeminiFail(0, e?.message || 'failed');
+        if (f.status === 429) blockedBackups.set(b.id, Date.now() + 60_000);
+        errs.push({ who: b.label, f });
+      }
+    }
+    return null;
   };
-  const order = wantsBackupFirst ? [tryBackup, tryGemini] : [tryGemini, tryBackup];
-  console.info('AI writer provider order', { primary: wantsBackupFirst ? 'backup' : 'gemini', geminiConfigured: haveGemini(), backupConfigured: backup });
+  const order = wantsBackupFirst ? [tryBackups, tryGemini] : [tryGemini, tryBackups];
   for (const step of order) { const hit = await step(); if (hit) return hit; }
-  const quota = errs.some((f) => f.status === 429);
-  const backupError = errs.find((f) => /backup ai/i.test(f.message)) || (backup ? errs[errs.length - 1] : null);
-  const detail = backup && backupError ? ` Backup provider detail: ${backupError.message.slice(0, 240)}. Check GROQ_API_KEY (or LLM_API_KEY), LLM_BASE_URL, and LLM_MODEL in Vercel.` : backup ? ' The backup provider is configured but also failed. Check GROQ_API_KEY, LLM_BASE_URL, and LLM_MODEL in Vercel Runtime Logs.' : ' No backup AI key was detected. Add GROQ_API_KEY in Vercel to enable automatic failover.';
-  throw new HttpError(424, quota
-    ? `The AI writer reached Gemini's usage limit and the backup provider did not complete the request.${detail || ' Configure a valid LLM_API_KEY (or GROQ_API_KEY / OPENROUTER_API_KEY / OPENAI_API_KEY) and redeploy.'}`
-    : `The AI writer is temporarily unavailable.${detail || ' Check the AI provider keys and model settings, then retry.'}`, 'GEMINI');
+  const quota = errs.some((e) => e.f.status === 429) && !errs.some((e) => e.f.keyBad);
+  const detail = errs.length ? ` Details: ${errs.map((e) => `${e.who}: ${e.f.keyBad ? 'the key was rejected (check it is copied correctly and is active)' : tidy(e.f.message)}`).join('; ')}.` : '';
+  throw new HttpError(424, backups.length || !quota
+    ? `The AI writers could not answer right now. It will retry automatically.${detail} Open Settings, System check (owner only) and run it to see which key needs attention.`
+    : `The AI writer is at its usage limit right now. Your work is kept and it will retry automatically. Add a backup AI key (for example a free Groq key as LLM_API_KEY) so this never blocks you.${detail}`, 'GEMINI');
+}
+
+/** Sends a tiny request to every configured AI writer and reports what happened, so a wrong key or model is easy to find. */
+export async function testAiWriters(): Promise<{ name: string; ok: boolean; message: string }[]> {
+  const out: { name: string; ok: boolean; message: string }[] = [];
+  const keys = geminiKeyList();
+  await Promise.all([
+    ...keys.map(async (k, i) => {
+      const name = `Gemini${keys.length > 1 ? ` key ${i + 1}` : ''}`;
+      if (keyBlockedMs(k) > 0) { out.push({ name, ok: false, message: `Out of free quota. It rests for about ${Math.ceil(keyBlockedMs(k) / 1000)} seconds.` }); return; }
+      try { const { model } = await withModels(k, Date.now() + 15_000, (m) => callGemini(k, m, 'Reply with the single word OK.', { grounded: false, json: false, timeoutMs: 12_000, maxTokens: 20 })); out.push({ name, ok: true, message: `Working (${model}).` }); }
+      catch (e: any) { const f = new GeminiFail(e?.status || 0, e?.message || 'failed', !!e?.keyBad); noteGeminiFailure(f, k); out.push({ name, ok: false, message: tidy(e?.message || 'failed') }); }
+    }),
+    ...llmBackups().map(async (b) => {
+      try { await callBackup(b, 'Reply with the single word OK.', { json: false, timeoutMs: 15_000, maxTokens: 20 }); out.push({ name: `${b.label} (${b.model})`, ok: true, message: 'Working.' }); }
+      catch (e: any) { out.push({ name: `${b.label} (${b.model})`, ok: false, message: e?.keyBad ? 'The key was rejected. Check that it is copied correctly and is still active.' : tidy(e?.message || 'failed') }); }
+    }),
+  ]);
+  return out;
 }
 
 /** Plain JSON generation (scripts, A/B ideas). Optionally grounded with Google Search. */
@@ -319,7 +382,7 @@ export async function geminiRaw(prompt: string, opts: { grounded?: boolean; time
     try { return { data: extractJson(g.text), model: `${g.provider}:${g.model}`, grounded: false, sources: [] }; }
     catch { throw new HttpError(424, 'The AI answered in an unexpected format. Retrying.', 'GEMINI'); }
   }
-  const key = need('GEMINI_API_KEY', 'GOOGLE_API_KEY');
+  const key = geminiKeyList().find((k) => keyBlockedMs(k) === 0) || need('GEMINI_API_KEY', 'GOOGLE_API_KEY');
   const deadline = Date.now() + (opts.deadlineMs || 50_000);
   const { out, model } = await withModels(key, deadline, async (m) => {
     const o = await callGemini(key, m, prompt, { grounded: !!opts.grounded, json: !opts.grounded, timeoutMs: opts.timeoutMs || (opts.grounded ? 30_000 : 25_000), maxTokens: opts.maxTokens });
@@ -332,8 +395,8 @@ export async function geminiRaw(prompt: string, opts: { grounded?: boolean; time
 
 /** Step 1 of research: a Google-Search-grounded pass. Kept under ~30s so no single request runs long. THROWS if search did not really run. */
 export async function geminiSearch(researchPrompt: string): Promise<{ text: string; sources: { title: string; url: string }[]; model: string }> {
-  const key = need('GEMINI_API_KEY', 'GOOGLE_API_KEY');
-  if (Date.now() < geminiBlockedUntil) throw new HttpError(424, `Live search has reached Gemini's free limit. Please try again in about ${Math.ceil((geminiBlockedUntil - Date.now()) / 1000)} seconds.`, 'GEMINI');
+  const key = geminiKeyList().find((k) => keyBlockedMs(k) === 0) || need('GEMINI_API_KEY', 'GOOGLE_API_KEY');
+  if (geminiBlockedMs() > 0) throw new HttpError(424, `Live search has reached Gemini's free limit. Please try again in about ${Math.ceil(geminiBlockedMs() / 1000)} seconds.`, 'GEMINI');
   const { out, model } = await withModels(key, Date.now() + 30_000, (m) => callGemini(key, m, researchPrompt, { grounded: true, json: false, timeoutMs: 28_000, maxTokens: 6000 }));
   if (!out.searched) throw new HttpError(424, 'Live web search did not run for this request, so no research was returned. Please try again.', 'NO_SEARCH');
   return { text: out.text, sources: out.sources, model };

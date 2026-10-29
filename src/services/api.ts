@@ -5,7 +5,7 @@ export class ApiError extends Error {
 /** Fired when the server says the session ended or a subscription is required. */
 export const AUTH_EVENT = 'omnipulse:auth-event';
 
-async function request<T>(method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
+async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   let res: Response;
   try {
     res = await fetch(`/api${path}`, {
@@ -13,10 +13,8 @@ async function request<T>(method: string, path: string, body?: unknown, signal?:
       credentials: 'same-origin',
       headers: body !== undefined ? { 'Content-Type': 'application/json' } : undefined,
       body: body !== undefined ? JSON.stringify(body) : undefined,
-      signal,
     });
-  } catch (error) {
-    if (signal?.aborted || (error instanceof DOMException && error.name === 'AbortError')) throw new ApiError(0, 'Process stopped by you.', 'ABORTED');
+  } catch {
     throw new ApiError(0, 'Network error. Check your connection and try again.', 'NETWORK');
   }
   if (!res.ok) {
@@ -34,7 +32,7 @@ async function request<T>(method: string, path: string, body?: unknown, signal?:
 }
 
 export const api = {
-  get: <T>(p: string, options?: { signal?: AbortSignal }) => request<T>('GET', p, undefined, options?.signal),
-  post: <T>(p: string, b?: unknown, options?: { signal?: AbortSignal }) => request<T>('POST', p, b ?? {}, options?.signal),
-  put: <T>(p: string, b: unknown, options?: { signal?: AbortSignal }) => request<T>('PUT', p, b, options?.signal),
+  get: <T>(p: string) => request<T>('GET', p),
+  post: <T>(p: string, b?: unknown) => request<T>('POST', p, b ?? {}),
+  put: <T>(p: string, b: unknown) => request<T>('PUT', p, b),
 };

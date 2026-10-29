@@ -39,6 +39,15 @@ export const PricingModal: React.FC<PricingModalProps> = ({ currentUser, isOpen,
   const [error, setError] = useState<string | null>(null);
   const [extras, setExtras] = useState<{ currency: string; trial: { days: number; seconds: number; price: number }; topups: { id: string; seconds: number; price: number }[] } | null>(null);
   const [buying, setBuying] = useState<string | null>(null);
+  // "Which plan fits me?": the person says how much they will make and the matching plan is highlighted
+  const [vids, setVids] = useState(10);
+  const [len, setLen] = useState(30);
+  const [touched, setTouched] = useState(false);
+  const needed = vids * len;
+  const ordered = (['starter', 'pro', 'agency'] as SubscriptionTier[]).map((id) => plans.find((p) => p.id === id)).filter(Boolean) as PlanInfo[];
+  const fit = ordered.find((p) => p.secondsPerMonth >= needed) || null;
+  const biggest = ordered[ordered.length - 1];
+  const extraNeeded = !fit && biggest ? needed - biggest.secondsPerMonth : 0;
 
   useEffect(() => { if (isOpen && !plans.length) Auth.plans().then(setPlans).catch(() => undefined); }, [isOpen]);
   useEffect(() => { if (isOpen && !extras) Auth.extras().then(setExtras).catch(() => undefined); }, [isOpen]);
@@ -124,6 +133,28 @@ export const PricingModal: React.FC<PricingModalProps> = ({ currentUser, isOpen,
         </div>
       </div>
 
+      {ordered.length > 0 && (
+        <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4 space-y-3" aria-label="Which plan fits me">
+          <p className="text-sm font-bold text-white">Which plan fits you?</p>
+          <div className="grid sm:grid-cols-2 gap-4">
+            <div>
+              <label htmlFor="pf-vids" className="text-xs text-slate-300 flex justify-between mb-1"><span>Videos you want to make each month</span><b className="text-white">{vids}</b></label>
+              <input id="pf-vids" type="range" min={1} max={60} value={vids} onChange={(e) => { setVids(Number(e.target.value)); setTouched(true); }} className="w-full accent-indigo-500" />
+            </div>
+            <div>
+              <p className="text-xs text-slate-300 mb-1">How long is each video?</p>
+              <div className="flex gap-2" role="group" aria-label="Video length">
+                {[15, 30, 60, 90].map((n) => <button key={n} type="button" aria-pressed={len === n} onClick={() => { setLen(n); setTouched(true); }} className={`flex-1 px-2 py-1.5 rounded-lg border text-xs font-semibold ${len === n ? 'bg-indigo-950 border-indigo-500 text-white' : 'bg-slate-950 border-slate-800 text-slate-300 hover:border-slate-600'}`}>{n}s</button>)}
+              </div>
+            </div>
+          </div>
+          <p className="text-xs text-slate-300" role="status">
+            {fit ? <>That is about <b className="text-white">{needed} seconds</b> of video a month. <b className="text-emerald-300">{fit.name}</b> covers it ({fit.secondsPerMonth} seconds included).</>
+              : <>That is about <b className="text-white">{needed} seconds</b> a month. <b className="text-emerald-300">{biggest?.name}</b> is the largest plan; you would add about <b className="text-white">{extraNeeded} extra seconds</b> a month with a top-up.</>}
+          </p>
+        </section>
+      )}
+
       <div className="grid md:grid-cols-3 gap-4">
         {(['starter', 'pro', 'agency'] as SubscriptionTier[]).map((id) => {
           const info = plans.find((p) => p.id === id);
@@ -132,7 +163,8 @@ export const PricingModal: React.FC<PricingModalProps> = ({ currentUser, isOpen,
           const isCurrent = subscribed && currentUser.tier === id && currentUser.billingCycle === cycle;
           const unavailable = info && !info.available;
           return (
-            <div key={id} className={`relative rounded-2xl border p-5 flex flex-col bg-slate-900 ${f.popular ? 'border-indigo-500 shadow-lg shadow-indigo-500/10' : 'border-slate-800'}`}>
+            <div key={id} className={`relative rounded-2xl border p-5 flex flex-col bg-slate-900 ${touched && (fit?.id === id || (!fit && biggest?.id === id)) ? 'border-emerald-400 ring-2 ring-emerald-400/40' : f.popular ? 'border-indigo-500 shadow-lg shadow-indigo-500/10' : 'border-slate-800'}`}>
+              {touched && (fit?.id === id || (!fit && biggest?.id === id)) && <span className="absolute -top-2.5 right-4 text-[10px] font-bold uppercase bg-emerald-500 text-slate-950 rounded-full px-3 py-0.5">Best fit for you</span>}
               {f.popular && <span className="absolute -top-2.5 left-1/2 -translate-x-1/2 text-[10px] font-bold uppercase bg-indigo-600 text-white rounded-full px-3 py-0.5">Most popular</span>}
               <h3 className="text-sm font-bold text-white">{info?.name || id}</h3>
               <p className="text-xs text-slate-400 mt-1 min-h-[2.5rem]">{f.description}</p>
@@ -141,6 +173,7 @@ export const PricingModal: React.FC<PricingModalProps> = ({ currentUser, isOpen,
                 <span className="text-xs text-slate-400"> /month</span>
                 {cycle === 'annual' && price !== null && <p className="text-[11px] text-slate-500">Billed {formatMoney(Math.round(price * 12 * 100) / 100, info?.currency)} per year</p>}
               </div>
+              {info && <p className="text-[11px] text-indigo-200 -mt-1 mb-3">{info.secondsPerMonth} seconds of video a month, about {Math.floor(info.secondsPerMonth / 30)} videos of 30 seconds</p>}
               <ul className="space-y-1.5 text-xs text-slate-300 flex-1 mb-4">
                 {f.features.map((x) => <li key={x} className="flex gap-2"><Check className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />{x}</li>)}
               </ul>

@@ -117,6 +117,25 @@ export const TROPE_STARTERS: Record<TropeId, string> = {
   fake_dating: 'To stop her family matchmaking, she pays a stranger in a cafe to pretend to be her boyfriend, and then her ex walks in.',
 };
 
+export interface StoryPreset {
+  id: string; emoji: string; label: string; hint: string;
+  set: { presentation: PresentationId; genre: GenreId; intensity: IntensityId; dialogue: DialogueId; ending: EndingId; cast: CastId; animalsTalk?: boolean; trope?: TropeId; mood: StoryMoodId; camera: CameraProfileId };
+}
+
+/** One-tap recipes: each one fills in the movie style, genre, action level, cast, mood and camera together. */
+export const PRESETS: StoryPreset[] = [
+  { id: 'action_trailer', emoji: '💥', label: 'Action movie', hint: 'Chases, stunts, big energy.', set: { presentation: 'movie', genre: 'action', intensity: 'max', dialogue: 'minimal', ending: 'cliffhanger', cast: 'people', mood: 'cinematic_trailer', camera: 'kinetic_tracking' } },
+  { id: 'short_drama', emoji: '💔', label: 'Short drama episode', hint: 'Shock opening, betrayal, cliffhanger.', set: { presentation: 'shortdrama', genre: 'romance', intensity: 'balanced', dialogue: 'normal', ending: 'cliffhanger', cast: 'people', trope: 'hidden_identity', mood: 'melodrama', camera: 'slow_dramatic_zoom' } },
+  { id: 'wildlife', emoji: '🦁', label: 'Wildlife film', hint: 'Real animals, narrated.', set: { presentation: 'narrated', genre: 'wildlife', intensity: 'balanced', dialogue: 'normal', ending: 'resolved', cast: 'animals', mood: 'emotional_heartfelt', camera: 'steady_pan' } },
+  { id: 'dragon_epic', emoji: '🐲', label: 'Dragon epic', hint: 'Mythical creatures and big scale.', set: { presentation: 'movie', genre: 'mythical', intensity: 'max', dialogue: 'minimal', ending: 'cliffhanger', cast: 'mythical', mood: 'cinematic_trailer', camera: 'kinetic_tracking' } },
+  { id: 'horror', emoji: '👻', label: 'Horror short', hint: 'Dread and a twist.', set: { presentation: 'movie', genre: 'horror', intensity: 'calm', dialogue: 'minimal', ending: 'twist', cast: 'people', mood: 'dramatic_suspense', camera: 'slow_dramatic_zoom' } },
+  { id: 'scifi', emoji: '🚀', label: 'Sci-fi adventure', hint: 'Future worlds and big ideas.', set: { presentation: 'movie', genre: 'scifi', intensity: 'balanced', dialogue: 'normal', ending: 'cliffhanger', cast: 'people', mood: 'cinematic_trailer', camera: 'kinetic_tracking' } },
+  { id: 'thriller', emoji: '🕵️', label: 'Mystery thriller', hint: 'Clues, tension, a twist.', set: { presentation: 'dialogue', genre: 'thriller', intensity: 'balanced', dialogue: 'normal', ending: 'twist', cast: 'people', mood: 'dramatic_suspense', camera: 'steady_pan' } },
+  { id: 'comedy', emoji: '😂', label: 'Comedy skit', hint: 'Fast, funny, shareable.', set: { presentation: 'dialogue', genre: 'comedy', intensity: 'balanced', dialogue: 'normal', ending: 'resolved', cast: 'people', mood: 'viral_hook', camera: 'kinetic_tracking' } },
+  { id: 'love_story', emoji: '💘', label: 'Love story', hint: 'Warm, emotional, a big moment.', set: { presentation: 'dialogue', genre: 'romance', intensity: 'calm', dialogue: 'normal', ending: 'resolved', cast: 'people', mood: 'emotional_heartfelt', camera: 'slow_dramatic_zoom' } },
+  { id: 'superhero', emoji: '🦸', label: 'Superhero', hint: 'Powers and a city to save.', set: { presentation: 'movie', genre: 'superhero', intensity: 'max', dialogue: 'minimal', ending: 'cliffhanger', cast: 'people', mood: 'cinematic_trailer', camera: 'kinetic_tracking' } },
+];
+
 /** One-tap story starters for each genre, so nobody stares at an empty box. */
 export const IDEA_STARTERS: Record<GenreId, string[]> = {
   auto: [

@@ -14,7 +14,6 @@ import { Auth, UserDashboardState, emptyDashboard } from './services/authService
 import { api, AUTH_EVENT, ApiError } from './services/api';
 import { NICHES } from './data/niches';
 import { generateAIVideoScript, analyzeNicheTrends } from './services/aiService';
-import { registerLocalProcess, unregisterLocalProcess } from './services/processRegistry';
 import { TopNav } from './components/TopNav';
 import { AccountsBar } from './components/AccountsBar';
 import { DashboardOverview } from './components/DashboardOverview';
@@ -31,7 +30,6 @@ import { LegalView, LegalPage } from './components/Legal';
 import { AccountSettings } from './components/AccountSettings';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { SystemCheck } from './components/SystemCheck';
-import { JobsPanel } from './components/JobsPanel';
 import { AutoPilotModal } from './components/AutoPilotModal';
 import { CheckCircle2, Loader2 } from 'lucide-react';
 
@@ -55,7 +53,6 @@ function Workspace({ user: currentUser, initialDashboard, onLogout, onUserChange
   const [isPricingOpen, setIsPricingOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isSystemOpen, setIsSystemOpen] = useState(false);
-  const [isJobsOpen, setIsJobsOpen] = useState(false);
   const [createRequest, setCreateRequest] = useState<{ open: boolean; prompt: string }>({ open: false, prompt: '' });
   const requestCreateVideo = (prompt = '') => { setActiveTab('video-studio'); setCreateRequest({ open: true, prompt }); };
 
@@ -93,8 +90,6 @@ function Workspace({ user: currentUser, initialDashboard, onLogout, onUserChange
     autoResearchTrending: true,
   });
   const [isExecutingAutonomousRun, setIsExecutingAutonomousRun] = useState(false);
-  const autoPilotController = useRef<AbortController | null>(null);
-  const autoPilotJobId = useRef<string | null>(null);
 
   // User's Isolated Dashboard Data
   const [accounts, setAccounts] = useState<SocialAccount[]>(initialDashboard.accounts);
@@ -283,11 +278,9 @@ function Workspace({ user: currentUser, initialDashboard, onLogout, onUserChange
 
   // Video studio handlers
   const handleSaveNewVideo = (video: GeneratedVideo) => {
-    setVideos(prev => prev.some(existing => existing.id === video.id)
-      ? prev.map(existing => existing.id === video.id ? video : existing)
-      : [video, ...prev]);
+    setVideos(prev => [video, ...prev]);
     setSelectedVideoId(video.id);
-    showToast(`Video "${video.title}" saved successfully.`);
+    showToast(`AI Video "${video.title}" generated successfully!`);
   };
 
   const handleScheduleVideoDirect = (video: GeneratedVideo) => {
@@ -420,11 +413,6 @@ function Workspace({ user: currentUser, initialDashboard, onLogout, onUserChange
 
   // Autonomous Niche Video Generation & Scheduled Dispatch
   const handleTriggerImmediateAutonomousRun = async (settings: NicheAutoPilotSettings) => {
-    if (autoPilotController.current) return;
-    const controller = new AbortController();
-    autoPilotController.current = controller;
-    autoPilotJobId.current = `autopilot-${Date.now()}`;
-    registerLocalProcess({ id: autoPilotJobId.current, type: 'Auto-Pilot', title: `Auto-Pilot batch · ${activeNiche.name}`, startedAt: Date.now() }, () => controller.abort());
     setIsExecutingAutonomousRun(true);
     showToast(`Researching top breakout trends in "${activeNiche.name}"...`);
 
@@ -436,13 +424,11 @@ function Workspace({ user: currentUser, initialDashboard, onLogout, onUserChange
         setActiveNiche(niche);
       }
 
-      if (controller.signal.aborted) throw new Error('Process stopped by you.');
       if (!niche.trendingTopics.length) throw new Error('No trending topics were found for this niche. Please try again.');
       const count = Math.min(Math.max(settings.videosPerBatch || 2, 1), 5);
       let made = 0;
       try {
         for (let i = 0; i < count; i++) {
-          if (controller.signal.aborted) throw new Error('Process stopped by you.');
           const topicItem = niche.trendingTopics[i % niche.trendingTopics.length];
           const videoConcept = `${topicItem.title} - ${topicItem.viralHooks[0] || topicItem.contentAngle}`;
           const video = await generateAIVideoScript({
@@ -453,7 +439,6 @@ function Workspace({ user: currentUser, initialDashboard, onLogout, onUserChange
             nicheName: activeNiche.name,
             aiDirectorEngine: 'dynamic_viral',
             grokHookStyle: 'viral_breakout',
-            signal: controller.signal,
           });
           // Keep every finished video straight away, so one failure later never loses paid work
           setVideos(prev => [video, ...prev]);
@@ -495,11 +480,9 @@ function Workspace({ user: currentUser, initialDashboard, onLogout, onUserChange
 
       showToast(`Auto-Pilot made ${made} ${settings.preferredStyle.replace(/_/g, ' ')} videos for ${settings.targetPlatforms.join(', ')}.`);
     } catch (err) {
-      if (controller.signal.aborted || (err instanceof Error && /stopped by you/i.test(err.message))) showToast('Auto-Pilot stopped. Any completed videos and scheduled posts were kept.');
-      else { console.error('Autonomous run error:', err); showToast(err instanceof Error ? err.message : 'Auto-Pilot run failed. Please try again.'); }
+      console.error('Autonomous run error:', err);
+      showToast(err instanceof Error ? err.message : 'Auto-Pilot run failed. Please try again.');
     } finally {
-      if (autoPilotJobId.current) unregisterLocalProcess(autoPilotJobId.current);
-      autoPilotJobId.current = null; autoPilotController.current = null;
       setIsExecutingAutonomousRun(false);
     }
   };
@@ -519,10 +502,7 @@ function Workspace({ user: currentUser, initialDashboard, onLogout, onUserChange
         onOpenSettings={() => setIsSettingsOpen(true)}
         onOpenSystemCheck={() => setIsSystemOpen(true)}
         onOpenPricing={() => setIsPricingOpen(true)}
-        onOpenJobs={() => setIsJobsOpen(true)}
       />
-
-      {isJobsOpen && <JobsPanel onClose={() => setIsJobsOpen(false)} onOpenSeries={() => setActiveTab('series')} />}
 
       {/* Main Workspace Area */}
       <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8 pb-28 lg:pb-10 space-y-6">

@@ -1,12 +1,13 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Loader2, Play, Plus, ChevronRight, Clock, Film, Camera, Check, AlertTriangle, Download, ArrowLeft, Clapperboard, RotateCcw, FileText, Users, Sparkles, Square } from 'lucide-react';
+import { Loader2, Play, Plus, ChevronRight, Clock, Film, Camera, Check, AlertTriangle, Download, ArrowLeft, Clapperboard, RotateCcw, FileText, Users, Sparkles, Pause } from 'lucide-react';
 import { AspectRatioType, CameraProfileId, CastId, DialogueId, EndingId, GenreId, IntensityId, PresentationId, StoryMoodId, TropeId } from '../types';
 import { StoryFormat } from '../services/aiService';
-import { Episode, ProjectDetail, ProjectSummary, Series, isActive } from '../services/seriesService';
+import { Episode, ProjectDetail, ProjectSummary, Series, isActive, isOpen, type EditableScene } from '../services/seriesService';
+import { ScriptEditor } from './ScriptEditor';
 import { ApiError } from '../services/api';
 import { MoviePoster } from './MoviePoster';
 import {
-  CAMERA_OPTIONS, CAST_OPTIONS, DIALOGUE_OPTIONS, ENDING_OPTIONS, GENRE_OPTIONS, IDEA_STARTERS, INTENSITY_OPTIONS, LENGTH_CHOICES, MAX_PART_SECONDS, MIN_PART_SECONDS, MOOD_OPTIONS, PRESENTATION_OPTIONS, TROPE_OPTIONS, TROPE_STARTERS,
+  CAMERA_OPTIONS, CAST_OPTIONS, DIALOGUE_OPTIONS, ENDING_OPTIONS, GENRE_OPTIONS, IDEA_STARTERS, INTENSITY_OPTIONS, LENGTH_CHOICES, MAX_PART_SECONDS, MIN_PART_SECONDS, MOOD_OPTIONS, PRESENTATION_OPTIONS, PRESETS, TROPE_OPTIONS, TROPE_STARTERS,
   buildBrief, clampSeconds, formatSeconds, sceneCountFor, type StyleOption,
 } from '../data/storyOptions';
 
@@ -139,6 +140,14 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
   const [cast, setCast] = useState<CastId>('people');
   const [animalsTalk, setAnimalsTalk] = useState(false);
   const [trope, setTrope] = useState<TropeId>('none');
+  const [reviewFirst, setReviewFirst] = useState(false);
+  const [notice, setNotice] = useState('');
+  const applyPreset = (id: string) => {
+    const p = PRESETS.find((x) => x.id === id); if (!p) return;
+    const v = p.set;
+    setPresentation(v.presentation); setGenre(v.genre); setIntensity(v.intensity); setDialogue(v.dialogue); setEnding(v.ending); setCast(v.cast); setAnimalsTalk(v.animalsTalk ?? false); setTrope(v.trope ?? 'none'); setMood(v.mood); setCamera(v.camera);
+    if (format === 'documentary' && v.presentation !== 'narrated') setFormat('drama');
+  };
   const startersFor = () => [...(presentation === 'shortdrama' ? [TROPE_STARTERS[trope]] : []), ...(IDEA_STARTERS[genre] || IDEA_STARTERS.auto)];
   const [lockEnabled, setLockEnabled] = useState(false);
   const [lockName, setLockName] = useState('');
@@ -213,7 +222,7 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
     const p = projects.find((x) => x.id === focusProjectId);
     onFocusHandled?.();
     if (!p) return;
-    if (p.episodes.some((e) => isActive(e.status))) openActive(p); else void continueSeries(p);
+    if (p.episodes.some((e) => isOpen(e.status))) openActive(p); else void continueSeries(p);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusProjectId, projects]);
 
@@ -247,7 +256,7 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
     try {
       const r = await Series.create({
         projectId: detail?.project.id, title: title.trim() || undefined, idea: idea.trim(), mode: writer, script: writer === 'paste' ? script.trim() : undefined,
-        format, look, aspectRatio: ratio, niche: nicheName, brief: built.brief,
+        format, look, aspectRatio: ratio, niche: nicheName, brief: built.brief, reviewFirst,
         series: !continuing && kind === 'series' ? { parts, deliver } : undefined,
       });
       setEpisode(null); setEpisodeId(r.episodeId); setView('progress'); usageRef.current?.();
@@ -256,7 +265,7 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
   };
 
   const openActive = (p: ProjectSummary) => {
-    const a = p.episodes.find((e) => isActive(e.status));
+    const a = p.episodes.find((e) => isOpen(e.status));
     if (a) { setDetail(null); setEpisode(null); setEpisodeId(a.id); setView('progress'); }
   };
   const openEpisode = (id: string) => { setDetail(null); setEpisode(null); setEpisodeId(id); setView('progress'); };
@@ -269,32 +278,55 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
     finally { setBusy(false); }
   };
 
-  const stopCurrent = async () => {
-    if (!episode || !isActive(episode.status) || busy) return;
-    const ok = window.confirm('Stop this process now? Any finished clips will be kept. You can resume this part later.');
-    if (!ok) return;
-    setBusy(true); setError(null);
+  const refresh = async (id: string) => { const ep = await Series.status(id); setEpisode(ep); return ep; };
+  const pauseNow = async () => {
+    if (!episode) return;
+    setBusy(true); setError(null); setNotice('');
+    try { await Series.pause(episode.id); await refresh(episode.id); }
+    catch (e) { setError(e instanceof Error ? e.message : 'This part could not be paused.'); }
+    finally { setBusy(false); }
+  };
+  const resumeNow = async () => {
+    if (!episode) return;
+    setBusy(true); setError(null); setNotice('');
+    try { await Series.resume(episode.id); await refresh(episode.id); setPollKey((k) => k + 1); usageRef.current?.(); }
+    catch (e) { setError(e instanceof Error ? e.message : 'This part could not be resumed.'); }
+    finally { setBusy(false); }
+  };
+  const saveScript = async (name: string, scenes: EditableScene[], start: boolean) => {
+    if (!episode) return;
+    setBusy(true); setError(null); setNotice('');
     try {
-      await Series.stop(episode.id);
-      setEpisode({ ...episode, status: 'FAILED', error: 'Stopped by you. Finished clips are kept; tap Resume to continue later.', note: '' });
-      setPollKey((k) => k + 1);
-      usageRef.current?.();
-      void loadList();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'The process could not be stopped. Please try again.');
-    } finally { setBusy(false); }
+      await Series.edit(episode.id, name, scenes, start);
+      await refresh(episode.id);
+      if (start) { setPollKey((k) => k + 1); usageRef.current?.(); } else setNotice('Your changes are saved.');
+    } catch (e) { setError(e instanceof Error ? e.message : 'Your changes could not be saved.'); }
+    finally { setBusy(false); }
   };
 
   const downloadFull = async (ep: Episode) => {
     if (!ep.finalVideoUrl) return;
-    setDl({ busy: true, msg: 'Joining your clips into one video. This can take up to a minute.' });
+    setDl({ busy: true, msg: 'Step 1 of 2: joining your scenes into one video. This usually takes 10 to 30 seconds.' });
     try {
       const r = await fetch(ep.finalVideoUrl, { credentials: 'same-origin' });
       if (!r.ok) {
         const d = await r.json().catch(() => ({} as { error?: string }));
         throw new Error(d.error || `The clips could not be joined (error ${r.status}). Please try again in a moment.`);
       }
-      saveBlob(await r.blob(), `${(ep.title || 'omnipulse-video').replace(/[^\w\- ]+/g, '').trim().slice(0, 60) || 'omnipulse-video'}.mp4`);
+      // the video is ready: show real download progress instead of waiting in silence
+      const total = Number(r.headers.get('Content-Length')) || 0;
+      const reader = r.body?.getReader();
+      let blob: Blob;
+      if (reader) {
+        const chunks: Uint8Array[] = []; let got = 0;
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          if (value) { chunks.push(value); got += value.length; setDl({ busy: true, msg: total ? `Step 2 of 2: downloading ${Math.min(100, Math.round((got / total) * 100))}% (${(got / 1048576).toFixed(1)} MB)` : `Step 2 of 2: downloading ${(got / 1048576).toFixed(1)} MB` }); }
+        }
+        blob = new Blob(chunks as BlobPart[], { type: 'video/mp4' });
+      } else blob = await r.blob();
+      saveBlob(blob, `${(ep.title || 'omnipulse-video').replace(/[^\w\- ]+/g, '').trim().slice(0, 60) || 'omnipulse-video'}.mp4`);
       setDl({ busy: false, msg: '' });
     } catch (e) { setDl({ busy: false, msg: e instanceof Error ? e.message : 'The clips could not be joined.' }); }
   };
@@ -305,7 +337,7 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
 
   // ------------------------------------------------------------------ progress
   if (view === 'progress') {
-    const stage = !episode ? 'Starting' : episode.status === 'PROCESSING' ? (episode.mode === 'paste' ? 'Preparing your script' : 'Writing the script') : episode.status === 'RENDERING' ? 'Making the scenes' : episode.status === 'COMPLETED' ? 'Finished' : 'Stopped';
+    const stage = !episode ? 'Starting' : episode.status === 'PROCESSING' ? (episode.mode === 'paste' ? 'Preparing your script' : 'Writing the script') : episode.status === 'RENDERING' ? 'Making the scenes' : episode.status === 'COMPLETED' ? 'Finished' : episode.status === 'PAUSED' ? 'Paused' : episode.status === 'REVIEW' ? 'Review your script' : 'Stopped';
     const pct = !episode ? 3 : episode.status === 'PROCESSING' ? 15 : episode.status === 'RENDERING' ? 25 + (episode.partsTotal ? Math.round((episode.partsDone / episode.partsTotal) * 70) : 0) : 100;
     const nextPartPending = !!episode && episode.status === 'COMPLETED' && episode.autoContinue && episode.partNumber < episode.targetParts;
     return (
@@ -325,18 +357,29 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
               <div className="h-2 rounded-full bg-slate-800 overflow-hidden"><div className="h-full bg-indigo-500 transition-all duration-700" style={{ width: `${pct}%` }} /></div>
               <p className="text-xs text-slate-300 flex items-center gap-2"><Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-400" />{stage}{episode?.status === 'RENDERING' && episode.partsTotal ? `: ${episode.partsDone} of ${episode.partsTotal} clips ready` : '...'}</p>
               {episode?.note && <p className="text-[11px] text-amber-300 bg-amber-950/30 border border-amber-900/60 rounded-lg px-3 py-2">{episode.note}</p>}
-              {episode && isActive(episode.status) && <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="text-[11px] text-slate-500 flex-1 min-w-[150px]">This process runs on the server. You can stop it here; finished clips will be kept.</p>
-                <button type="button" onClick={stopCurrent} disabled={busy} className="inline-flex items-center gap-1.5 rounded-lg border border-rose-800 bg-rose-950/50 px-3 py-2 text-xs font-semibold text-rose-200 hover:bg-rose-900/70 disabled:opacity-50"><Square className="h-3.5 w-3.5 fill-current" />{busy ? 'Stopping…' : 'Stop process'}</button>
-              </div>}
-              {!episode && <p className="text-[11px] text-slate-500">Starting your process…</p>}
+              <p className="text-[11px] text-slate-500">This runs on our servers, so you can leave this page. Errors are retried by themselves, and your part appears here when it is ready.</p>
+              {episode && <button type="button" onClick={pauseNow} disabled={busy} className="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-xs font-semibold text-white flex items-center gap-1.5"><Pause className="w-3.5 h-3.5" />Pause</button>}
+            </>
+          )}
+
+          {episode?.status === 'PAUSED' && (
+            <div className="space-y-3">
+              <p className="text-xs text-amber-200 bg-amber-950/30 border border-amber-900/60 rounded-lg px-3 py-2">Paused.{episode.partsTotal ? ` ${episode.partsDone} of ${episode.partsTotal} clips are finished.` : ''} Clips that were already sent keep rendering, and they are collected when you resume.{episode.editable ? ' You can still edit the script below before you resume.' : ''}</p>
+              <button type="button" onClick={resumeNow} disabled={busy} className="px-4 py-2.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-xs font-bold text-white flex items-center gap-1.5">{busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}Resume</button>
+            </div>
+          )}
+          {episode?.status === 'REVIEW' && <p className="text-xs text-emerald-200 bg-emerald-950/30 border border-emerald-900/60 rounded-lg px-3 py-2">Your script is ready. Read it, change anything you like, then approve it to start making the video. No video seconds are used until you approve.</p>}
+          {(episode?.status === 'REVIEW' || episode?.status === 'PAUSED') && episode.editable && (
+            <>
+              <ScriptEditor key={`${episode.id}-${episode.status}`} title={episode.title} characters={episode.editable.characters} scenes={episode.editable.scenes} canStart={episode.status === 'REVIEW'} busy={busy} onSave={saveScript} />
+              {notice && <p role="status" className="text-[11px] text-emerald-300">{notice}</p>}
             </>
           )}
 
           {episode?.status === 'FAILED' && (
             <div className="space-y-2">
               <div role="alert" className="text-xs text-red-300 bg-red-950/40 border border-red-900 rounded-lg px-3 py-2">{episode.error || 'This part could not be made.'}</div>
-              <button type="button" onClick={retry} disabled={busy} className="px-3 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-xs font-semibold text-white flex items-center gap-1.5"><RotateCcw className="w-3.5 h-3.5" />Resume (finished clips are kept)</button>
+              <button type="button" onClick={retry} disabled={busy} className="px-3 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-xs font-semibold text-white flex items-center gap-1.5"><RotateCcw className="w-3.5 h-3.5" />Retry (finished clips are kept)</button>
             </div>
           )}
 
@@ -524,6 +567,21 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
           {lengthWarn && <p className="text-[11px] text-amber-300">That is more than the {secondsLeft} seconds you have left. It will be made until your seconds run out; you can buy extra seconds at any time and continue.</p>}
         </fieldset>
 
+        {!continuing && (
+          <div>
+            <p className="text-xs font-semibold text-slate-300 mb-1.5 flex items-center gap-1.5"><Sparkles className="w-3.5 h-3.5 text-fuchsia-400" />Quick start: pick a style and everything below is set for you</p>
+            <div className="flex gap-2 overflow-x-auto pb-1" role="group" aria-label="Quick start styles">
+              {PRESETS.map((p) => (
+                <button key={p.id} type="button" onClick={() => applyPreset(p.id)} title={p.hint} className="shrink-0 w-32 text-left px-3 py-2.5 rounded-xl border border-slate-800 bg-slate-950 hover:border-fuchsia-500/60 transition-colors">
+                  <span className="block text-lg" aria-hidden="true">{p.emoji}</span>
+                  <span className="block text-[11px] font-bold text-white leading-tight">{p.label}</span>
+                  <span className="block text-[10px] text-slate-400 leading-snug mt-0.5">{p.hint}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         <fieldset className="rounded-xl border border-indigo-500/30 bg-linear-to-b from-indigo-950/40 to-slate-950/60 p-3 space-y-3.5">
           <legend className="px-1 text-xs font-bold text-indigo-200 flex items-center gap-1.5"><Clapperboard className="w-3.5 h-3.5" />Director's chair</legend>
           <div>
@@ -584,6 +642,10 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
           </fieldset>
         )}
 
+        <label className="flex items-start gap-2 text-xs text-slate-300 cursor-pointer">
+          <input type="checkbox" checked={reviewFirst} onChange={(e) => setReviewFirst(e.target.checked)} className="mt-0.5 accent-indigo-500" />
+          <span><span className="font-semibold">Let me review and edit the script first.</span> The script is written, then waits for you. No video seconds are used until you approve it.</span>
+        </label>
         {errorBox}
         <button type="button" onClick={submit} disabled={busy} className="w-full py-3 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-xs font-semibold flex items-center justify-center gap-2">
           {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Clapperboard className="w-4 h-4" />}{continuing ? `Write and make Part ${partNumber}` : kind === 'series' ? (deliver === 'all' ? `Make all ${parts} parts` : 'Write and make Part 1') : 'Write and make the video'}
@@ -614,7 +676,7 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
       )}
       <ul className="space-y-3">
         {(projects || []).map((p) => {
-          const active = p.episodes.find((e) => isActive(e.status));
+          const active = p.episodes.find((e) => isOpen(e.status));
           const failed = !active ? p.episodes.find((e) => e.status === 'FAILED') : undefined;
           const done = p.episodes.filter((e) => e.status === 'COMPLETED').length;
           return (

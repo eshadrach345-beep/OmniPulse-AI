@@ -5,8 +5,9 @@ import {
 } from './lib/core.js';
 import { sql, ensureSchema } from './lib/db.js';
 import { PLANS, TIERS, Tier, Cycle, planId, tierFromPlanId, priceFor, BILLING_CURRENCY, TRIAL, TOPUPS, trialPrice } from './lib/plans.js';
-import { mail, flw, verifyFlwSignature, lookupEnv, geminiJson, geminiRaw, geminiSearch, geminiFormat, aiWriterStatus, falSubmit, falStatus, deapiSubmit, deapiStatus, deapiAnimate, RateLimited, synthesize } from './lib/services.js';
+import { mail, flw, verifyFlwSignature, lookupEnv, geminiJson, geminiRaw, geminiSearch, geminiFormat, aiWriterStatus, testAiWriters, falSubmit, falStatus, deapiSubmit, deapiStatus, deapiAnimate, RateLimited, synthesize } from './lib/services.js';
 import { trendsResearchPrompt, trendsFormatPrompt, scriptPrompt, abPrompt, competitorPrompt, outrankPrompt, parseStoryBrief, type SeriesContinuity, type StoryBriefInput, storyBeats, STORY_MOODS, CAMERA_PROFILES, GENRES, INTENSITIES, ENDINGS, PRESENTATIONS, CASTS, TROPES, styleBlock, STORY_LIMITS, planScenes, castMinimum, storyboardPrompt, outlinePrompt, chunkPrompt, adaptPrompt, PART_SECONDS, SCENES_PER_WRITER_CALL, MAX_WORDS_PER_CLIP } from './lib/prompts.js';
+import { assembleParts } from './lib/assemble.js';
 import { refineScene, shownInstruction, proseToUnits, thoughtToVisual, type SpokenLine } from './lib/screenplay.js';
 import { ppConfigured, ppConnectUrl, ppSync, ppForget, ppPublish, ppHealth } from './lib/postpeer.js';
 import { mergeClips, lastFrameJpeg } from './lib/merge.js';
@@ -512,7 +513,6 @@ const clipWords = (text: string, maxWords: number) => {
 };
 
 /** The longest render prompt the /video/render endpoint accepts. */
-const RENDER_PROMPT_MAX = 2380;
 
 /**
  * Writes a multi-scene storyboard and prepares every scene for rendering.
@@ -585,8 +585,8 @@ async function prepareStory(row: any, user: { secondsLimit: number }, input: Sto
 }
 
 type StoryCtx = Awaited<ReturnType<typeof prepareStory>>;
-const WRITER_OPTS = { timeoutMs: 44_000, deadlineMs: 52_000, maxTokens: 2800 };
-const CHUNK = 3;
+const WRITER_OPTS = { timeoutMs: 44_000, deadlineMs: 52_000, maxTokens: 12_000 };
+const CHUNK = 6;
 
 /**
  * Writes the storyboard, one bounded step at a time.
@@ -601,7 +601,7 @@ async function writeStoryboard(row: any, user: { secondsLimit: number }, input: 
 
   // long part: outline first
   if (!draft?.outline) {
-    const o: any = (await geminiRaw(outlinePrompt({ ...base, castMin }), { timeoutMs: 40_000, deadlineMs: 50_000, maxTokens: 2500 })).data || {};
+    const o: any = (await geminiRaw(outlinePrompt({ ...base, castMin }), { timeoutMs: 40_000, deadlineMs: 50_000, maxTokens: 7_000 })).data || {};
     const outline = (Array.isArray(o.outline) ? o.outline : []).map((x: any, i: number) => ({ sceneNumber: Number(x?.sceneNumber) || i + 1, summary: str(x?.summary, 300) })).filter((x: any) => x.summary);
     if (outline.length < Math.ceil(plan.scenes.length * 0.6) || !Array.isArray(o.characters) || !o.characters.length) throw new HttpError(424, 'The story plan came back incomplete. Retrying.', 'GEMINI');
     return { done: false, draft: { ...o, outline, scenes: [] } };
@@ -610,9 +610,9 @@ async function writeStoryboard(row: any, user: { secondsLimit: number }, input: 
   const total = plan.scenes.length;
   const have = (draft.scenes || []).length;
   const ranges: [number, number][] = [];
-  for (let f = have + 1; f <= total && ranges.length < 1; f += CHUNK) ranges.push([f, Math.min(total, f + CHUNK - 1)]);
+  for (let f = have + 1; f <= total && ranges.length < 2; f += CHUNK) ranges.push([f, Math.min(total, f + CHUNK - 1)]);
   const writerPlan = { title: str(draft.title, 100), logline: str(draft.logline, 300), characters: draft.characters || [], outline: draft.outline };
-  const outs = await Promise.all(ranges.map(([f, t]) => geminiRaw(chunkPrompt(base, writerPlan, f, t), { timeoutMs: 40_000, deadlineMs: 50_000, maxTokens: 2800 })));
+  const outs = await Promise.all(ranges.map(([f, t]) => geminiRaw(chunkPrompt(base, writerPlan, f, t), { timeoutMs: 40_000, deadlineMs: 50_000, maxTokens: 9_000 })));
   const scenes = [...(draft.scenes || [])];
   outs.forEach((o, i) => {
     const got: any[] = Array.isArray((o.data as any)?.scenes) ? (o.data as any).scenes : [];
@@ -902,17 +902,8 @@ function finishStory(ctx: StoryCtx, d: any, input: StoryInput) {
   } else modelChars.forEach((c: any) => addChar(c?.name, c?.role, c?.gender, c?.description, c?.voice, c?.kind));
   const protagonist = brief.characterLock || continuity?.characters.length ? characters[0] : undefined;
 
-  const aspectHint = aspect === '9:16' ? 'Vertical 9:16 framing.' : aspect === '1:1' ? 'Square 1:1 framing.' : 'Wide 16:9 framing.';
   const beats = storyBeats(plan.scenes.length);
   const lockKey = brief.characterLock ? brief.characterLock.descriptor.toLowerCase().slice(0, 40) : '';
-  const spokenFor = (ls: { speaker: string; text: string; emotion?: string; doing?: string }[]) => ls.map((l) => {
-    const ch = characters.find((c) => c.name.toLowerCase() === l.speaker.toLowerCase());
-    const v = ch?.voice || (ch?.gender === 'female' ? 'a female voice' : 'a male voice');
-    const words = l.text.replace(/"/g, "'");
-    const how = l.emotion ? `, ${l.emotion.replace(/[.\s]+$/, '')}` : '', act = l.doing ? ` while ${l.doing.replace(/^while\s+/i, '').replace(/[.\s]+$/, '')}` : '';
-    return l.speaker.toLowerCase() === 'narrator' ? `A narrator, off screen, speaking in the voice of ${v}, says: "${words}"` : `${l.speaker}, speaking in the voice of ${v}${how}${act}, says: "${words}"`;
-  }).join(' Then ');
-
   type Line = { speaker: string; text: string; half: 1 | 2; emotion?: string; doing?: string };
   const scenes: any[] = [];
   const narration = { narratorLines: 0 };
@@ -946,33 +937,11 @@ function finishStory(ctx: StoryCtx, d: any, input: StoryInput) {
     const cameraMotion = modelCam.length >= 8 ? modelCam : cam.direct;
     const second = str(sc?.secondHalfAction, 400);
 
-    const genreLook = GENRES[brief.genre]?.render, energy = presentation === 'movie' ? INTENSITIES[brief.intensity]?.render : '';
-    const openers = {
-      movie: 'Cinematic live-action movie scene with continuous physical action: the people are always moving and doing things, interacting with the place and each other, never posing, never facing the camera, never giving a speech.',
-      dialogue: 'Cinematic dramatic scene with natural, believable acting: the people talk to each other in the place, with natural gestures and movement, never looking into the camera.',
-      narrated: 'Cinematic film footage of the story with natural movement: nobody speaks on camera and no lips move.',
-      shortdrama: 'Cinematic vertical short-drama scene with emotionally intense, believable acting: people confront each other in the place, with tight reaction close-ups, strong body language and movement, never looking into the camera.',
-    } as const;
-    const fixed = `${openers[presentation]} Camera: ${cameraMotion}. Mood and grade: ${mood.render}.${genreLook ? ` Genre look: ${genreLook}.` : ''}${energy ? ` Energy: ${energy}.` : ''} Visual look: ${look}. ${aspectHint} No text, captions or subtitles in the picture.`;
-    const parts = [];
-    for (let h = 1; h <= halves; h++) {
-      const mine = lines.filter((l) => l.half === h);
-      const tails = {
-        movie: mine.length ? `Audio: the lines below are spoken inside the scene, in the middle of the action and never to the camera, with accurate lip sync and realistic sound effects (footsteps, impacts, wind, crashes, breathing). No music. Each person finishes their whole sentence and stops speaking a moment before the clip ends. ${spokenFor(mine)}` : 'Audio: realistic sound effects and ambient sound of the action (footsteps, impacts, wind, crashes), no music, no speech.',
-        dialogue: mine.length ? `Audio: clear natural spoken dialogue, unhurried and human, with accurate lip sync and matching room sound, no music. Each person finishes their whole sentence and stops speaking a moment before the clip ends. ${spokenFor(mine)}` : 'Audio: natural room sound, no music, no speech.',
-        shortdrama: mine.length ? `Audio: clear, emotional spoken dialogue delivered to the other person in the scene, with accurate lip sync and matching room sound, no music. Each person finishes their whole sentence and stops speaking a moment before the clip ends. ${spokenFor(mine)}` : 'Audio: tense room sound and small realistic sounds, no music, no speech.',
-        narrated: mine.length ? `Audio: a calm off-screen narrator reads the line below as a voice-over, over natural ambient sound. No music. Nobody on screen speaks. ${spokenFor(mine)}` : 'Audio: natural ambient sound, no music, no speech.',
-      } as const;
-      const tail = `${tails[presentation]}${soundText && h === 1 ? ` Sounds in this scene: ${soundText}.` : ''}`;
-      const lead = h === 1 ? '' : `Continuing seamlessly from the previous moment, with no cut, in the same place and with the same characters: ${(second || 'the action carries on naturally and the moment develops').replace(/[.\s]+$/, '')}. `;
-      // The second half starts from the first half's last picture, so it only describes the next beat. Repeating the opening description makes the video jump back.
-      const visual = h === 1 ? str(visualBase, Math.max(200, RENDER_PROMPT_MAX - fixed.length - tail.length - lead.length - 4)) : 'The same people, place and light as in the picture it starts from.';
-      parts.push({ seconds: PART_SECONDS, kind: h === 1 ? 'text' : 'continue', prompt: `${lead}${visual} ${fixed} ${tail}`.slice(0, RENDER_PROMPT_MAX), lines: mine.map((l) => ({ speaker: l.speaker, text: l.text })) });
-    }
+    const parts = assembleParts({ presentation, brief: { genre: brief.genre, intensity: brief.intensity }, mood: { render: mood.render }, look, aspect, cameraMotion, halves, lines, visualBase, second, soundText, characters });
     scenes.push({
       id: `s${scenes.length + 1}`, sceneId: `scene-${String(scenes.length + 1).padStart(2, '0')}`, sceneNumber: scenes.length + 1, beat: beats[i] || '',
       visualPrompt: str(visualBase, 900), secondHalfAction: second, voiceoverText: lines.map((l) => l.text).join(' '), cameraMotion, sound: soundText,
-      lines: lines.map((l) => ({ speaker: l.speaker, text: l.text, half: l.half })), clipSeconds: len, parts,
+      lines: lines.map((l) => ({ speaker: l.speaker, text: l.text, emotion: l.emotion || '', doing: l.doing || '', half: l.half })), clipSeconds: len, parts,
     });
   }
   const need = Math.max(1, Math.ceil(plan.scenes.length * (script ? 0.34 : 0.67)));
@@ -1062,10 +1031,12 @@ const systemCheck: Handler = async ({ req, res }) => {
       const d: any = await r.json().catch(() => ({}));
       return `${process.env.DEAPI_FRAMES ? 'Note: DEAPI_FRAMES is no longer used and can be deleted from Vercel. ' : ''}Key accepted by deAPI.${d?.data?.balance !== undefined ? ` Balance: ${d.data.balance}.` : ''} Active provider: ${(process.env.VIDEO_PROVIDER || 'fal').toLowerCase()}.`;
     }),
-    run('AI writer backup (LLM_API_KEY)', async () => {
-      const w = aiWriterStatus();
-      if (!w.backupConfigured) return `Not set up (recommended). Gemini's free plan allows only a few requests a day, so add LLM_API_KEY (for example a free Groq key) so scripts never stop. ${w.geminiBlockedSeconds > 0 ? `Gemini is out of quota for about ${w.geminiBlockedSeconds} more seconds.` : ''}`.trim();
-      return `Ready (${w.backupModel}). Scripts switch to it automatically when Gemini is out of quota.${w.geminiBlockedSeconds > 0 ? ` Gemini is resting for about ${w.geminiBlockedSeconds} seconds.` : ''}`;
+    run('AI writers (Gemini and backups)', async () => {
+      const results = await testAiWriters();
+      if (!results.length) throw new Error('No AI key is set. Add GEMINI_API_KEY, and a backup such as GROQ_API_KEY or OPENROUTER_API_KEY (or LLM_API_KEY with any service), in Vercel and redeploy.');
+      const line = results.map((r) => `${r.ok ? 'OK' : 'PROBLEM'} - ${r.name}: ${r.message}`).join(' | ');
+      if (!results.some((r) => r.ok)) throw new Error(`No AI writer is working. ${line}`);
+      return `${line}${results.every((r) => r.ok) ? '' : ' | Scripts still work because at least one writer is OK.'}${aiWriterStatus().backupConfigured ? '' : ' | Tip: add a backup writer so scripts never stop when Gemini is out of quota.'}`;
     }),
     run('Resend (emails)', async () => {
       const key = lookupEnv('RESEND_API_KEY')?.value; if (!key) throw new Error('RESEND_API_KEY is not set in Vercel.'); const from = need('EMAIL_FROM');
@@ -1430,6 +1401,7 @@ async function streamMergedVideo(res: Res, urls: string[], name: string) {
     res.setHeader('Content-Length', String(size));
     res.setHeader('Content-Disposition', `attachment; filename="${safeName(name)}.mp4"`);
     res.setHeader('Cache-Control', 'private, no-store');
+    res.setHeader('X-Join-Cache', (merged as any).cached ? 'hit' : 'miss');
     await new Promise<void>((resolve, reject) => { const rs = createReadStream(merged.file); rs.on('error', reject); rs.on('end', () => resolve()); res.on('close', () => resolve()); rs.pipe(res); });
   } finally { await merged.cleanup(); }
 }
@@ -1451,6 +1423,8 @@ async function streamMergedVideo(res: Res, urls: string[], name: string) {
 // step that dies with its serverless instance is simply picked up again when the lease runs out.
 
 const ACTIVE_STATUSES = ['PROCESSING', 'RENDERING'];
+/** A part that is being made, paused, or waiting for the person to review its script. Only one part of a story can be open at a time. */
+const OPEN_STATUSES = ['PROCESSING', 'RENDERING', 'PAUSED', 'REVIEW'];
 const MAX_SCRIPT_ATTEMPTS = 8;
 const MAX_PART_TRIES = 3;
 const EPISODE_TIMEOUT_MS = 3 * 3600_000;
@@ -1492,7 +1466,7 @@ function episodeView(e: any) {
     : en.parts.some((p) => p.jobId) ? 'rendering' : 'waiting');
   const cfg = e.brief || {};
   const note = e.status === 'PROCESSING' && Number(e.attempts) > 0
-    ? (String(e.error || '').trim() || ((e.brief || {}).mode === 'paste' ? 'The AI helper could not finish that step. It will retry automatically.' : 'The AI writer could not finish that step. It will retry automatically.'))
+    ? ((e.brief || {}).mode === 'paste' ? 'The AI helper was busy, so it is trying again. If it is still busy, your script will be used exactly as you pasted it.' : 'The AI writer was busy, so it is trying again by itself. Nothing is lost.')
     : e.status === 'RENDERING' && e.error ? String(e.error) : '';
   return {
     id: e.id as string, projectId: e.project_id as string, partNumber: e.part_number as number, status: e.status as string,
@@ -1504,6 +1478,12 @@ function episodeView(e: any) {
     mode: cfg.mode === 'paste' ? 'paste' : 'ai', hasRemainingScript: !!sb.remainingScript,
     targetParts: Number(e.target_parts) || 1, autoContinue: !!e.auto_continue,
     brief: e.brief || {},
+    reviewFirst: !!cfg.reviewFirst,
+    editable: (e.status === 'REVIEW' || (e.status === 'PAUSED' && partsDone === 0 && !entries.some((en) => en.parts.some((p) => p.jobId)))) && scenes.length > 0
+      ? { characters: (sb.characters || []).map((c: any) => String(c.name)).concat(sb.brief?.presentation === 'narrated' || (sb.characters || []).some((c: any) => String(c.name).toLowerCase() === 'narrator') ? [] : ['Narrator']),
+          scenes: scenes.map((sc: any) => ({ number: sc.sceneNumber, visual: String(sc.visualPrompt || ''), second: String(sc.secondHalfAction || ''), camera: String(sc.cameraMotion || ''), sound: String(sc.sound || ''), halves: (sc.parts || []).length || 1,
+            lines: (sc.lines || []).map((l: any) => ({ speaker: String(l.speaker), text: String(l.text), emotion: String(l.emotion || ''), doing: String(l.doing || ''), half: Number(l.half) === 2 ? 2 : 1 })) })) }
+      : null,
     characters: (Array.isArray(sb.characters) ? sb.characters : []).map((c: any) => ({ name: String(c.name || ''), role: String(c.role || ''), gender: c.gender === 'female' ? 'female' : 'male', voice: String(c.voice || '') })),
     notes: Array.isArray(sb.notes) ? sb.notes.map(String) : [],
     scenes: scenes.map((sc) => ({
@@ -1549,8 +1529,8 @@ const episodeCreate: Handler = async ({ req, res, body }) => {
   if (projectId) {
     const project = ((await sql()`SELECT id FROM projects WHERE id = ${projectId} AND user_id = ${row.id}`) as any[])[0];
     if (!project) throw new HttpError(404, 'Project not found.');
-    const active = (await sql()`SELECT part_number FROM episodes WHERE project_id = ${projectId} AND status IN ('PROCESSING', 'RENDERING') LIMIT 1`) as any[];
-    if (active.length) throw new HttpError(409, `Part ${active[0].part_number} is still being made. Wait for it to finish before starting the next part.`, 'SERIES_BUSY');
+    const active = (await sql()`SELECT part_number FROM episodes WHERE project_id = ${projectId} AND status IN ('PROCESSING', 'RENDERING', 'PAUSED', 'REVIEW') LIMIT 1`) as any[];
+    if (active.length) throw new HttpError(409, `Part ${active[0].part_number} is still open (being made, paused, or waiting for your review). Finish or resume it before starting the next part.`, 'SERIES_BUSY');
     await sql()`DELETE FROM episodes WHERE project_id = ${projectId} AND status = 'FAILED' AND render_jobs IS NULL`; // a failed part with no finished clips gives its number back; ones with clips are kept so they can be retried
     const last = (await sql()`SELECT COALESCE(max(part_number), 0)::int AS n FROM episodes WHERE project_id = ${projectId}`) as any[];
     partNumber = last[0].n + 1;
@@ -1563,7 +1543,7 @@ const episodeCreate: Handler = async ({ req, res, body }) => {
   }
 
   const episodeId = newId('ep');
-  const settings = { format: input.format, look: input.look, aspect: input.aspect, niche: input.niche, brief: input.brief, mode, script, direction };
+  const settings = { format: input.format, look: input.look, aspect: input.aspect, niche: input.niche, brief: input.brief, mode, script, direction, reviewFirst: body.reviewFirst === true, approved: false };
   try {
     await sql()`INSERT INTO episodes (id, project_id, part_number, prompt_input, status, brief) VALUES (${episodeId}, ${projectId}, ${partNumber}, ${input.idea}, 'PROCESSING', ${jsonb(settings)}::jsonb)`;
   } catch (e: any) {
@@ -1601,11 +1581,12 @@ async function stageScript(row: any, user: ReturnType<typeof toUser>, ep: any) {
     ? await adaptPastedScript(row, user, storyInput)
     : await writeStoryboard(row, user, storyInput, ep.storyboard_json?.draft);
   if ('draft' in out) {
-    await sql()`UPDATE episodes SET storyboard_json = ${jsonb({ draft: out.draft })}::jsonb, attempts = 0, updated_at = now() WHERE id = ${ep.id} AND status = 'PROCESSING'`;
+    await sql()`UPDATE episodes SET storyboard_json = ${jsonb({ draft: out.draft })}::jsonb, attempts = 0, updated_at = now() WHERE id = ${ep.id}`;
     return;
   }
   const sb = (out as { sb: any }).sb;
-  await sql()`UPDATE episodes SET storyboard_json = ${jsonb(sb)}::jsonb, status = 'RENDERING', render_jobs = NULL, error = NULL, attempts = 0, updated_at = now() WHERE id = ${ep.id} AND status = 'PROCESSING'`;
+  const next = cfg.reviewFirst && !cfg.approved ? 'REVIEW' : 'RENDERING';
+  await sql()`UPDATE episodes SET storyboard_json = ${jsonb(sb)}::jsonb, status = CASE WHEN status = 'PROCESSING' THEN ${next} ELSE status END, render_jobs = NULL, error = NULL, attempts = 0, locked_until = NULL, created_at = now(), updated_at = now() WHERE id = ${ep.id} AND status IN ('PROCESSING', 'PAUSED')`;
   await sql()`UPDATE projects SET title = CASE WHEN title = '' THEN ${str(sb.title, 100)} ELSE title END, updated_at = now() WHERE id = ${ep.project_id}`;
 }
 
@@ -1656,7 +1637,7 @@ async function stageRender(row: any, user: ReturnType<typeof toUser>, ep: any): 
   const aspect = String(ep.brief?.aspect || '9:16');
   const entries = normalizeEntries(ep.render_jobs, scenes);
   const t0 = Date.now(), left = () => STEP_BUDGET_MS - (Date.now() - t0);
-  const save = () => sql()`UPDATE episodes SET render_jobs = ${jsonb(entries)}::jsonb, updated_at = now() WHERE id = ${ep.id} AND status = 'RENDERING'`;
+  const save = () => sql()`UPDATE episodes SET render_jobs = ${jsonb(entries)}::jsonb, updated_at = now() WHERE id = ${ep.id}`;
   let wait = 0;
   let note: string | null = null;
 
@@ -1723,7 +1704,7 @@ async function completeEpisode(ep: any, _entries: RenderEntry[]) {
     const remainder = !!ep.storyboard_json?.remainingScript;
     const next = ep.part_number + 1, last = next === Number(project.target_parts);
     const idea = remainder ? 'Continue with the saved script.' : `Part ${next} of ${project.target_parts}: carry the story forward and raise the stakes${last ? '. This is the final part, so bring every thread to a satisfying ending' : ''}.`;
-    await sql()`INSERT INTO episodes (id, project_id, part_number, prompt_input, status, brief) VALUES (${newId('ep')}, ${ep.project_id}, ${next}, ${idea}, 'PROCESSING', ${jsonb({ ...cfg, mode: remainder ? 'paste' : 'ai', script: '', direction: '' })}::jsonb) ON CONFLICT DO NOTHING`;
+    await sql()`INSERT INTO episodes (id, project_id, part_number, prompt_input, status, brief) VALUES (${newId('ep')}, ${ep.project_id}, ${next}, ${idea}, 'PROCESSING', ${jsonb({ ...cfg, approved: false, mode: remainder ? 'paste' : 'ai', script: '', direction: '' })}::jsonb) ON CONFLICT DO NOTHING`;
   }
 }
 
@@ -1750,7 +1731,7 @@ async function advanceEpisode(row: any, user: ReturnType<typeof toUser>, ep: any
     const attempts = (cur.attempts || 0) + 1;
     const permanent = e instanceof HttpError && [400, 402, 403, 409].includes(e.status);
     if (permanent || attempts >= MAX_SCRIPT_ATTEMPTS) await failEpisode(ep.id, String(e?.message || 'Something went wrong while making this part.'));
-    else { const pause = Math.min(45, 4 * 2 ** (attempts - 1)); const reason = String(e?.message || 'The AI provider failed without a message.').replace(/[\r\n]+/g, ' ').slice(0, 260); await sql()`UPDATE episodes SET attempts = ${attempts}, error = ${reason}, locked_until = now() + ${pause}::int * interval '1 second' WHERE id = ${ep.id} AND status = ${cur.status}`; } // preserve the actual cause for the UI while retrying
+    else { const pause = Math.min(45, 4 * 2 ** (attempts - 1)); await sql()`UPDATE episodes SET attempts = ${attempts}, locked_until = now() + ${pause}::int * interval '1 second' WHERE id = ${ep.id}`; } // growing pause, then the next poll tries again
   }
   return reload();
 }
@@ -1769,18 +1750,6 @@ const episodeRetry: Handler = async ({ req, res, body }) => {
     await sql()`UPDATE episodes SET status = 'RENDERING', render_jobs = ${jsonb(entries)}::jsonb, error = NULL, attempts = 0, locked_until = NULL, created_at = now(), updated_at = now() WHERE id = ${ep.id}`;
   }
   json(res, 200, { ok: true });
-};
-
-const episodeStop: Handler = async ({ req, res, body }) => {
-  const { row } = await requireAccess(req);
-  const id = str(body.id, 80);
-  const ep = await loadOwnedEpisode(row.id, id);
-  if (!ACTIVE_STATUSES.includes(ep.status)) {
-    json(res, 200, { ok: true, stopped: false, status: ep.status, message: 'This process is no longer running.' });
-    return;
-  }
-  const stopped = (await sql()`UPDATE episodes SET status = 'FAILED', error = 'Stopped by you. Finished clips are kept; tap Resume to continue later.', locked_until = NULL, updated_at = now() WHERE id = ${id} AND status IN ('PROCESSING', 'RENDERING') RETURNING id`) as any[];
-  json(res, 200, { ok: true, stopped: stopped.length > 0, status: stopped.length ? 'FAILED' : 'PROCESSING' });
 };
 
 const episodeStatus: Handler = async ({ req, res, query }) => {
@@ -1803,7 +1772,7 @@ const projectGet: Handler = async ({ req, res, query }) => {
   if (!project) throw new HttpError(404, 'Project not found.');
   const eps = ((await sql()`SELECT e.*, p.user_id, p.title AS project_title, p.target_parts, p.auto_continue FROM episodes e JOIN projects p ON p.id = e.project_id WHERE e.project_id = ${project.id} ORDER BY e.part_number`) as any[]).map(episodeView);
   const lastDone = [...eps].reverse().find((e) => e.status === 'COMPLETED');
-  const active = eps.find((e) => ACTIVE_STATUSES.includes(e.status));
+  const active = eps.find((e) => OPEN_STATUSES.includes(e.status));
   json(res, 200, {
     project: { id: project.id, targetParts: Number(project.target_parts) || 1, autoContinue: !!project.auto_continue, title: project.title || 'Untitled series', genre: project.genre, createdAt: iso(project.created_at), updatedAt: iso(project.updated_at), characters: project.character_db?.characters || [] },
     episodes: eps,
@@ -1833,6 +1802,58 @@ const episodeVideo: Handler = async ({ req, res, query }) => {
   await streamMergedVideo(res, urls, `${ep.project_title || 'series'} part ${ep.part_number}`);
 };
 
+/** Pauses a part. Clips that were already sent to the video provider keep rendering there and are collected when the part is resumed. */
+const episodePause: Handler = async ({ req, res, body }) => {
+  const { row } = await requireAccess(req);
+  const ep = await loadOwnedEpisode(row.id, str(body.id, 80));
+  if (!ACTIVE_STATUSES.includes(ep.status)) throw new HttpError(409, 'Only a part that is being made can be paused.', 'SERIES_STATE');
+  await sql()`UPDATE episodes SET status = 'PAUSED', locked_until = NULL, updated_at = now() WHERE id = ${ep.id} AND status IN ('PROCESSING', 'RENDERING')`;
+  json(res, 200, { ok: true });
+};
+
+/** Carries on where a paused part stopped: writing the script, waiting for review, or rendering the clips that are missing. */
+const episodeResume: Handler = async ({ req, res, body }) => {
+  const { row, user } = await requireAccess(req);
+  const ep = await loadOwnedEpisode(row.id, str(body.id, 80));
+  if (ep.status !== 'PAUSED') throw new HttpError(409, 'This part is not paused.', 'SERIES_STATE');
+  if ((await secondsAvailable(row, user)) < PART_SECONDS) throw new HttpError(403, 'You have no video seconds left. Buy extra seconds or upgrade your plan, then resume.', 'LIMIT');
+  const cfg = ep.brief || {};
+  const hasScript = Array.isArray(ep.storyboard_json?.scenes) && ep.storyboard_json.scenes.length > 0;
+  const next = !hasScript ? 'PROCESSING' : cfg.reviewFirst && !cfg.approved ? 'REVIEW' : 'RENDERING';
+  await sql()`UPDATE episodes SET status = ${next}, locked_until = NULL, attempts = 0, error = NULL, created_at = now(), updated_at = now() WHERE id = ${ep.id} AND status = 'PAUSED'`;
+  json(res, 200, { ok: true, status: next });
+};
+
+/** Saves the person's changes to the script of a part that has not started rendering, and optionally starts the video. */
+const episodeEdit: Handler = async ({ req, res, body }) => {
+  const { row, user } = await requireAccess(req);
+  await rateLimit(`edit:${row.id}`, 120, 3600);
+  const ep = await loadOwnedEpisode(row.id, str(body.id, 80));
+  const view = episodeView(ep);
+  if (!view.editable) throw new HttpError(409, 'This script can only be edited before the video starts rendering.', 'SERIES_STATE');
+  const sb = ep.storyboard_json || {}, cfg = ep.brief || {};
+  const oldScenes: any[] = sb.scenes || [];
+  const edits: any[] = Array.isArray(body.scenes) ? body.scenes : [];
+  if (edits.length !== oldScenes.length) throw new HttpError(400, 'The script has a different number of scenes than the saved one. Reload and try again.');
+  const names = new Map<string, string>((sb.characters || []).map((c: any) => [String(c.name).toLowerCase(), String(c.name)] as [string, string]));
+  names.set('narrator', 'Narrator');
+  const mood = STORY_MOODS[(sb.brief?.mood as keyof typeof STORY_MOODS)] || STORY_MOODS.cinematic_trailer;
+  const scenes = oldScenes.map((sc, i) => {
+    const e = edits[i] || {};
+    const halves = (sc.parts || []).length || 1;
+    const lines = packLines((Array.isArray(e.lines) ? e.lines : []).slice(0, 8).map((l: any) => ({ speaker: names.get(str(l?.speaker, 30).toLowerCase()) || '', text: str(l?.text, 260), emotion: str(l?.emotion, 30), doing: str(l?.doing, 70) })).filter((l: any) => l.speaker && l.text), halves);
+    const visual = str(e.visual, 900) || sc.visualPrompt, second = str(e.second, 300), camera = str(e.camera, 200) || sc.cameraMotion, sound = str(e.sound, 160);
+    const parts = assembleParts({ presentation: sb.brief?.presentation || 'movie', brief: { genre: sb.brief?.genre || 'auto', intensity: sb.brief?.intensity || 'balanced' }, mood: { render: mood.render }, look: cfg.look || 'cinematic', aspect: cfg.aspect || '9:16', cameraMotion: camera, halves, lines, visualBase: visual, second, soundText: sound, characters: sb.characters || [] });
+    return { ...sc, visualPrompt: str(visual, 900), secondHalfAction: second, cameraMotion: camera, sound, voiceoverText: lines.map((l) => l.text).join(' '), lines: lines.map((l) => ({ speaker: l.speaker, text: l.text, emotion: l.emotion || '', doing: l.doing || '', half: l.half })), parts };
+  });
+  const updated = { ...sb, title: str(body.title, 100) || sb.title, scenes };
+  const start = body.start === true && ep.status === 'REVIEW';
+  if (start && (await secondsAvailable(row, user)) < PART_SECONDS) throw new HttpError(403, 'You have no video seconds left. Buy extra seconds or upgrade your plan first.', 'LIMIT');
+  await sql()`UPDATE episodes SET storyboard_json = ${jsonb(updated)}::jsonb, render_jobs = NULL, brief = brief || ${jsonb(start ? { approved: true } : {})}::jsonb,
+    status = ${start ? 'RENDERING' : ep.status}, locked_until = NULL, attempts = 0, error = NULL, created_at = now(), updated_at = now() WHERE id = ${ep.id} AND status IN ('REVIEW', 'PAUSED')`;
+  json(res, 200, { ok: true, started: start });
+};
+
 // ---------------------------------------------------------------- router
 const routes: Record<string, Handler> = {
   'POST /auth/register': register, 'POST /auth/verify': verifyEmail, 'POST /auth/resend': resend, 'POST /auth/login': login,
@@ -1848,7 +1869,7 @@ const routes: Record<string, Handler> = {
   'POST /video/render': videoRender, 'GET /video/status': videoStatus,
   'GET /social/accounts': socialAccounts, 'POST /social/sync': socialSync, 'GET /video/download': videoDownload, 'GET /video/merge': videoMerge, 'GET /social/connect': socialConnect, 'GET /social/callback': socialCallback,
   'POST /social/disconnect': socialDisconnect, 'GET /social/metrics': socialMetricsRoute, 'POST /social/publish': socialPublish,
-  'POST /episodes/create': episodeCreate, 'POST /episodes/retry': episodeRetry, 'POST /episodes/stop': episodeStop, 'GET /episodes/status': episodeStatus, 'GET /episodes/video': episodeVideo, 'GET /projects': projectsList, 'GET /projects/get': projectGet,
+  'POST /episodes/create': episodeCreate, 'POST /episodes/retry': episodeRetry, 'GET /episodes/status': episodeStatus, 'POST /episodes/pause': episodePause, 'POST /episodes/resume': episodeResume, 'POST /episodes/edit': episodeEdit, 'GET /episodes/video': episodeVideo, 'GET /projects': projectsList, 'GET /projects/get': projectGet,
   'GET /cron/dispatch': cronDispatch, 'POST /cron/dispatch': cronDispatch,
   'GET /system/check': systemCheck,
   'GET /health': async ({ res }) => json(res, 200, {

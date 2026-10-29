@@ -13,9 +13,12 @@ They are *not* needed in Google AI Studio. This app runs on Vercel, not in the A
 | `GEMINI_API_KEY` | Google AI Studio key |
 | `GEMINI_MODEL` | Optional. Default `gemini-3.8-flash` with automatic fallbacks |
 | `GEMINI_MODEL` | Recommended: `gemini-2.5-flash-lite` (cheap and fast) or `gemini-2.5-flash`. Leave unset to try both automatically |
-| `LLM_API_KEY` | Backup AI writer key. Also accepts `GROQ_API_KEY`, `OPENROUTER_API_KEY`, `OPENAI_API_KEY`, or `MISTRAL_API_KEY` if `LLM_API_KEY` is not set. Used automatically when Gemini is out of quota |
-| `LLM_BASE_URL` | Optional OpenAI-compatible API base URL. Defaults to the matching endpoint for recognized provider-specific key names, otherwise Groq |
-| `LLM_MODEL` | Optional model name. Defaults to a provider-specific model when a provider-specific key is used, otherwise `openai/gpt-oss-120b` |
+| `GEMINI_API_KEY` | Main AI writer. You can add more free keys from other Google projects as `GEMINI_API_KEY_2` to `GEMINI_API_KEY_5` (or put them all in `GEMINI_API_KEYS`, separated by commas). When one key runs out of its free quota the next one is used |
+| `LLM_API_KEY` | Backup AI writer. It works with any service: the service is recognised from the key (`gsk_` Groq, `sk-or-` OpenRouter, `sk-` OpenAI, `xai-` xAI, `csk-` Cerebras, `sk-ant-` Anthropic). For any other service also set `LLM_BASE_URL` (for example `https://api.example.com/v1`) and optionally `LLM_MODEL` |
+| `GROQ_API_KEY`, `OPENROUTER_API_KEY`, `OPENAI_API_KEY`, `DEEPSEEK_API_KEY`, `MISTRAL_API_KEY`, `CEREBRAS_API_KEY`, `TOGETHER_API_KEY`, `XAI_API_KEY`, `ANTHROPIC_API_KEY` | Alternative ways to add backup writers. Every one that is set is tried in turn after Gemini |
+| `LLM_PRIMARY` | Set to `backup` to try the backup writers before Gemini |
+| `LLM_BASE_URL` | Optional. Default `https://api.groq.com/openai/v1` |
+| `LLM_MODEL` | Optional. Default `llama-3.3-70b-versatile` |
 | `LLM_PRIMARY` | Optional. Set to `backup` to use the backup AI first and keep Gemini for live search only |
 | `VIDEO_PROVIDER` | Optional. `fal` (default), `deapi`, or `auto` (fal first, deAPI if fal fails) |
 | `DEAPI_API_KEY` | Optional second video provider (deapi.ai, free starter credit) |
@@ -62,3 +65,9 @@ Apps in development mode only work for accounts added as testers in each develop
 Scheduled posts are stored in the database and sent by `GET /api/cron/dispatch`. Set `CRON_SECRET`, then call
 `https://YOUR-DOMAIN/api/cron/dispatch` every 5 minutes with header `Authorization: Bearer <CRON_SECRET>` (or `?key=<CRON_SECRET>`).
 Use Vercel Cron on a Pro plan, or a free pinger such as cron-job.org. "Publish now" works without this.
+
+
+## If scripts say "the AI writer is at its limit"
+1. Open Settings, System check (owner only) and run it. The "AI writers" row tests every key with a tiny request and tells you exactly what is wrong (key rejected, out of quota, wrong model, no internet).
+2. A key that is rejected (401) is wrong or inactive: copy it again with no spaces, then **redeploy** (Vercel only reads new variables on a new deploy).
+3. Add a second source of capacity: a free Groq key as `GROQ_API_KEY`, or another Gemini key from a different Google project as `GEMINI_API_KEY_2`.

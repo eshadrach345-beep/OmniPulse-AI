@@ -387,7 +387,6 @@ const ENV_ALIASES = {
     FAL_KEY: ['FAL_KEY', 'FAL_AI_API_KEY', 'FAL_API_KEY', 'FAL_AI_KEY', 'FALAI_API_KEY', 'FAL_SECRET'],
     RESEND_API_KEY: ['RESEND_API_KEY', 'RESEND_KEY'],
     DEAPI_API_KEY: ['DEAPI_API_KEY', 'DEAPI_KEY', 'DE_API_KEY'],
-    LLM_API_KEY: ['LLM_API_KEY', 'GROQ_API_KEY', 'OPENROUTER_API_KEY', 'OPENAI_API_KEY', 'MISTRAL_API_KEY'],
 };
 /** Returns the value and the variable name that held it (accepts common alternative names). */
 const lookupEnv = (name, ...alts) => {
@@ -585,7 +584,7 @@ async function withModels(key, deadline, run) {
             }
             catch (e) {
                 last = e instanceof GeminiFail ? e : new GeminiFail(0, e?.message || 'Gemini failed');
-                if (last.keyBad || last.status === 429 || last.status === 503 || /quota|RESOURCE_EXHAUSTED|overloaded|rate.?limit/i.test(last.message))
+                if (last.keyBad)
                     return null;
             }
         }
@@ -597,132 +596,230 @@ async function withModels(key, deadline, run) {
     if (hit)
         return hit;
     console.error('Gemini failed:', last.status, last.message);
-    noteGeminiFailure(last);
+    noteGeminiFailure(last, key);
     throw geminiError(last.status, last.message, last.keyBad);
 }
 // ---- keeping the free Gemini quota alive ---------------------------------------------------------------
-// When Google says "quota", every further call only makes things worse. Remember it and skip Gemini until it is allowed again.
-let geminiBlockedUntil = 0;
-function noteGeminiFailure(f) {
+// When Google says "quota", every further call only makes things worse. Remember it per key and skip that key until it is allowed again.
+const blockedKeys = new Map();
+const keyTag = (k) => k.slice(-8);
+function noteGeminiFailure(f, key = '') {
     if (f.status !== 429 && !/RESOURCE_EXHAUSTED|quota/i.test(f.message))
         return;
     const m = f.message.match(/retry in ([\d.]+)s/i) || f.message.match(/"retryDelay":\s*"(\d+)s"/);
     const secs = m ? Math.ceil(Number(m[1])) + 2 : /per ?day|daily|limit: 0/i.test(f.message) ? 1800 : 60;
-    geminiBlockedUntil = Date.now() + Math.min(secs, 1800) * 1000;
+    blockedKeys.set(keyTag(key), Date.now() + Math.min(secs, 1800) * 1000);
 }
+/** Every Gemini key that is set: GEMINI_API_KEY, GOOGLE_API_KEY, GEMINI_API_KEY_2 to _5, GEMINI_API_KEYS (comma separated), and an AIza key placed in LLM_API_KEY by mistake. */
+function geminiKeyList() {
+    const out = [];
+    const add = (v) => { const t = (v || '').trim(); if (t && !out.includes(t))
+        out.push(t); };
+    add(lookupEnv('GEMINI_API_KEY')?.value);
+    add(lookupEnv('GOOGLE_API_KEY')?.value);
+    for (let i = 2; i <= 5; i++)
+        add(process.env[`GEMINI_API_KEY_${i}`]);
+    (process.env.GEMINI_API_KEYS || '').split(/[,\s]+/).forEach(add);
+    if ((process.env.LLM_API_KEY || '').trim().startsWith('AIza'))
+        add(process.env.LLM_API_KEY); // a second Gemini key put in the backup slot still works
+    return out;
+}
+const keyBlockedMs = (k) => Math.max(0, (blockedKeys.get(keyTag(k)) || 0) - Date.now());
+/** Time until at least one Gemini key can be used again (0 when one is ready). */
+const geminiBlockedMs = () => { const ks = geminiKeyList(); return ks.length ? Math.min(...ks.map(keyBlockedMs)) : 0; };
+const SERVICES = [
+    { id: 'groq', label: 'Groq', env: 'GROQ_API_KEY', base: 'https://api.groq.com/openai/v1', model: 'llama-3.3-70b-versatile', prefix: 'gsk_' },
+    { id: 'openrouter', label: 'OpenRouter', env: 'OPENROUTER_API_KEY', base: 'https://openrouter.ai/api/v1', model: 'meta-llama/llama-3.3-70b-instruct', prefix: 'sk-or-' },
+    { id: 'openai', label: 'OpenAI', env: 'OPENAI_API_KEY', base: 'https://api.openai.com/v1', model: 'gpt-4o-mini' },
+    { id: 'deepseek', label: 'DeepSeek', env: 'DEEPSEEK_API_KEY', base: 'https://api.deepseek.com/v1', model: 'deepseek-chat' },
+    { id: 'mistral', label: 'Mistral', env: 'MISTRAL_API_KEY', base: 'https://api.mistral.ai/v1', model: 'mistral-small-latest' },
+    { id: 'cerebras', label: 'Cerebras', env: 'CEREBRAS_API_KEY', base: 'https://api.cerebras.ai/v1', model: 'llama-3.3-70b', prefix: 'csk-' },
+    { id: 'together', label: 'Together', env: 'TOGETHER_API_KEY', base: 'https://api.together.xyz/v1', model: 'meta-llama/Llama-3.3-70B-Instruct-Turbo' },
+    { id: 'xai', label: 'xAI', env: 'XAI_API_KEY', base: 'https://api.x.ai/v1', model: 'grok-3-mini', prefix: 'xai-' },
+];
+/** All backup writers that are set up, in the order they are tried. LLM_API_KEY works with any service: the service is recognised from the key, or from LLM_BASE_URL. */
+function llmBackups() {
+    const out = [];
+    const generic = (process.env.LLM_API_KEY || '').trim();
+    if (generic && !generic.startsWith('AIza')) {
+        const base = (process.env.LLM_BASE_URL || '').trim().replace(/\/+$/, '');
+        if (generic.startsWith('sk-ant-'))
+            out.push({ id: 'anthropic', label: 'Anthropic', kind: 'anthropic', key: generic, base: 'https://api.anthropic.com', model: (process.env.LLM_MODEL || 'claude-haiku-5-5').trim() });
+        else {
+            const guess = SERVICES.find((s) => s.prefix && generic.startsWith(s.prefix)) || (generic.startsWith('sk-') ? SERVICES.find((s) => s.id === 'openai') : undefined);
+            const svc = guess || SERVICES[0]; // old behaviour: Groq
+            out.push({ id: base ? 'custom' : svc.id, label: base ? 'Backup AI (custom URL)' : svc.label, kind: 'openai', key: generic, base: base || svc.base, model: (process.env.LLM_MODEL || svc.model).trim() });
+        }
+    }
+    for (const s of SERVICES) {
+        const k = (process.env[s.env] || '').trim();
+        if (k && !out.some((o) => o.key === k))
+            out.push({ id: s.id, label: s.label, kind: 'openai', key: k, base: s.base, model: s.model });
+    }
+    const ant = (process.env.ANTHROPIC_API_KEY || '').trim();
+    if (ant && !out.some((o) => o.key === ant))
+        out.push({ id: 'anthropic', label: 'Anthropic', kind: 'anthropic', key: ant, base: 'https://api.anthropic.com', model: (process.env.ANTHROPIC_MODEL || 'claude-haiku-5-5').trim() });
+    return out;
+}
+const blockedBackups = new Map();
 /** For the System check screen. */
-const aiWriterStatus = () => ({ geminiBlockedSeconds: Math.max(0, Math.ceil((geminiBlockedUntil - Date.now()) / 1000)), backupConfigured: haveFallbackLlm(), backupModel: (process.env.LLM_MODEL || 'openai/gpt-oss-120b').trim() });
-const haveGemini = () => !!lookupEnv('GEMINI_API_KEY') || !!lookupEnv('GOOGLE_API_KEY');
-const fallbackKey = () => lookupEnv('LLM_API_KEY')?.value || '';
-const haveFallbackLlm = () => !!fallbackKey();
-/** Any OpenAI-compatible chat service (Groq, OpenRouter, OpenAI, Mistral...). Set LLM_API_KEY, and optionally LLM_BASE_URL and LLM_MODEL. */
-async function callCompat(prompt, o) {
-    const key = fallbackKey();
-    const base = (process.env.LLM_BASE_URL || (process.env.OPENROUTER_API_KEY ? 'https://openrouter.ai/api/v1' : process.env.OPENAI_API_KEY ? 'https://api.openai.com/v1' : process.env.MISTRAL_API_KEY ? 'https://api.mistral.ai/v1' : 'https://api.groq.com/openai/v1')).trim().replace(/\/+$/, '');
-    const model = (process.env.LLM_MODEL || (process.env.OPENROUTER_API_KEY ? 'meta-llama/llama-3.3-70b-instruct' : process.env.OPENAI_API_KEY ? 'gpt-4o-mini' : process.env.MISTRAL_API_KEY ? 'mistral-small-latest' : 'openai/gpt-oss-120b')).trim();
-    const maxTokens = Math.max(1024, Math.min(o.maxTokens || 2800, 2800));
-    const strictJsonPrompt = `${prompt}\n\nOUTPUT REQUIREMENT: Return exactly one syntactically valid JSON object. Do not use Markdown fences, comments, trailing commas, or text before/after the JSON. Escape all quotation marks inside strings. Ensure every opened bracket and quote is closed.`;
-    // Retry the provider's specific JSON-validator error once without response_format.
-    for (let attempt = 0; attempt < 2; attempt++) {
+const aiWriterStatus = () => ({ geminiBlockedSeconds: Math.ceil(geminiBlockedMs() / 1000), geminiKeys: geminiKeyList().length, backupConfigured: llmBackups().length > 0, backups: llmBackups().map((b) => ({ id: b.id, label: b.label, model: b.model })), backupModel: llmBackups()[0]?.model || '' });
+const haveGemini = () => geminiKeyList().length > 0;
+/** Keeps a provider's error message short and removes anything that looks like a key. */
+const tidy = (m) => String(m || '').replace(/[A-Za-z0-9_\-]{24,}/g, '…').replace(/\s+/g, ' ').trim().slice(0, 160);
+/** One call to a backup writer. Handles services that reject JSON mode by asking again without it. */
+async function callBackup(b, prompt, o) {
+    const net = (e) => new GeminiFail(0, e?.name === 'TimeoutError' ? `${b.label} took too long to answer.` : (e?.message || `Network error talking to ${b.label}.`));
+    if (b.kind === 'anthropic') {
         let r;
-        const useJsonMode = o.json && attempt === 0;
         try {
-            r = await fetch(`${base}/chat/completions`, {
-                method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
-                body: JSON.stringify({ model, temperature: attempt ? 0.2 : 0.7, max_tokens: maxTokens, messages: [{ role: 'user', content: attempt && o.json ? strictJsonPrompt : prompt }], ...(useJsonMode ? { response_format: { type: 'json_object' } } : {}) }),
-                signal: AbortSignal.timeout(o.timeoutMs),
-            });
-        } catch (e) {
-            throw new GeminiFail(0, e?.name === 'TimeoutError' ? 'The backup AI took too long to answer.' : (e?.message || 'Network error talking to the backup AI.'));
+            r = await fetch(`${b.base}/v1/messages`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-api-key': b.key, 'anthropic-version': '2023-06-01' },
+                body: JSON.stringify({ model: b.model, max_tokens: o.maxTokens || 8000, messages: [{ role: 'user', content: o.json ? `${prompt}\n\nReturn only the JSON, with no other text.` : prompt }] }), signal: AbortSignal.timeout(o.timeoutMs) });
+        }
+        catch (e) {
+            throw net(e);
         }
         const d = await r.json().catch(() => ({}));
-        const message = String(d?.error?.message || `Backup AI ${r.status}`);
-        if (!r.ok) {
-            const jsonValidationFailure = o.json && attempt === 0 && r.status === 400 && /failed to validate json|failed_generation|invalid json|json validation/i.test(message);
-            if (jsonValidationFailure) {
-                console.warn('Backup AI JSON mode rejected; retrying once with an explicit JSON-only prompt.', model);
-                continue;
-            }
-            console.error('Backup AI failed', model, r.status, JSON.stringify(d).slice(0, 300));
-            throw new GeminiFail(r.status, message, r.status === 401);
-        }
-        const text = String(d?.choices?.[0]?.message?.content || '');
-        if (!text.trim()) throw new GeminiFail(0, 'The backup AI returned an empty answer.');
+        if (!r.ok)
+            throw new GeminiFail(r.status, `${r.status} ${tidy(d?.error?.message || 'rejected')}`, r.status === 401);
+        const text = String((d?.content || []).map((c) => c?.text || '').join(''));
+        if (!text.trim())
+            throw new GeminiFail(0, `${b.label} returned an empty answer.`);
         return text;
     }
-    throw new GeminiFail(400, 'The backup AI could not satisfy JSON mode after a retry.');
+    const send = async (json) => {
+        try {
+            return await fetch(`${b.base}/chat/completions`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${b.key}` },
+                body: JSON.stringify({ model: b.model, temperature: 0.9, max_tokens: o.maxTokens || 8000, messages: [{ role: 'user', content: prompt }], ...(json ? { response_format: { type: 'json_object' } } : {}) }),
+                signal: AbortSignal.timeout(o.timeoutMs),
+            });
+        }
+        catch (e) {
+            throw net(e);
+        }
+    };
+    let r = await send(o.json);
+    if (o.json && (r.status === 400 || r.status === 422))
+        r = await send(false); // some models do not accept JSON mode
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) {
+        console.error('Backup AI failed', b.id, b.model, r.status, JSON.stringify(d).slice(0, 300));
+        throw new GeminiFail(r.status, `${r.status} ${tidy(d?.error?.message || d?.message || 'rejected')}`, r.status === 401);
+    }
+    const text = String(d?.choices?.[0]?.message?.content || '');
+    if (!text.trim())
+        throw new GeminiFail(0, `${b.label} returned an empty answer.`);
+    return text;
 }
 /**
- * Writes text with the best available AI. Gemini first (unless it is out of quota), then the backup service if one is set.
- * One person action therefore never fails just because one free quota ran out.
+ * Writes text with the best available AI: every Gemini key first (skipping any that are out of quota), then every backup service.
+ * One person action therefore never fails just because one free quota ran out, and when everything fails the reason of each is reported.
  */
 async function llmGenerate(prompt, o = {}) {
     const json = o.json !== false;
     const start = Date.now();
     const deadline = start + (o.deadlineMs || 50_000);
-    const backup = haveFallbackLlm();
-    const wantsBackupFirst = (process.env.LLM_PRIMARY || '').trim().toLowerCase() === 'backup' && backup;
+    const backups = llmBackups();
+    const wantsBackupFirst = (process.env.LLM_PRIMARY || '').trim().toLowerCase() === 'backup' && backups.length > 0;
     const errs = [];
     const tryGemini = async () => {
-        if (!haveGemini())
+        const keys = geminiKeyList();
+        if (!keys.length)
             return null;
-        if (Date.now() < geminiBlockedUntil && backup)
-            return null; // quota is used up and a backup exists: do not waste time or requests
-        if (Date.now() < geminiBlockedUntil)
-            throw new HttpError(424, `The AI writer has reached its free usage limit and needs about ${Math.ceil((geminiBlockedUntil - Date.now()) / 1000)} seconds. It will try again by itself.`, 'GEMINI');
-        const key = need('GEMINI_API_KEY', 'GOOGLE_API_KEY');
-        // Reserve enough of the request budget for the backup provider. When Gemini is throttled or overloaded, fail over quickly instead of spending the entire serverless window retrying models.
-        const budget = backup ? Math.min(deadline - 30_000, start + 14_000) : deadline;
-        try {
-            const { out, model } = await withModels(key, budget, (m) => callGemini(key, m, prompt, { grounded: false, json, timeoutMs: Math.max(3_000, Math.min(o.timeoutMs || 14_000, 14_000, budget - Date.now())), maxTokens: o.maxTokens }));
-            // Validate structured output before declaring Gemini successful. Invalid JSON must trigger provider failover, not a later blind episode retry.
-            if (json)
-                extractJson(out.text);
-            console.info('AI writer succeeded', { provider: 'gemini', model });
-            return { text: out.text, provider: 'gemini', model };
+        const open = keys.filter((k) => keyBlockedMs(k) === 0);
+        if (!open.length) {
+            if (backups.length)
+                return null; // every key is resting and a backup exists: do not waste time or requests
+            throw new HttpError(424, `The AI writer has reached its free usage limit and needs about ${Math.ceil(geminiBlockedMs() / 1000)} seconds. It will try again by itself. Add a backup AI key to avoid waiting.`, 'GEMINI');
         }
-        catch (e) {
-            const f = e instanceof HttpError ? new GeminiFail(/usage limit|quota/i.test(e.message) ? 429 : 0, e.message) : new GeminiFail(0, e?.message || 'Gemini failed');
-            noteGeminiFailure(f);
-            errs.push(f);
-            if (!backup)
-                throw e;
-            return null;
+        const budget = backups.length ? Math.min(deadline, start + 24_000) : deadline;
+        let lastErr = null;
+        for (const key of open) {
+            if (Date.now() >= budget - 4_000)
+                break;
+            try {
+                const { out, model } = await withModels(key, budget, (m) => callGemini(key, m, prompt, { grounded: false, json, timeoutMs: Math.max(8_000, Math.min(o.timeoutMs || 40_000, budget - Date.now())), maxTokens: o.maxTokens }));
+                return { text: out.text, provider: 'gemini', model };
+            }
+            catch (e) {
+                const f = e instanceof HttpError ? new GeminiFail(/usage limit|quota/i.test(e.message) ? 429 : 0, e.message) : new GeminiFail(e?.status || 0, e?.message || 'Gemini failed', !!e?.keyBad);
+                noteGeminiFailure(f, key);
+                errs.push({ who: `Gemini${keys.length > 1 ? ` key ${keys.indexOf(key) + 1}` : ''}`, f });
+                lastErr = e;
+            }
         }
+        if (!backups.length && lastErr)
+            throw lastErr;
+        return null;
     };
-    const tryBackup = async () => {
-        if (!backup)
-            return null;
-        try {
+    const tryBackups = async () => {
+        for (const b of backups) {
+            if ((blockedBackups.get(b.id) || 0) > Date.now()) {
+                errs.push({ who: b.label, f: new GeminiFail(429, 'resting after hitting its own limit') });
+                continue;
+            }
             const left = deadline - Date.now();
-            if (left < 6_000)
-                throw new GeminiFail(0, 'No time left for the backup AI.');
-            const text = await callCompat(prompt, { json, timeoutMs: Math.min(o.timeoutMs || 40_000, left), maxTokens: o.maxTokens });
-            // Treat malformed backup output as a provider failure so the other provider can be attempted.
-            if (json)
-                extractJson(text);
-            const model = (process.env.LLM_MODEL || 'openai/gpt-oss-120b').trim();
-            console.info('AI writer succeeded', { provider: 'backup', model });
-            return { text, provider: 'backup', model };
+            if (left < 6_000) {
+                errs.push({ who: b.label, f: new GeminiFail(0, 'no time left to try it') });
+                break;
+            }
+            try {
+                return { text: await callBackup(b, prompt, { json, timeoutMs: Math.min(o.timeoutMs || 40_000, left), maxTokens: o.maxTokens }), provider: 'backup', model: `${b.id}:${b.model}` };
+            }
+            catch (e) {
+                const f = e instanceof GeminiFail ? e : new GeminiFail(0, e?.message || 'failed');
+                if (f.status === 429)
+                    blockedBackups.set(b.id, Date.now() + 60_000);
+                errs.push({ who: b.label, f });
+            }
         }
-        catch (e) {
-            errs.push(e instanceof GeminiFail ? e : new GeminiFail(0, e?.message || 'Backup AI failed'));
-            return null;
-        }
+        return null;
     };
-    const order = wantsBackupFirst ? [tryBackup, tryGemini] : [tryGemini, tryBackup];
-    console.info('AI writer provider order', { primary: wantsBackupFirst ? 'backup' : 'gemini', geminiConfigured: haveGemini(), backupConfigured: backup });
+    const order = wantsBackupFirst ? [tryBackups, tryGemini] : [tryGemini, tryBackups];
     for (const step of order) {
         const hit = await step();
         if (hit)
             return hit;
     }
-    const quota = errs.some((f) => f.status === 429);
-    const backupError = errs.find((f) => /backup ai/i.test(f.message)) || (backup ? errs[errs.length - 1] : null);
-    const detail = backup && backupError ? ` Backup provider detail: ${backupError.message.slice(0, 240)}. Check GROQ_API_KEY (or LLM_API_KEY), LLM_BASE_URL, and LLM_MODEL in Vercel.` : backup ? ' The backup provider is configured but also failed. Check GROQ_API_KEY, LLM_BASE_URL, and LLM_MODEL in Vercel Runtime Logs.' : ' No backup AI key was detected. Add GROQ_API_KEY in Vercel to enable automatic failover.';
-    throw new HttpError(424, quota
-        ? `The AI writer reached Gemini's usage limit and the backup provider did not complete the request.${detail || ' Configure a valid LLM_API_KEY (or GROQ_API_KEY / OPENROUTER_API_KEY / OPENAI_API_KEY) and redeploy.'}`
-        : `The AI writer is temporarily unavailable.${detail || ' Check the AI provider keys and model settings, then retry.'}`, 'GEMINI');
+    const quota = errs.some((e) => e.f.status === 429) && !errs.some((e) => e.f.keyBad);
+    const detail = errs.length ? ` Details: ${errs.map((e) => `${e.who}: ${e.f.keyBad ? 'the key was rejected (check it is copied correctly and is active)' : tidy(e.f.message)}`).join('; ')}.` : '';
+    throw new HttpError(424, backups.length || !quota
+        ? `The AI writers could not answer right now. It will retry automatically.${detail} Open Settings, System check (owner only) and run it to see which key needs attention.`
+        : `The AI writer is at its usage limit right now. Your work is kept and it will retry automatically. Add a backup AI key (for example a free Groq key as LLM_API_KEY) so this never blocks you.${detail}`, 'GEMINI');
+}
+/** Sends a tiny request to every configured AI writer and reports what happened, so a wrong key or model is easy to find. */
+async function testAiWriters() {
+    const out = [];
+    const keys = geminiKeyList();
+    await Promise.all([
+        ...keys.map(async (k, i) => {
+            const name = `Gemini${keys.length > 1 ? ` key ${i + 1}` : ''}`;
+            if (keyBlockedMs(k) > 0) {
+                out.push({ name, ok: false, message: `Out of free quota. It rests for about ${Math.ceil(keyBlockedMs(k) / 1000)} seconds.` });
+                return;
+            }
+            try {
+                const { model } = await withModels(k, Date.now() + 15_000, (m) => callGemini(k, m, 'Reply with the single word OK.', { grounded: false, json: false, timeoutMs: 12_000, maxTokens: 20 }));
+                out.push({ name, ok: true, message: `Working (${model}).` });
+            }
+            catch (e) {
+                const f = new GeminiFail(e?.status || 0, e?.message || 'failed', !!e?.keyBad);
+                noteGeminiFailure(f, k);
+                out.push({ name, ok: false, message: tidy(e?.message || 'failed') });
+            }
+        }),
+        ...llmBackups().map(async (b) => {
+            try {
+                await callBackup(b, 'Reply with the single word OK.', { json: false, timeoutMs: 15_000, maxTokens: 20 });
+                out.push({ name: `${b.label} (${b.model})`, ok: true, message: 'Working.' });
+            }
+            catch (e) {
+                out.push({ name: `${b.label} (${b.model})`, ok: false, message: e?.keyBad ? 'The key was rejected. Check that it is copied correctly and is still active.' : tidy(e?.message || 'failed') });
+            }
+        }),
+    ]);
+    return out;
 }
 /** Plain JSON generation (scripts, A/B ideas). Optionally grounded with Google Search. */
 async function geminiRaw(prompt, opts = {}) {
@@ -735,7 +832,7 @@ async function geminiRaw(prompt, opts = {}) {
             throw new HttpError(424, 'The AI answered in an unexpected format. Retrying.', 'GEMINI');
         }
     }
-    const key = need('GEMINI_API_KEY', 'GOOGLE_API_KEY');
+    const key = geminiKeyList().find((k) => keyBlockedMs(k) === 0) || need('GEMINI_API_KEY', 'GOOGLE_API_KEY');
     const deadline = Date.now() + (opts.deadlineMs || 50_000);
     const { out, model } = await withModels(key, deadline, async (m) => {
         const o = await callGemini(key, m, prompt, { grounded: !!opts.grounded, json: !opts.grounded, timeoutMs: opts.timeoutMs || (opts.grounded ? 30_000 : 25_000), maxTokens: opts.maxTokens });
@@ -752,9 +849,9 @@ async function geminiRaw(prompt, opts = {}) {
 }
 /** Step 1 of research: a Google-Search-grounded pass. Kept under ~30s so no single request runs long. THROWS if search did not really run. */
 async function geminiSearch(researchPrompt) {
-    const key = need('GEMINI_API_KEY', 'GOOGLE_API_KEY');
-    if (Date.now() < geminiBlockedUntil)
-        throw new HttpError(424, `Live search has reached Gemini's free limit. Please try again in about ${Math.ceil((geminiBlockedUntil - Date.now()) / 1000)} seconds.`, 'GEMINI');
+    const key = geminiKeyList().find((k) => keyBlockedMs(k) === 0) || need('GEMINI_API_KEY', 'GOOGLE_API_KEY');
+    if (geminiBlockedMs() > 0)
+        throw new HttpError(424, `Live search has reached Gemini's free limit. Please try again in about ${Math.ceil(geminiBlockedMs() / 1000)} seconds.`, 'GEMINI');
     const { out, model } = await withModels(key, Date.now() + 30_000, (m) => callGemini(key, m, researchPrompt, { grounded: true, json: false, timeoutMs: 28_000, maxTokens: 6000 }));
     if (!out.searched)
         throw new HttpError(424, 'Live web search did not run for this request, so no research was returned. Please try again.', 'NO_SEARCH');
@@ -1460,9 +1557,6 @@ const ACTION_DIRECTION = `MOVIE DIRECTION (this is the most important rule; it d
 - Every scene is built on a visible physical event: a chase, a fight, a fall, an escape, a crash, a search, a break-in, a struggle over an object, a door kicked open, a sprint through a crowd, a car skidding, something shattering, fire, smoke, rain, a storm, a collapse. Pick the one that fits the idea and make it the main thing the camera sees.
 - Characters ALWAYS move through space: running, climbing, reaching, grabbing, shoving, ducking, driving, throwing, hiding. They interact with objects and with each other. Nobody simply stands facing the camera.
 - Dialogue is short and happens DURING the action (shouted over noise, gasped while running, whispered while hiding, spat in the middle of a confrontation). Most lines are 3 to 8 words. Many scenes should have only one short line, and some may have none at all.
-- Do a strict dialogue/action pass before returning JSON: "The lion fell", "she runs", "the door bursts open", "his eyes widen", "the dragon roars", and similar descriptions are visible action or sound, NEVER dialogue. Do not make characters announce what the audience can see.
-- Keep each character's identity, age, face, hair/fur/scales, clothing/markings, size and voice consistent in every scene. For animals and mythical beings, describe anatomy, movement, scale, markings, and distinctive features concretely; do not humanize them unless the premise explicitly calls for it.
-- Do not invent nonsensical lines just to fill dialogue. Silence, breath, animal calls, environmental sound and meaningful physical acting are valid story beats.
 - Vary the shots like a real film: wide action shots, low angles, over-the-shoulder, tracking behind a runner, close-ups on hands, objects and eyes, POV. A close-up on a face is for a reaction beat, never the whole scene.
 - Escalate: each scene raises the danger or changes the situation (new place, new threat, new reveal). No two scenes may look alike.
 - No narrator voice over the pictures unless the format is documentary. In drama the characters in the scene speak, and nobody talks to the camera.
@@ -1483,8 +1577,7 @@ Sort everything in the story into these kinds and put each in the right place.
 2. ACTION: anything that physically happens (a lion falls, a door slams, she runs, he grabs the knife, rain starts). The actors and the camera SHOW it in "visualPrompt" and "secondHalfAction". NEVER put an action in a line, and never let a character or the narrator describe what the viewer is already watching. If the story says "the lion fell", the picture shows the lion falling and nobody says it.
 3. THOUGHTS, FEELINGS, MEMORIES, FEARS and LIES: bring them to the screen as pictures. Show them with the actor's face and body, with objects and with short visual inserts (a memory flashing in a window reflection, a shaking hand, a photo turned face down, an empty chair). Do not speak them, unless the person truly says it out loud to someone.
 4. BACKGROUND (who, where, when, why): reveal it the way a film does, through natural dialogue between people who already know each other, through objects and places in the shot, and through what people do. Use a "Narrator" voice-over ONLY when the user's own script has a narrator or voice-over, or for a short jump in time or place ("Three years later."). That is at most one short line in the opening and one more at a jump or the close. Never use the narrator to describe the picture.
-5. SOUNDS (a roar, a crash, a scream, rain, footsteps, a phone ringing, wings): put them in "sound", not in lines. A creature's roar/growl/howl is a sound cue unless the user explicitly enabled talking animals/creatures; do not translate animal sounds into human dialogue.
-6. CONTINUITY AND PLAUSIBILITY: every action must be physically possible for that character and setting. Preserve left/right positions, held objects, injuries, clothing, weather and time of day between adjacent shots. Do not introduce props, powers, characters or plot facts that are not established.
+5. SOUNDS (a roar, a crash, a scream, rain, footsteps, a phone ringing, wings): put them in "sound", not in lines.
 If the story is plain prose with no dialogue, write it as a SCREENPLAY: keep every event and the order of events, show every action, and invent short natural spoken lines for the people where they would obviously speak (calling for help, answering a threat, an argument, a greeting).
 LINE TEST: before keeping any line ask, "Would this person say these exact words out loud, at this moment, to this person?" If a line describes what is happening, tells the viewer what they can already see, explains the plot to nobody, names the speaker, or sounds like narration, delete it or turn it into action. No line repeats another. Every reply answers the line before it. Everything said must make sense in the story.
 For every line also give "emotion" (how it is said, 1 to 3 words, like whispering, breathless, cold) and "doing" (what the speaker physically does while saying it, 3 to 8 words, like backing toward the door or gripping the rail). Nobody delivers a line standing still and facing the camera.
@@ -1516,8 +1609,6 @@ const castRules = (need, format, silent = false) => `CAST: write at least ${sile
 const sceneJsonShape = `{ "sceneNumber": 1, "visualPrompt": "<what the camera sees in the first half>", "secondHalfAction": "<20 second scenes only: what happens next in the SAME place, 1 to 2 sentences, empty for 10 second scenes>", "cameraMotion": "<camera instruction>", "sound": "<2 to 4 realistic sounds of this scene>", "lines": [ { "speaker": "<character name>", "text": "<spoken words>", "emotion": "<how it is said>", "doing": "<what the speaker does while saying it>", "half": 1 } ] }`;
 const sceneRules = (cam) => `SCENE RULES:
 - "visualPrompt": describe only what the camera sees, in 60 to 100 words. START with the shot type and the physical action in progress (for example: Low tracking shot behind a man sprinting through a market as crates explode behind him), then name who is in frame and REPEAT each visible character's full visual description word for word, then the physics (how fabric, hair, smoke, water, dust, debris and light move), the setting and lighting. The characters must be doing something physical with their whole body or with objects, never just standing and speaking to the camera. No dialogue, no subtitles, no captions, no logos, no readable text.
-- VISUAL STORY FIRST: write the physical action as a filmable, present-tense event, not a summary ("the lion's front paws skid in the mud; its body rolls down the bank" rather than "the lion falls"). Every line in "lines" must be words the named character intentionally speaks aloud; never place stage directions, sound effects, thoughts, exposition, or action descriptions there.
-- CHARACTER CONTINUITY: reuse each character's exact approved visual description word-for-word whenever visible. Animals and mythical creatures remain the same species/design/scale and do not gain human speech unless the brief explicitly allows it. Use believable weight, contact, momentum and reactions; no teleporting, morphing, duplicated limbs, or unexplained changes of costume or location.
 - "secondHalfAction": for 20 second scenes, a bigger physical beat that follows straight on from the first half in the same place (the chase turns a corner, the door breaks, the floor gives way, the enemy appears, a crash), so the full 20 seconds escalates and is never repetition or just more talking.
 - "cameraMotion": one sentence in film language applying the ${cam.label} profile to this shot.
 - "lines": 0 to 3 SHORT lines per scene (usually 3 to 8 words each), spoken in the middle of the action, from different characters whenever the scene allows. A scene with a single line, or an empty list, is fine when the action carries it. Every "speaker" must exactly match a character name. "half" is 1 or 2 (always 1 for 10 second scenes): the half of the scene in which the line is spoken. Respect each scene's word limits exactly; a line must be a complete thought that fits its half.
@@ -1715,9 +1806,41 @@ function fluentRun(cmd, outPath, timeoutMs) {
 }
 /** Web-friendly output flags: the moov atom goes first so the file starts playing before it has fully downloaded. */
 const WEB_FLAGS = ['-movflags +faststart'];
+/**
+ * A recently joined video is kept in the server's temporary folder (a few files, for a short time), so pressing Download again,
+ * or downloading after a retry, is instant instead of joining the scenes all over again.
+ */
+const CACHE_KEEP = 3, CACHE_MS = 20 * 60_000;
+async function cachePaths(urls) {
+    const crypto = await import('node:crypto'), os = await import('node:os'), path = await import('node:path');
+    const dir = path.join(os.tmpdir(), 'op-merge-cache');
+    return { dir, file: path.join(dir, `${crypto.createHash('sha1').update(urls.join('|')).digest('hex')}.mp4`) };
+}
+async function cacheTrim(dir) {
+    const fs = await import('node:fs/promises'), path = await import('node:path');
+    const names = await fs.readdir(dir).catch(() => []);
+    const stats = (await Promise.all(names.map(async (n) => ({ n, st: await fs.stat(path.join(dir, n)).catch(() => null) })))).filter((x) => x.st);
+    stats.sort((a, b) => b.st.mtimeMs - a.st.mtimeMs);
+    await Promise.all(stats.filter((x, i) => i >= CACHE_KEEP || Date.now() - x.st.mtimeMs > CACHE_MS).map((x) => fs.rm(path.join(dir, x.n), { force: true }).catch(() => undefined)));
+}
 async function mergeClips(urls) {
     if (!urls.length)
         throw new Error('No clips to join.');
+    const fs = await import('node:fs/promises');
+    const cache = await cachePaths(urls);
+    const hit = await fs.stat(cache.file).catch(() => null);
+    if (hit && hit.size > 2000 && Date.now() - hit.mtimeMs < CACHE_MS)
+        return { file: cache.file, cleanup: async () => undefined, cached: true };
+    const made = await mergeClipsFresh(urls);
+    try {
+        await fs.mkdir(cache.dir, { recursive: true });
+        await fs.copyFile(made.file, cache.file);
+        await cacheTrim(cache.dir);
+    }
+    catch { /* the cache is only a speed-up */ }
+    return made;
+}
+async function mergeClipsFresh(urls) {
     const bin = await ffmpegBinary();
     const fs = await import('node:fs/promises');
     const os = await import('node:os');
@@ -1726,12 +1849,24 @@ async function mergeClips(urls) {
     const cleanup = async () => { await fs.rm(dir, { recursive: true, force: true }).catch(() => undefined); };
     try {
         // Download every scene at the same time. Long productions have up to 12 scenes, and one after another would eat the 60 second limit.
+        // Each clip is inspected as soon as it has arrived, in parallel with the others, instead of one after another at the end.
+        const info = new Array(urls.length);
         const files = await Promise.all(urls.map(async (url, i) => {
-            const r = await fetch(url, { signal: AbortSignal.timeout(20_000) });
-            if (!r.ok)
-                throw new Error(`Scene ${i + 1} could not be downloaded (${r.status}).`);
+            let r = null;
+            for (let attempt = 0; attempt < 2 && !r?.ok; attempt++) {
+                try {
+                    r = await fetch(url, { signal: AbortSignal.timeout(20_000) });
+                }
+                catch {
+                    r = null;
+                }
+            } // one quick retry for a network hiccup
+            if (!r || !r.ok)
+                throw new Error(`Scene ${i + 1} could not be downloaded${r ? ` (${r.status})` : ''}.`);
             const f = path.join(dir, `c${i}.mp4`);
             await fs.writeFile(f, Buffer.from(await r.arrayBuffer()));
+            if (urls.length > 1)
+                info[i] = await inspect(bin, f);
             return f;
         }));
         const out = path.join(dir, 'out.mp4');
@@ -1739,9 +1874,6 @@ async function mergeClips(urls) {
             await fs.copyFile(files[0], out);
             return { file: out, cleanup };
         }
-        const info = [];
-        for (const f of files)
-            info.push(await inspect(bin, f));
         const same = info.every((c) => c.video && c.video === info[0].video && c.size === info[0].size && c.audio === info[0].audio);
         // Fast path: the clips share the same format, so they can be joined without re-encoding.
         // The manifest (list.txt) is the file list read by ffmpeg's concat demuxer ("-f concat").
@@ -2357,6 +2489,7 @@ async function socialMetrics(userId, ids) {
 
 
 
+
 // We parse bodies ourselves (webhooks need the raw bytes).
 const config = { api: { bodyParser: false }, maxDuration: 60 };
 // ---------------------------------------------------------------- users
@@ -2897,8 +3030,6 @@ const clipWords = (text, maxWords) => {
     const w = text.trim().split(/\s+/).filter(Boolean);
     return w.length <= maxWords ? text.trim() : w.slice(0, maxWords).join(' ').replace(/[,;:\-\u2013\u2014]+$/, '') + '.';
 };
-/** The longest render prompt the /video/render endpoint accepts. */
-const RENDER_PROMPT_MAX = 2380;
 /** Reads the shared creative fields from a request body. Throws a 400 when the idea is too short. */
 function parseStoryInput(body) {
     const idea = str(body.idea, 800);
@@ -2952,8 +3083,8 @@ async function prepareStory(row, user, input, single, noCap = false) {
     const base = { idea, format, look, niche: input.niche, aspectRatio: aspect, scenes: plan.scenes, mood: brief.mood, cameraProfile: brief.cameraProfile, pacing, characterLock: brief.characterLock, continuity, style, silentCast };
     return { idea, format, look, aspect, brief, continuity, script, available, plan, notes, mood, cam, base, presentation, silentCast, castMin: castMinimum(plan.targetSeconds, format) };
 }
-const WRITER_OPTS = { timeoutMs: 44_000, deadlineMs: 52_000, maxTokens: 2800 };
-const CHUNK = 3;
+const WRITER_OPTS = { timeoutMs: 44_000, deadlineMs: 52_000, maxTokens: 12_000 };
+const CHUNK = 6;
 /**
  * Writes the storyboard, one bounded step at a time.
  * Up to 8 scenes (or a pasted script) are written in one request. Longer parts are written as an outline first and then in chunks,
@@ -2968,7 +3099,7 @@ async function writeStoryboard(row, user, input, draft, single = false, scriptOp
         return { done: true, sb: finishStory(ctx, (await geminiRaw(storyboardPrompt({ ...base, castMin }), WRITER_OPTS)).data || {}, input) };
     // long part: outline first
     if (!draft?.outline) {
-        const o = (await geminiRaw(outlinePrompt({ ...base, castMin }), { timeoutMs: 40_000, deadlineMs: 50_000, maxTokens: 2500 })).data || {};
+        const o = (await geminiRaw(outlinePrompt({ ...base, castMin }), { timeoutMs: 40_000, deadlineMs: 50_000, maxTokens: 7_000 })).data || {};
         const outline = (Array.isArray(o.outline) ? o.outline : []).map((x, i) => ({ sceneNumber: Number(x?.sceneNumber) || i + 1, summary: str(x?.summary, 300) })).filter((x) => x.summary);
         if (outline.length < Math.ceil(plan.scenes.length * 0.6) || !Array.isArray(o.characters) || !o.characters.length)
             throw new HttpError(424, 'The story plan came back incomplete. Retrying.', 'GEMINI');
@@ -2978,10 +3109,10 @@ async function writeStoryboard(row, user, input, draft, single = false, scriptOp
     const total = plan.scenes.length;
     const have = (draft.scenes || []).length;
     const ranges = [];
-    for (let f = have + 1; f <= total && ranges.length < 1; f += CHUNK)
+    for (let f = have + 1; f <= total && ranges.length < 2; f += CHUNK)
         ranges.push([f, Math.min(total, f + CHUNK - 1)]);
     const writerPlan = { title: str(draft.title, 100), logline: str(draft.logline, 300), characters: draft.characters || [], outline: draft.outline };
-    const outs = await Promise.all(ranges.map(([f, t]) => geminiRaw(chunkPrompt(base, writerPlan, f, t), { timeoutMs: 40_000, deadlineMs: 50_000, maxTokens: 2800 })));
+    const outs = await Promise.all(ranges.map(([f, t]) => geminiRaw(chunkPrompt(base, writerPlan, f, t), { timeoutMs: 40_000, deadlineMs: 50_000, maxTokens: 9_000 })));
     const scenes = [...(draft.scenes || [])];
     outs.forEach((o, i) => {
         const got = Array.isArray(o.data?.scenes) ? o.data.scenes : [];
@@ -3333,16 +3464,8 @@ function finishStory(ctx, d, input) {
     else
         modelChars.forEach((c) => addChar(c?.name, c?.role, c?.gender, c?.description, c?.voice, c?.kind));
     const protagonist = brief.characterLock || continuity?.characters.length ? characters[0] : undefined;
-    const aspectHint = aspect === '9:16' ? 'Vertical 9:16 framing.' : aspect === '1:1' ? 'Square 1:1 framing.' : 'Wide 16:9 framing.';
     const beats = storyBeats(plan.scenes.length);
     const lockKey = brief.characterLock ? brief.characterLock.descriptor.toLowerCase().slice(0, 40) : '';
-    const spokenFor = (ls) => ls.map((l) => {
-        const ch = characters.find((c) => c.name.toLowerCase() === l.speaker.toLowerCase());
-        const v = ch?.voice || (ch?.gender === 'female' ? 'a female voice' : 'a male voice');
-        const words = l.text.replace(/"/g, "'");
-        const how = l.emotion ? `, ${l.emotion.replace(/[.\s]+$/, '')}` : '', act = l.doing ? ` while ${l.doing.replace(/^while\s+/i, '').replace(/[.\s]+$/, '')}` : '';
-        return l.speaker.toLowerCase() === 'narrator' ? `A narrator, off screen, speaking in the voice of ${v}, says: "${words}"` : `${l.speaker}, speaking in the voice of ${v}${how}${act}, says: "${words}"`;
-    }).join(' Then ');
     const scenes = [];
     const narration = { narratorLines: 0 };
     const rawScenes = Array.isArray(d.scenes) ? d.scenes : [];
@@ -3378,33 +3501,11 @@ function finishStory(ctx, d, input) {
         const modelCam = str(sc?.cameraMotion, 220);
         const cameraMotion = modelCam.length >= 8 ? modelCam : cam.direct;
         const second = str(sc?.secondHalfAction, 400);
-        const genreLook = GENRES[brief.genre]?.render, energy = presentation === 'movie' ? INTENSITIES[brief.intensity]?.render : '';
-        const openers = {
-            movie: 'Cinematic live-action movie scene with continuous physical action: the people are always moving and doing things, interacting with the place and each other, never posing, never facing the camera, never giving a speech.',
-            dialogue: 'Cinematic dramatic scene with natural, believable acting: the people talk to each other in the place, with natural gestures and movement, never looking into the camera.',
-            narrated: 'Cinematic film footage of the story with natural movement: nobody speaks on camera and no lips move.',
-            shortdrama: 'Cinematic vertical short-drama scene with emotionally intense, believable acting: people confront each other in the place, with tight reaction close-ups, strong body language and movement, never looking into the camera.',
-        };
-        const fixed = `${openers[presentation]} Camera: ${cameraMotion}. Mood and grade: ${mood.render}.${genreLook ? ` Genre look: ${genreLook}.` : ''}${energy ? ` Energy: ${energy}.` : ''} Visual look: ${look}. ${aspectHint} No text, captions or subtitles in the picture.`;
-        const parts = [];
-        for (let h = 1; h <= halves; h++) {
-            const mine = lines.filter((l) => l.half === h);
-            const tails = {
-                movie: mine.length ? `Audio: the lines below are spoken inside the scene, in the middle of the action and never to the camera, with accurate lip sync and realistic sound effects (footsteps, impacts, wind, crashes, breathing). No music. Each person finishes their whole sentence and stops speaking a moment before the clip ends. ${spokenFor(mine)}` : 'Audio: realistic sound effects and ambient sound of the action (footsteps, impacts, wind, crashes), no music, no speech.',
-                dialogue: mine.length ? `Audio: clear natural spoken dialogue, unhurried and human, with accurate lip sync and matching room sound, no music. Each person finishes their whole sentence and stops speaking a moment before the clip ends. ${spokenFor(mine)}` : 'Audio: natural room sound, no music, no speech.',
-                shortdrama: mine.length ? `Audio: clear, emotional spoken dialogue delivered to the other person in the scene, with accurate lip sync and matching room sound, no music. Each person finishes their whole sentence and stops speaking a moment before the clip ends. ${spokenFor(mine)}` : 'Audio: tense room sound and small realistic sounds, no music, no speech.',
-                narrated: mine.length ? `Audio: a calm off-screen narrator reads the line below as a voice-over, over natural ambient sound. No music. Nobody on screen speaks. ${spokenFor(mine)}` : 'Audio: natural ambient sound, no music, no speech.',
-            };
-            const tail = `${tails[presentation]}${soundText && h === 1 ? ` Sounds in this scene: ${soundText}.` : ''}`;
-            const lead = h === 1 ? '' : `Continuing seamlessly from the previous moment, with no cut, in the same place and with the same characters: ${(second || 'the action carries on naturally and the moment develops').replace(/[.\s]+$/, '')}. `;
-            // The second half starts from the first half's last picture, so it only describes the next beat. Repeating the opening description makes the video jump back.
-            const visual = h === 1 ? str(visualBase, Math.max(200, RENDER_PROMPT_MAX - fixed.length - tail.length - lead.length - 4)) : 'The same people, place and light as in the picture it starts from.';
-            parts.push({ seconds: PART_SECONDS, kind: h === 1 ? 'text' : 'continue', prompt: `${lead}${visual} ${fixed} ${tail}`.slice(0, RENDER_PROMPT_MAX), lines: mine.map((l) => ({ speaker: l.speaker, text: l.text })) });
-        }
+        const parts = assembleParts({ presentation, brief: { genre: brief.genre, intensity: brief.intensity }, mood: { render: mood.render }, look, aspect, cameraMotion, halves, lines, visualBase, second, soundText, characters });
         scenes.push({
             id: `s${scenes.length + 1}`, sceneId: `scene-${String(scenes.length + 1).padStart(2, '0')}`, sceneNumber: scenes.length + 1, beat: beats[i] || '',
             visualPrompt: str(visualBase, 900), secondHalfAction: second, voiceoverText: lines.map((l) => l.text).join(' '), cameraMotion, sound: soundText,
-            lines: lines.map((l) => ({ speaker: l.speaker, text: l.text, half: l.half })), clipSeconds: len, parts,
+            lines: lines.map((l) => ({ speaker: l.speaker, text: l.text, emotion: l.emotion || '', doing: l.doing || '', half: l.half })), clipSeconds: len, parts,
         });
     }
     const need = Math.max(1, Math.ceil(plan.scenes.length * (script ? 0.34 : 0.67)));
@@ -3513,11 +3614,14 @@ const systemCheck = async ({ req, res }) => {
             const d = await r.json().catch(() => ({}));
             return `${process.env.DEAPI_FRAMES ? 'Note: DEAPI_FRAMES is no longer used and can be deleted from Vercel. ' : ''}Key accepted by deAPI.${d?.data?.balance !== undefined ? ` Balance: ${d.data.balance}.` : ''} Active provider: ${(process.env.VIDEO_PROVIDER || 'fal').toLowerCase()}.`;
         }),
-        run('AI writer backup (LLM_API_KEY)', async () => {
-            const w = aiWriterStatus();
-            if (!w.backupConfigured)
-                return `Not set up (recommended). Gemini's free plan allows only a few requests a day, so add LLM_API_KEY (for example a free Groq key) so scripts never stop. ${w.geminiBlockedSeconds > 0 ? `Gemini is out of quota for about ${w.geminiBlockedSeconds} more seconds.` : ''}`.trim();
-            return `Ready (${w.backupModel}). Scripts switch to it automatically when Gemini is out of quota.${w.geminiBlockedSeconds > 0 ? ` Gemini is resting for about ${w.geminiBlockedSeconds} seconds.` : ''}`;
+        run('AI writers (Gemini and backups)', async () => {
+            const results = await testAiWriters();
+            if (!results.length)
+                throw new Error('No AI key is set. Add GEMINI_API_KEY, and a backup such as GROQ_API_KEY or OPENROUTER_API_KEY (or LLM_API_KEY with any service), in Vercel and redeploy.');
+            const line = results.map((r) => `${r.ok ? 'OK' : 'PROBLEM'} - ${r.name}: ${r.message}`).join(' | ');
+            if (!results.some((r) => r.ok))
+                throw new Error(`No AI writer is working. ${line}`);
+            return `${line}${results.every((r) => r.ok) ? '' : ' | Scripts still work because at least one writer is OK.'}${aiWriterStatus().backupConfigured ? '' : ' | Tip: add a backup writer so scripts never stop when Gemini is out of quota.'}`;
         }),
         run('Resend (emails)', async () => {
             const key = lookupEnv('RESEND_API_KEY')?.value;
@@ -3956,6 +4060,7 @@ async function streamMergedVideo(res, urls, name) {
         res.setHeader('Content-Length', String(size));
         res.setHeader('Content-Disposition', `attachment; filename="${safeName(name)}.mp4"`);
         res.setHeader('Cache-Control', 'private, no-store');
+        res.setHeader('X-Join-Cache', merged.cached ? 'hit' : 'miss');
         await new Promise((resolve, reject) => { const rs = createReadStream(merged.file); rs.on('error', reject); rs.on('end', () => resolve()); res.on('close', () => resolve()); rs.pipe(res); });
     }
     finally {
@@ -3978,6 +4083,8 @@ async function streamMergedVideo(res, urls, name) {
 // Each step takes a short database lease (locked_until) before it works, so two polls can never run the same step twice, and a
 // step that dies with its serverless instance is simply picked up again when the lease runs out.
 const ACTIVE_STATUSES = ['PROCESSING', 'RENDERING'];
+/** A part that is being made, paused, or waiting for the person to review its script. Only one part of a story can be open at a time. */
+const OPEN_STATUSES = ['PROCESSING', 'RENDERING', 'PAUSED', 'REVIEW'];
 const MAX_SCRIPT_ATTEMPTS = 8;
 const MAX_PART_TRIES = 3;
 const EPISODE_TIMEOUT_MS = 3 * 3600_000;
@@ -4011,7 +4118,7 @@ function episodeView(e) {
             : en.parts.some((p) => p.jobId) ? 'rendering' : 'waiting');
     const cfg = e.brief || {};
     const note = e.status === 'PROCESSING' && Number(e.attempts) > 0
-        ? (String(e.error || '').trim() || ((e.brief || {}).mode === 'paste' ? 'The AI helper could not finish that step. It will retry automatically.' : 'The AI writer could not finish that step. It will retry automatically.'))
+        ? ((e.brief || {}).mode === 'paste' ? 'The AI helper was busy, so it is trying again. If it is still busy, your script will be used exactly as you pasted it.' : 'The AI writer was busy, so it is trying again by itself. Nothing is lost.')
         : e.status === 'RENDERING' && e.error ? String(e.error) : '';
     return {
         id: e.id, projectId: e.project_id, partNumber: e.part_number, status: e.status,
@@ -4023,6 +4130,12 @@ function episodeView(e) {
         mode: cfg.mode === 'paste' ? 'paste' : 'ai', hasRemainingScript: !!sb.remainingScript,
         targetParts: Number(e.target_parts) || 1, autoContinue: !!e.auto_continue,
         brief: e.brief || {},
+        reviewFirst: !!cfg.reviewFirst,
+        editable: (e.status === 'REVIEW' || (e.status === 'PAUSED' && partsDone === 0 && !entries.some((en) => en.parts.some((p) => p.jobId)))) && scenes.length > 0
+            ? { characters: (sb.characters || []).map((c) => String(c.name)).concat(sb.brief?.presentation === 'narrated' || (sb.characters || []).some((c) => String(c.name).toLowerCase() === 'narrator') ? [] : ['Narrator']),
+                scenes: scenes.map((sc) => ({ number: sc.sceneNumber, visual: String(sc.visualPrompt || ''), second: String(sc.secondHalfAction || ''), camera: String(sc.cameraMotion || ''), sound: String(sc.sound || ''), halves: (sc.parts || []).length || 1,
+                    lines: (sc.lines || []).map((l) => ({ speaker: String(l.speaker), text: String(l.text), emotion: String(l.emotion || ''), doing: String(l.doing || ''), half: Number(l.half) === 2 ? 2 : 1 })) })) }
+            : null,
         characters: (Array.isArray(sb.characters) ? sb.characters : []).map((c) => ({ name: String(c.name || ''), role: String(c.role || ''), gender: c.gender === 'female' ? 'female' : 'male', voice: String(c.voice || '') })),
         notes: Array.isArray(sb.notes) ? sb.notes.map(String) : [],
         scenes: scenes.map((sc) => ({
@@ -4069,9 +4182,9 @@ const episodeCreate = async ({ req, res, body }) => {
         const project = (await sql() `SELECT id FROM projects WHERE id = ${projectId} AND user_id = ${row.id}`)[0];
         if (!project)
             throw new HttpError(404, 'Project not found.');
-        const active = (await sql() `SELECT part_number FROM episodes WHERE project_id = ${projectId} AND status IN ('PROCESSING', 'RENDERING') LIMIT 1`);
+        const active = (await sql() `SELECT part_number FROM episodes WHERE project_id = ${projectId} AND status IN ('PROCESSING', 'RENDERING', 'PAUSED', 'REVIEW') LIMIT 1`);
         if (active.length)
-            throw new HttpError(409, `Part ${active[0].part_number} is still being made. Wait for it to finish before starting the next part.`, 'SERIES_BUSY');
+            throw new HttpError(409, `Part ${active[0].part_number} is still open (being made, paused, or waiting for your review). Finish or resume it before starting the next part.`, 'SERIES_BUSY');
         await sql() `DELETE FROM episodes WHERE project_id = ${projectId} AND status = 'FAILED' AND render_jobs IS NULL`; // a failed part with no finished clips gives its number back; ones with clips are kept so they can be retried
         const last = (await sql() `SELECT COALESCE(max(part_number), 0)::int AS n FROM episodes WHERE project_id = ${projectId}`);
         partNumber = last[0].n + 1;
@@ -4084,7 +4197,7 @@ const episodeCreate = async ({ req, res, body }) => {
         createdProject = true;
     }
     const episodeId = newId('ep');
-    const settings = { format: input.format, look: input.look, aspect: input.aspect, niche: input.niche, brief: input.brief, mode, script, direction };
+    const settings = { format: input.format, look: input.look, aspect: input.aspect, niche: input.niche, brief: input.brief, mode, script, direction, reviewFirst: body.reviewFirst === true, approved: false };
     try {
         await sql() `INSERT INTO episodes (id, project_id, part_number, prompt_input, status, brief) VALUES (${episodeId}, ${projectId}, ${partNumber}, ${input.idea}, 'PROCESSING', ${jsonb(settings)}::jsonb)`;
     }
@@ -4124,11 +4237,12 @@ async function stageScript(row, user, ep) {
         ? await adaptPastedScript(row, user, storyInput)
         : await writeStoryboard(row, user, storyInput, ep.storyboard_json?.draft);
     if ('draft' in out) {
-        await sql() `UPDATE episodes SET storyboard_json = ${jsonb({ draft: out.draft })}::jsonb, attempts = 0, updated_at = now() WHERE id = ${ep.id} AND status = 'PROCESSING'`;
+        await sql() `UPDATE episodes SET storyboard_json = ${jsonb({ draft: out.draft })}::jsonb, attempts = 0, updated_at = now() WHERE id = ${ep.id}`;
         return;
     }
     const sb = out.sb;
-    await sql() `UPDATE episodes SET storyboard_json = ${jsonb(sb)}::jsonb, status = 'RENDERING', render_jobs = NULL, error = NULL, attempts = 0, updated_at = now() WHERE id = ${ep.id} AND status = 'PROCESSING'`;
+    const next = cfg.reviewFirst && !cfg.approved ? 'REVIEW' : 'RENDERING';
+    await sql() `UPDATE episodes SET storyboard_json = ${jsonb(sb)}::jsonb, status = CASE WHEN status = 'PROCESSING' THEN ${next} ELSE status END, render_jobs = NULL, error = NULL, attempts = 0, locked_until = NULL, created_at = now(), updated_at = now() WHERE id = ${ep.id} AND status IN ('PROCESSING', 'PAUSED')`;
     await sql() `UPDATE projects SET title = CASE WHEN title = '' THEN ${str(sb.title, 100)} ELSE title END, updated_at = now() WHERE id = ${ep.project_id}`;
 }
 /** Chooses where the seconds for one clip come from (plan first, then bought extras) or throws a LIMIT error when there are none. */
@@ -4182,7 +4296,7 @@ async function stageRender(row, user, ep) {
     const aspect = String(ep.brief?.aspect || '9:16');
     const entries = normalizeEntries(ep.render_jobs, scenes);
     const t0 = Date.now(), left = () => STEP_BUDGET_MS - (Date.now() - t0);
-    const save = () => sql() `UPDATE episodes SET render_jobs = ${jsonb(entries)}::jsonb, updated_at = now() WHERE id = ${ep.id} AND status = 'RENDERING'`;
+    const save = () => sql() `UPDATE episodes SET render_jobs = ${jsonb(entries)}::jsonb, updated_at = now() WHERE id = ${ep.id}`;
     let wait = 0;
     let note = null;
     // 1. follow the clips that are running
@@ -4283,7 +4397,7 @@ async function completeEpisode(ep, _entries) {
         const remainder = !!ep.storyboard_json?.remainingScript;
         const next = ep.part_number + 1, last = next === Number(project.target_parts);
         const idea = remainder ? 'Continue with the saved script.' : `Part ${next} of ${project.target_parts}: carry the story forward and raise the stakes${last ? '. This is the final part, so bring every thread to a satisfying ending' : ''}.`;
-        await sql() `INSERT INTO episodes (id, project_id, part_number, prompt_input, status, brief) VALUES (${newId('ep')}, ${ep.project_id}, ${next}, ${idea}, 'PROCESSING', ${jsonb({ ...cfg, mode: remainder ? 'paste' : 'ai', script: '', direction: '' })}::jsonb) ON CONFLICT DO NOTHING`;
+        await sql() `INSERT INTO episodes (id, project_id, part_number, prompt_input, status, brief) VALUES (${newId('ep')}, ${ep.project_id}, ${next}, ${idea}, 'PROCESSING', ${jsonb({ ...cfg, approved: false, mode: remainder ? 'paste' : 'ai', script: '', direction: '' })}::jsonb) ON CONFLICT DO NOTHING`;
     }
 }
 /** Moves one episode forward by one bounded step. Safe to call from many places at once. Returns the episode row as it is afterwards. */
@@ -4319,9 +4433,8 @@ async function advanceEpisode(row, user, ep) {
             await failEpisode(ep.id, String(e?.message || 'Something went wrong while making this part.'));
         else {
             const pause = Math.min(45, 4 * 2 ** (attempts - 1));
-            const reason = String(e?.message || 'The AI provider failed without a message.').replace(/[\r\n]+/g, ' ').slice(0, 260);
-            await sql() `UPDATE episodes SET attempts = ${attempts}, error = ${reason}, locked_until = now() + ${pause}::int * interval '1 second' WHERE id = ${ep.id} AND status = ${cur.status}`;
-        } // preserve the actual cause for the UI while retrying
+            await sql() `UPDATE episodes SET attempts = ${attempts}, locked_until = now() + ${pause}::int * interval '1 second' WHERE id = ${ep.id}`;
+        } // growing pause, then the next poll tries again
     }
     return reload();
 }
@@ -4348,17 +4461,6 @@ const episodeRetry = async ({ req, res, body }) => {
     }
     json(res, 200, { ok: true });
 };
-const episodeStop = async ({ req, res, body }) => {
-    const { row } = await requireAccess(req);
-    const id = str(body.id, 80);
-    const ep = await loadOwnedEpisode(row.id, id);
-    if (!ACTIVE_STATUSES.includes(ep.status)) {
-        json(res, 200, { ok: true, stopped: false, status: ep.status, message: 'This process is no longer running.' });
-        return;
-    }
-    const stopped = await sql() `UPDATE episodes SET status = 'FAILED', error = 'Stopped by you. Finished clips are kept; tap Resume to continue later.', locked_until = NULL, updated_at = now() WHERE id = ${id} AND status IN ('PROCESSING', 'RENDERING') RETURNING id`;
-    json(res, 200, { ok: true, stopped: stopped.length > 0, status: stopped.length ? 'FAILED' : 'PROCESSING' });
-};
 const episodeStatus = async ({ req, res, query }) => {
     const { row, user } = await requireAccess(req);
     const ep = await loadOwnedEpisode(row.id, query.get('id') || '');
@@ -4378,7 +4480,7 @@ const projectGet = async ({ req, res, query }) => {
         throw new HttpError(404, 'Project not found.');
     const eps = (await sql() `SELECT e.*, p.user_id, p.title AS project_title, p.target_parts, p.auto_continue FROM episodes e JOIN projects p ON p.id = e.project_id WHERE e.project_id = ${project.id} ORDER BY e.part_number`).map(episodeView);
     const lastDone = [...eps].reverse().find((e) => e.status === 'COMPLETED');
-    const active = eps.find((e) => ACTIVE_STATUSES.includes(e.status));
+    const active = eps.find((e) => OPEN_STATUSES.includes(e.status));
     json(res, 200, {
         project: { id: project.id, targetParts: Number(project.target_parts) || 1, autoContinue: !!project.auto_continue, title: project.title || 'Untitled series', genre: project.genre, createdAt: iso(project.created_at), updatedAt: iso(project.updated_at), characters: project.character_db?.characters || [] },
         episodes: eps,
@@ -4409,6 +4511,61 @@ const episodeVideo = async ({ req, res, query }) => {
     }));
     await streamMergedVideo(res, urls, `${ep.project_title || 'series'} part ${ep.part_number}`);
 };
+/** Pauses a part. Clips that were already sent to the video provider keep rendering there and are collected when the part is resumed. */
+const episodePause = async ({ req, res, body }) => {
+    const { row } = await requireAccess(req);
+    const ep = await loadOwnedEpisode(row.id, str(body.id, 80));
+    if (!ACTIVE_STATUSES.includes(ep.status))
+        throw new HttpError(409, 'Only a part that is being made can be paused.', 'SERIES_STATE');
+    await sql() `UPDATE episodes SET status = 'PAUSED', locked_until = NULL, updated_at = now() WHERE id = ${ep.id} AND status IN ('PROCESSING', 'RENDERING')`;
+    json(res, 200, { ok: true });
+};
+/** Carries on where a paused part stopped: writing the script, waiting for review, or rendering the clips that are missing. */
+const episodeResume = async ({ req, res, body }) => {
+    const { row, user } = await requireAccess(req);
+    const ep = await loadOwnedEpisode(row.id, str(body.id, 80));
+    if (ep.status !== 'PAUSED')
+        throw new HttpError(409, 'This part is not paused.', 'SERIES_STATE');
+    if ((await secondsAvailable(row, user)) < PART_SECONDS)
+        throw new HttpError(403, 'You have no video seconds left. Buy extra seconds or upgrade your plan, then resume.', 'LIMIT');
+    const cfg = ep.brief || {};
+    const hasScript = Array.isArray(ep.storyboard_json?.scenes) && ep.storyboard_json.scenes.length > 0;
+    const next = !hasScript ? 'PROCESSING' : cfg.reviewFirst && !cfg.approved ? 'REVIEW' : 'RENDERING';
+    await sql() `UPDATE episodes SET status = ${next}, locked_until = NULL, attempts = 0, error = NULL, created_at = now(), updated_at = now() WHERE id = ${ep.id} AND status = 'PAUSED'`;
+    json(res, 200, { ok: true, status: next });
+};
+/** Saves the person's changes to the script of a part that has not started rendering, and optionally starts the video. */
+const episodeEdit = async ({ req, res, body }) => {
+    const { row, user } = await requireAccess(req);
+    await rateLimit(`edit:${row.id}`, 120, 3600);
+    const ep = await loadOwnedEpisode(row.id, str(body.id, 80));
+    const view = episodeView(ep);
+    if (!view.editable)
+        throw new HttpError(409, 'This script can only be edited before the video starts rendering.', 'SERIES_STATE');
+    const sb = ep.storyboard_json || {}, cfg = ep.brief || {};
+    const oldScenes = sb.scenes || [];
+    const edits = Array.isArray(body.scenes) ? body.scenes : [];
+    if (edits.length !== oldScenes.length)
+        throw new HttpError(400, 'The script has a different number of scenes than the saved one. Reload and try again.');
+    const names = new Map((sb.characters || []).map((c) => [String(c.name).toLowerCase(), String(c.name)]));
+    names.set('narrator', 'Narrator');
+    const mood = STORY_MOODS[sb.brief?.mood] || STORY_MOODS.cinematic_trailer;
+    const scenes = oldScenes.map((sc, i) => {
+        const e = edits[i] || {};
+        const halves = (sc.parts || []).length || 1;
+        const lines = packLines((Array.isArray(e.lines) ? e.lines : []).slice(0, 8).map((l) => ({ speaker: names.get(str(l?.speaker, 30).toLowerCase()) || '', text: str(l?.text, 260), emotion: str(l?.emotion, 30), doing: str(l?.doing, 70) })).filter((l) => l.speaker && l.text), halves);
+        const visual = str(e.visual, 900) || sc.visualPrompt, second = str(e.second, 300), camera = str(e.camera, 200) || sc.cameraMotion, sound = str(e.sound, 160);
+        const parts = assembleParts({ presentation: sb.brief?.presentation || 'movie', brief: { genre: sb.brief?.genre || 'auto', intensity: sb.brief?.intensity || 'balanced' }, mood: { render: mood.render }, look: cfg.look || 'cinematic', aspect: cfg.aspect || '9:16', cameraMotion: camera, halves, lines, visualBase: visual, second, soundText: sound, characters: sb.characters || [] });
+        return { ...sc, visualPrompt: str(visual, 900), secondHalfAction: second, cameraMotion: camera, sound, voiceoverText: lines.map((l) => l.text).join(' '), lines: lines.map((l) => ({ speaker: l.speaker, text: l.text, emotion: l.emotion || '', doing: l.doing || '', half: l.half })), parts };
+    });
+    const updated = { ...sb, title: str(body.title, 100) || sb.title, scenes };
+    const start = body.start === true && ep.status === 'REVIEW';
+    if (start && (await secondsAvailable(row, user)) < PART_SECONDS)
+        throw new HttpError(403, 'You have no video seconds left. Buy extra seconds or upgrade your plan first.', 'LIMIT');
+    await sql() `UPDATE episodes SET storyboard_json = ${jsonb(updated)}::jsonb, render_jobs = NULL, brief = brief || ${jsonb(start ? { approved: true } : {})}::jsonb,
+    status = ${start ? 'RENDERING' : ep.status}, locked_until = NULL, attempts = 0, error = NULL, created_at = now(), updated_at = now() WHERE id = ${ep.id} AND status IN ('REVIEW', 'PAUSED')`;
+    json(res, 200, { ok: true, started: start });
+};
 // ---------------------------------------------------------------- router
 const routes = {
     'POST /auth/register': register, 'POST /auth/verify': verifyEmail, 'POST /auth/resend': resend, 'POST /auth/login': login,
@@ -4424,7 +4581,7 @@ const routes = {
     'POST /video/render': videoRender, 'GET /video/status': videoStatus,
     'GET /social/accounts': socialAccounts, 'POST /social/sync': socialSync, 'GET /video/download': videoDownload, 'GET /video/merge': videoMerge, 'GET /social/connect': socialConnect, 'GET /social/callback': socialCallback,
     'POST /social/disconnect': socialDisconnect, 'GET /social/metrics': socialMetricsRoute, 'POST /social/publish': socialPublish,
-    'POST /episodes/create': episodeCreate, 'POST /episodes/retry': episodeRetry, 'POST /episodes/stop': episodeStop, 'GET /episodes/status': episodeStatus, 'GET /episodes/video': episodeVideo, 'GET /projects': projectsList, 'GET /projects/get': projectGet,
+    'POST /episodes/create': episodeCreate, 'POST /episodes/retry': episodeRetry, 'GET /episodes/status': episodeStatus, 'POST /episodes/pause': episodePause, 'POST /episodes/resume': episodeResume, 'POST /episodes/edit': episodeEdit, 'GET /episodes/video': episodeVideo, 'GET /projects': projectsList, 'GET /projects/get': projectGet,
     'GET /cron/dispatch': cronDispatch, 'POST /cron/dispatch': cronDispatch,
     'GET /system/check': systemCheck,
     'GET /health': async ({ res }) => json(res, 200, {

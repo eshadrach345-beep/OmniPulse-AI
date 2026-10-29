@@ -16,7 +16,6 @@ import {
   StudioAudioService,
 } from '../services/aiService';
 import { STUDIO_VOICES, StudioVoice } from '../data/voicesData';
-import { registerLocalProcess, unregisterLocalProcess } from '../services/processRegistry';
 import { CAMERA_OPTIONS, GENRE_OPTIONS, MOOD_OPTIONS, PRESENTATION_OPTIONS, formatSeconds } from '../data/storyOptions';
 import { 
   Play, 
@@ -101,36 +100,11 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
   const isBlankState = videos.length === 0;
   const initialActive = effectiveVideos.find(v => v.id === selectedVideoId) || effectiveVideos[0];
   const [activeVideo, setActiveVideo] = useState<GeneratedVideo>(initialActive);
-  const [isEditingScript, setIsEditingScript] = useState(false);
-  const [editedTitle, setEditedTitle] = useState(initialActive.title);
-  const [editedScenes, setEditedScenes] = useState<VideoScene[]>(initialActive.scenes.map(scene => ({ ...scene })));
-
-  const beginScriptEdit = () => {
-    setEditedTitle(activeVideo.title);
-    setEditedScenes(activeVideo.scenes.map(scene => ({ ...scene })));
-    setIsEditingScript(true);
-  };
-  const saveScriptEdit = () => {
-    const next = { ...activeVideo, title: editedTitle.trim() || activeVideo.title, scenes: editedScenes, estimatedDuration: editedScenes.reduce((sum, scene) => sum + (Number(scene.duration) || 0), 0) };
-    setActiveVideo(next);
-    onSaveNewVideo(next);
-    setIsEditingScript(false);
-  };
 
   // Creation Modal State
   const [isCreating, setIsCreating] = useState(false);
   const createMode: 'story' | 'voiceover' = 'story'; // the single voice-over form is no longer offered
   const [isGenerating, setIsGenerating] = useState(false);
-  const generationController = useRef<AbortController | null>(null);
-  const generationId = useRef<string | null>(null);
-  useEffect(() => {
-    const onGlobalStop = (event: Event) => {
-      const detail = (event as CustomEvent<{ id?: string }>).detail;
-      if (generationController.current && (!detail?.id || detail.id === generationId.current)) generationController.current.abort();
-    };
-    window.addEventListener('omnipulse:stop-local-process', onGlobalStop);
-    return () => window.removeEventListener('omnipulse:stop-local-process', onGlobalStop);
-  }, []);
   const [statusMessage, setStatusMessage] = useState('');
   const [genError, setGenError] = useState<string | null>(null);
   const [videoLoadError, setVideoLoadError] = useState(false);
@@ -178,9 +152,6 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
       const found = effectiveVideos.find(v => v.id === selectedVideoId);
       if (found) {
         setActiveVideo(found);
-        setEditedTitle(found.title);
-        setEditedScenes(found.scenes.map(scene => ({ ...scene })));
-        setIsEditingScript(false);
         resetPlayer();
       }
     } else if (videos.length === 0) {
@@ -417,11 +388,6 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
     if (!ideaPrompt.trim()) return;
     if (!selectedVoiceId) { setGenError('Please choose a voice, or tap No voice-over, before rendering.'); return; }
 
-    if (generationController.current) generationController.current.abort();
-    const controller = new AbortController();
-    generationController.current = controller;
-    generationId.current = `direct-video-${Date.now()}`;
-    registerLocalProcess({ id: generationId.current, type: 'Direct Video', title: ideaPrompt.trim().slice(0, 90), startedAt: Date.now() }, () => controller.abort());
     setIsGenerating(true);
     setGenError(null);
     setStatusMessage('Writing your script and storyboard...');
@@ -439,7 +405,6 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
         seconds: selectedSeconds,
         voiceMomentum,
         voiceQuality,
-        signal: controller.signal,
       }, (m) => setStatusMessage(m));
 
       onSaveNewVideo(generated);
@@ -448,16 +413,9 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
       resetPlayer();
       setIdeaPrompt('');
     } catch (err) {
-      if (controller.signal.aborted || (err instanceof Error && /stopped by you/i.test(err.message))) {
-        setGenError('Process stopped. Any provider request already accepted may still finish remotely.');
-      } else {
-        console.error(err);
-        setGenError(err instanceof Error ? err.message : 'Video generation failed. Please try again.');
-      }
+      console.error(err);
+      setGenError(err instanceof Error ? err.message : 'Video generation failed. Please try again.');
     } finally {
-      if (generationController.current === controller) generationController.current = null;
-      if (generationId.current) unregisterLocalProcess(generationId.current);
-      generationId.current = null;
       setIsGenerating(false);
       setStatusMessage('');
     }
@@ -797,26 +755,18 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
         <div className="lg:col-span-7 bg-slate-900/80 border border-slate-800 rounded-xl p-4 sm:p-5 shadow-sm space-y-4">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-800">
             <div>
-              {isEditingScript ? (
-                <input value={editedTitle} onChange={e => setEditedTitle(e.target.value)} aria-label="Video title" className="w-full text-sm font-bold text-white bg-slate-950 border border-slate-700 rounded-lg px-2 py-1 focus:outline-none focus:border-indigo-500" />
-              ) : (
-                <h2 className="text-sm font-bold text-white flex items-center gap-2"><span>{activeVideo.title}</span></h2>
-              )}
+              <h2 className="text-sm font-bold text-white flex items-center gap-2">
+                <span>{activeVideo.title}</span>
+              </h2>
               <p className="text-xs text-slate-400 mt-0.5">
                 Target: {activeVideo.targetPlatforms.map(p => p.toUpperCase()).join(', ')} · ~{activeVideo.estimatedDuration} seconds total
               </p>
             </div>
 
             <div className="flex items-center gap-2">
-              <span className="text-[11px] text-slate-400 font-mono">{activeVideo.scenes.length} Scenes</span>
-              {!isEditingScript ? (
-                <button type="button" onClick={beginScriptEdit} className="px-3 py-1.5 rounded-lg border border-indigo-700 bg-indigo-950/60 text-indigo-200 text-xs font-semibold hover:bg-indigo-900">Edit script</button>
-              ) : (
-                <>
-                  <button type="button" onClick={() => setIsEditingScript(false)} className="px-3 py-1.5 rounded-lg border border-slate-700 text-slate-300 text-xs">Cancel</button>
-                  <button type="button" onClick={saveScriptEdit} className="px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-semibold hover:bg-emerald-500">Save edits</button>
-                </>
-              )}
+              <span className="text-[11px] text-slate-400 font-mono">
+                {activeVideo.scenes.length} Scenes
+              </span>
             </div>
           </div>
 
@@ -860,24 +810,18 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
                 </div>
 
                 <div className="space-y-1.5 text-xs">
-                  {isEditingScript ? (
-                    <div className="space-y-2" onClick={e => e.stopPropagation()}>
-                      <label className="block text-[10px] uppercase tracking-wide text-slate-500">Narration / dialogue</label>
-                      <textarea value={editedScenes[idx]?.narration ?? scene.narration} onChange={e => setEditedScenes(prev => prev.map((item, i) => i === idx ? { ...item, narration: e.target.value } : item))} rows={3} className="w-full resize-y text-slate-100 bg-slate-900 border border-slate-700 rounded-lg p-2 text-xs leading-relaxed focus:outline-none focus:border-indigo-500" />
-                      <label className="block text-[10px] uppercase tracking-wide text-slate-500">Visual direction</label>
-                      <textarea value={editedScenes[idx]?.visualCue ?? scene.visualCue} onChange={e => setEditedScenes(prev => prev.map((item, i) => i === idx ? { ...item, visualCue: e.target.value } : item))} rows={2} className="w-full resize-y text-slate-100 bg-slate-900 border border-slate-700 rounded-lg p-2 text-xs leading-relaxed focus:outline-none focus:border-indigo-500" />
-                      <label className="block text-[10px] uppercase tracking-wide text-slate-500">On-screen text</label>
-                      <input value={editedScenes[idx]?.onScreenText ?? scene.onScreenText} onChange={e => setEditedScenes(prev => prev.map((item, i) => i === idx ? { ...item, onScreenText: e.target.value } : item))} className="w-full text-slate-100 bg-slate-900 border border-slate-700 rounded-lg p-2 text-xs focus:outline-none focus:border-indigo-500" />
-                    </div>
-                  ) : (
-                    <>
-                      <p className="text-slate-300 font-mono leading-relaxed bg-slate-900/60 p-2 rounded border border-slate-800">"{scene.narration}"</p>
-                      <div className="flex flex-wrap items-center justify-between text-[11px] text-slate-400 gap-2">
-                        <span>Visual: {scene.visualCue}</span>
-                        {scene.onScreenText && <span className="text-amber-300 font-semibold font-mono">Text: {scene.onScreenText}</span>}
-                      </div>
-                    </>
-                  )}
+                  <p className="text-slate-300 font-mono leading-relaxed bg-slate-900/60 p-2 rounded border border-slate-800">
+                    "{scene.narration}"
+                  </p>
+                  
+                  <div className="flex flex-wrap items-center justify-between text-[11px] text-slate-400 gap-2">
+                    <span>Visual: {scene.visualCue}</span>
+                    {scene.onScreenText && (
+                      <span className="text-amber-300 font-semibold font-mono">
+                        Text: {scene.onScreenText}
+                      </span>
+                    )}
+                  </div>
                 </div>
               </div>
             ))}
@@ -1186,17 +1130,14 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
               {genError && (
                 <div role="alert" className="mb-2 text-xs text-rose-300 bg-rose-500/10 border border-rose-500/30 rounded-lg px-3 py-2">{genError}</div>
               )}
-              <div className="flex flex-col sm:flex-row gap-2">
-                <button
-                  type="submit"
-                  disabled={isGenerating || !ideaPrompt.trim() || !selectedVoiceId}
-                  className="flex-1 py-3 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white rounded-lg text-xs font-semibold shadow-md shadow-indigo-600/30 transition-all flex items-center justify-center gap-2"
-                >
-                  <Wand2 className="w-4 h-4" />
-                  <span>{isGenerating ? statusMessage || 'Directing Video...' : 'Direct & Render Video'}</span>
-                </button>
-                {isGenerating && <button type="button" onClick={() => { if (window.confirm('Stop this generation process? A request already accepted by an external provider may still finish remotely.')) generationController.current?.abort(); }} className="py-3 px-4 rounded-lg border border-rose-700 bg-rose-950/50 text-rose-200 hover:bg-rose-900/70 text-xs font-semibold flex items-center justify-center gap-2"><Square className="w-3.5 h-3.5 fill-current" /> Stop process</button>}
-              </div>
+              <button
+                type="submit"
+                disabled={isGenerating || !ideaPrompt.trim() || !selectedVoiceId}
+                className="w-full py-3 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white rounded-lg text-xs font-semibold shadow-md shadow-indigo-600/30 transition-all flex items-center justify-center gap-2"
+              >
+                <Wand2 className="w-4 h-4" />
+                <span>{isGenerating ? statusMessage || 'Directing Video...' : 'Direct & Render Video'}</span>
+              </button>
             </form>
             )}
           </div>
