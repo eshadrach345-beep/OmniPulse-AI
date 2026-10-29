@@ -665,6 +665,10 @@ async function llmGenerate(prompt, o = {}) {
         const budget = backup ? Math.min(deadline - 30_000, start + 14_000) : deadline;
         try {
             const { out, model } = await withModels(key, budget, (m) => callGemini(key, m, prompt, { grounded: false, json, timeoutMs: Math.max(3_000, Math.min(o.timeoutMs || 14_000, 14_000, budget - Date.now())), maxTokens: o.maxTokens }));
+            // Validate structured output before declaring Gemini successful. Invalid JSON must trigger provider failover, not a later blind episode retry.
+            if (json)
+                extractJson(out.text);
+            console.info('AI writer succeeded', { provider: 'gemini', model });
             return { text: out.text, provider: 'gemini', model };
         }
         catch (e) {
@@ -683,7 +687,13 @@ async function llmGenerate(prompt, o = {}) {
             const left = deadline - Date.now();
             if (left < 6_000)
                 throw new GeminiFail(0, 'No time left for the backup AI.');
-            return { text: await callCompat(prompt, { json, timeoutMs: Math.min(o.timeoutMs || 40_000, left), maxTokens: o.maxTokens }), provider: 'backup', model: (process.env.LLM_MODEL || 'llama-3.3-70b-versatile').trim() };
+            const text = await callCompat(prompt, { json, timeoutMs: Math.min(o.timeoutMs || 40_000, left), maxTokens: o.maxTokens });
+            // Treat malformed backup output as a provider failure so the other provider can be attempted.
+            if (json)
+                extractJson(text);
+            const model = (process.env.LLM_MODEL || 'llama-3.3-70b-versatile').trim();
+            console.info('AI writer succeeded', { provider: 'backup', model });
+            return { text, provider: 'backup', model };
         }
         catch (e) {
             errs.push(e instanceof GeminiFail ? e : new GeminiFail(0, e?.message || 'Backup AI failed'));
@@ -691,6 +701,7 @@ async function llmGenerate(prompt, o = {}) {
         }
     };
     const order = wantsBackupFirst ? [tryBackup, tryGemini] : [tryGemini, tryBackup];
+    console.info('AI writer provider order', { primary: wantsBackupFirst ? 'backup' : 'gemini', geminiConfigured: haveGemini(), backupConfigured: backup });
     for (const step of order) {
         const hit = await step();
         if (hit)
@@ -3990,7 +4001,7 @@ function episodeView(e) {
             : en.parts.some((p) => p.jobId) ? 'rendering' : 'waiting');
     const cfg = e.brief || {};
     const note = e.status === 'PROCESSING' && Number(e.attempts) > 0
-        ? ((e.brief || {}).mode === 'paste' ? 'The AI helper was busy, so it is trying again. If it is still busy, your script will be used exactly as you pasted it.' : 'The AI writer was busy, so it is trying again by itself. Nothing is lost.')
+        ? (String(e.error || '').trim() || ((e.brief || {}).mode === 'paste' ? 'The AI helper could not finish that step. It will retry automatically.' : 'The AI writer could not finish that step. It will retry automatically.'))
         : e.status === 'RENDERING' && e.error ? String(e.error) : '';
     return {
         id: e.id, projectId: e.project_id, partNumber: e.part_number, status: e.status,
@@ -4298,8 +4309,9 @@ async function advanceEpisode(row, user, ep) {
             await failEpisode(ep.id, String(e?.message || 'Something went wrong while making this part.'));
         else {
             const pause = Math.min(45, 4 * 2 ** (attempts - 1));
-            await sql() `UPDATE episodes SET attempts = ${attempts}, locked_until = now() + ${pause}::int * interval '1 second' WHERE id = ${ep.id}`;
-        } // growing pause, then the next poll tries again
+            const reason = String(e?.message || 'The AI provider failed without a message.').replace(/[\r\n]+/g, ' ').slice(0, 260);
+            await sql() `UPDATE episodes SET attempts = ${attempts}, error = ${reason}, locked_until = now() + ${pause}::int * interval '1 second' WHERE id = ${ep.id}`;
+        } // preserve the actual cause for the UI while retrying
     }
     return reload();
 }

@@ -1492,7 +1492,7 @@ function episodeView(e: any) {
     : en.parts.some((p) => p.jobId) ? 'rendering' : 'waiting');
   const cfg = e.brief || {};
   const note = e.status === 'PROCESSING' && Number(e.attempts) > 0
-    ? ((e.brief || {}).mode === 'paste' ? 'The AI helper was busy, so it is trying again. If it is still busy, your script will be used exactly as you pasted it.' : 'The AI writer was busy, so it is trying again by itself. Nothing is lost.')
+    ? (String(e.error || '').trim() || ((e.brief || {}).mode === 'paste' ? 'The AI helper could not finish that step. It will retry automatically.' : 'The AI writer could not finish that step. It will retry automatically.'))
     : e.status === 'RENDERING' && e.error ? String(e.error) : '';
   return {
     id: e.id as string, projectId: e.project_id as string, partNumber: e.part_number as number, status: e.status as string,
@@ -1750,7 +1750,7 @@ async function advanceEpisode(row: any, user: ReturnType<typeof toUser>, ep: any
     const attempts = (cur.attempts || 0) + 1;
     const permanent = e instanceof HttpError && [400, 402, 403, 409].includes(e.status);
     if (permanent || attempts >= MAX_SCRIPT_ATTEMPTS) await failEpisode(ep.id, String(e?.message || 'Something went wrong while making this part.'));
-    else { const pause = Math.min(45, 4 * 2 ** (attempts - 1)); await sql()`UPDATE episodes SET attempts = ${attempts}, locked_until = now() + ${pause}::int * interval '1 second' WHERE id = ${ep.id}`; } // growing pause, then the next poll tries again
+    else { const pause = Math.min(45, 4 * 2 ** (attempts - 1)); const reason = String(e?.message || 'The AI provider failed without a message.').replace(/[\r\n]+/g, ' ').slice(0, 260); await sql()`UPDATE episodes SET attempts = ${attempts}, error = ${reason}, locked_until = now() + ${pause}::int * interval '1 second' WHERE id = ${ep.id}`; } // preserve the actual cause for the UI while retrying
   }
   return reload();
 }

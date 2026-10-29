@@ -261,6 +261,9 @@ export async function llmGenerate(prompt: string, o: { json?: boolean; timeoutMs
     const budget = backup ? Math.min(deadline - 30_000, start + 14_000) : deadline;
     try {
       const { out, model } = await withModels(key, budget, (m) => callGemini(key, m, prompt, { grounded: false, json, timeoutMs: Math.max(3_000, Math.min(o.timeoutMs || 14_000, 14_000, budget - Date.now())), maxTokens: o.maxTokens }));
+      // Validate structured output before declaring Gemini successful. Invalid JSON must trigger provider failover, not a later blind episode retry.
+      if (json) extractJson(out.text);
+      console.info('AI writer succeeded', { provider: 'gemini', model });
       return { text: out.text, provider: 'gemini' as const, model };
     } catch (e: any) {
       const f = e instanceof HttpError ? new GeminiFail(/usage limit|quota/i.test(e.message) ? 429 : 0, e.message) : new GeminiFail(0, e?.message || 'Gemini failed');
@@ -274,10 +277,16 @@ export async function llmGenerate(prompt: string, o: { json?: boolean; timeoutMs
     try {
       const left = deadline - Date.now();
       if (left < 6_000) throw new GeminiFail(0, 'No time left for the backup AI.');
-      return { text: await callCompat(prompt, { json, timeoutMs: Math.min(o.timeoutMs || 40_000, left), maxTokens: o.maxTokens }), provider: 'backup' as const, model: (process.env.LLM_MODEL || 'llama-3.3-70b-versatile').trim() };
+      const text = await callCompat(prompt, { json, timeoutMs: Math.min(o.timeoutMs || 40_000, left), maxTokens: o.maxTokens });
+      // Treat malformed backup output as a provider failure so the other provider can be attempted.
+      if (json) extractJson(text);
+      const model = (process.env.LLM_MODEL || 'llama-3.3-70b-versatile').trim();
+      console.info('AI writer succeeded', { provider: 'backup', model });
+      return { text, provider: 'backup' as const, model };
     } catch (e: any) { errs.push(e instanceof GeminiFail ? e : new GeminiFail(0, e?.message || 'Backup AI failed')); return null; }
   };
   const order = wantsBackupFirst ? [tryBackup, tryGemini] : [tryGemini, tryBackup];
+  console.info('AI writer provider order', { primary: wantsBackupFirst ? 'backup' : 'gemini', geminiConfigured: haveGemini(), backupConfigured: backup });
   for (const step of order) { const hit = await step(); if (hit) return hit; }
   const quota = errs.some((f) => f.status === 429);
   const backupError = errs.find((f) => /backup ai/i.test(f.message)) || (backup ? errs[errs.length - 1] : null);
