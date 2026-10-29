@@ -229,7 +229,8 @@ async function callCompat(prompt: string, o: { json: boolean; timeoutMs: number;
   try {
     r = await fetch(`${base}/chat/completions`, {
       method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
-      body: JSON.stringify({ model, temperature: 0.9, max_tokens: o.maxTokens || 8000, messages: [{ role: 'user', content: prompt }], ...(o.json ? { response_format: { type: 'json_object' } } : {}) }),
+      // Keep completion requests within conservative provider limits. Some Groq models reject 9k–12k max_tokens before generation starts.
+      body: JSON.stringify({ model, temperature: 0.7, max_tokens: Math.max(1024, Math.min(o.maxTokens || 6000, 6000)), messages: [{ role: 'user', content: prompt }], ...(o.json ? { response_format: { type: 'json_object' } } : {}) }),
       signal: AbortSignal.timeout(o.timeoutMs),
     });
   } catch (e: any) { throw new GeminiFail(0, e?.name === 'TimeoutError' ? 'The backup AI took too long to answer.' : (e?.message || 'Network error talking to the backup AI.')); }
@@ -279,7 +280,7 @@ export async function llmGenerate(prompt: string, o: { json?: boolean; timeoutMs
   for (const step of order) { const hit = await step(); if (hit) return hit; }
   const quota = errs.some((f) => f.status === 429);
   const backupError = errs.find((f) => /backup ai/i.test(f.message)) || (backup ? errs[errs.length - 1] : null);
-  const detail = backup && backupError ? ` Backup provider detail: ${backupError.message.slice(0, 180)}. Check LLM_BASE_URL, LLM_MODEL, and the backup key in Vercel.` : '';
+  const detail = backup && backupError ? ` Backup provider detail: ${backupError.message.slice(0, 240)}. Check LLM_BASE_URL, LLM_MODEL, and the backup key in Vercel.` : '';
   throw new HttpError(424, quota
     ? `The AI writer reached Gemini's usage limit and the backup provider did not complete the request.${detail || ' Configure a valid LLM_API_KEY (or GROQ_API_KEY / OPENROUTER_API_KEY / OPENAI_API_KEY) and redeploy.'}`
     : `The AI writer is temporarily unavailable.${detail || ' Check the AI provider keys and model settings, then retry.'}`, 'GEMINI');
