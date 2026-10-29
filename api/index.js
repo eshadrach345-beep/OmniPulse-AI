@@ -387,6 +387,7 @@ const ENV_ALIASES = {
     FAL_KEY: ['FAL_KEY', 'FAL_AI_API_KEY', 'FAL_API_KEY', 'FAL_AI_KEY', 'FALAI_API_KEY', 'FAL_SECRET'],
     RESEND_API_KEY: ['RESEND_API_KEY', 'RESEND_KEY'],
     DEAPI_API_KEY: ['DEAPI_API_KEY', 'DEAPI_KEY', 'DE_API_KEY'],
+    LLM_API_KEY: ['LLM_API_KEY', 'GROQ_API_KEY', 'OPENROUTER_API_KEY', 'OPENAI_API_KEY', 'MISTRAL_API_KEY'],
 };
 /** Returns the value and the variable name that held it (accepts common alternative names). */
 const lookupEnv = (name, ...alts) => {
@@ -612,15 +613,17 @@ function noteGeminiFailure(f) {
 /** For the System check screen. */
 const aiWriterStatus = () => ({ geminiBlockedSeconds: Math.max(0, Math.ceil((geminiBlockedUntil - Date.now()) / 1000)), backupConfigured: haveFallbackLlm(), backupModel: (process.env.LLM_MODEL || 'llama-3.3-70b-versatile').trim() });
 const haveGemini = () => !!lookupEnv('GEMINI_API_KEY') || !!lookupEnv('GOOGLE_API_KEY');
-const haveFallbackLlm = () => !!(process.env.LLM_API_KEY || '').trim();
+const fallbackKey = () => lookupEnv('LLM_API_KEY')?.value || '';
+const haveFallbackLlm = () => !!fallbackKey();
 /** Any OpenAI-compatible chat service (Groq, OpenRouter, OpenAI, Mistral...). Set LLM_API_KEY, and optionally LLM_BASE_URL and LLM_MODEL. */
 async function callCompat(prompt, o) {
-    const base = (process.env.LLM_BASE_URL || 'https://api.groq.com/openai/v1').trim().replace(/\/+$/, '');
-    const model = (process.env.LLM_MODEL || 'llama-3.3-70b-versatile').trim();
+    const key = fallbackKey();
+    const base = (process.env.LLM_BASE_URL || (process.env.OPENROUTER_API_KEY ? 'https://openrouter.ai/api/v1' : process.env.OPENAI_API_KEY ? 'https://api.openai.com/v1' : process.env.MISTRAL_API_KEY ? 'https://api.mistral.ai/v1' : 'https://api.groq.com/openai/v1')).trim().replace(/\/+$/, '');
+    const model = (process.env.LLM_MODEL || (process.env.OPENROUTER_API_KEY ? 'meta-llama/llama-3.3-70b-instruct' : process.env.OPENAI_API_KEY ? 'gpt-4o-mini' : process.env.MISTRAL_API_KEY ? 'mistral-small-latest' : 'llama-3.3-70b-versatile')).trim();
     let r;
     try {
         r = await fetch(`${base}/chat/completions`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${(process.env.LLM_API_KEY || '').trim()}` },
+            method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
             body: JSON.stringify({ model, temperature: 0.9, max_tokens: o.maxTokens || 8000, messages: [{ role: 'user', content: prompt }], ...(o.json ? { response_format: { type: 'json_object' } } : {}) }),
             signal: AbortSignal.timeout(o.timeoutMs),
         });
@@ -692,9 +695,11 @@ async function llmGenerate(prompt, o = {}) {
             return hit;
     }
     const quota = errs.some((f) => f.status === 429);
+    const backupError = errs.find((f) => /backup ai/i.test(f.message)) || (backup ? errs[errs.length - 1] : null);
+    const detail = backup && backupError ? ` Backup provider detail: ${backupError.message.slice(0, 180)}. Check LLM_BASE_URL, LLM_MODEL, and the backup key in Vercel.` : '';
     throw new HttpError(424, quota
-        ? 'The AI writer is at its usage limit right now. Your work is kept and it will retry automatically. If this keeps happening, enable billing for your Gemini key or add a backup AI key (LLM_API_KEY).'
-        : 'The AI writer is temporarily unavailable. It will retry automatically.', 'GEMINI');
+        ? `The AI writer reached Gemini's usage limit and the backup provider did not complete the request.${detail || ' Configure a valid LLM_API_KEY (or GROQ_API_KEY / OPENROUTER_API_KEY / OPENAI_API_KEY) and redeploy.'}`
+        : `The AI writer is temporarily unavailable.${detail || ' Check the AI provider keys and model settings, then retry.'}`, 'GEMINI');
 }
 /** Plain JSON generation (scripts, A/B ideas). Optionally grounded with Google Search. */
 async function geminiRaw(prompt, opts = {}) {
@@ -1432,6 +1437,9 @@ const ACTION_DIRECTION = `MOVIE DIRECTION (this is the most important rule; it d
 - Every scene is built on a visible physical event: a chase, a fight, a fall, an escape, a crash, a search, a break-in, a struggle over an object, a door kicked open, a sprint through a crowd, a car skidding, something shattering, fire, smoke, rain, a storm, a collapse. Pick the one that fits the idea and make it the main thing the camera sees.
 - Characters ALWAYS move through space: running, climbing, reaching, grabbing, shoving, ducking, driving, throwing, hiding. They interact with objects and with each other. Nobody simply stands facing the camera.
 - Dialogue is short and happens DURING the action (shouted over noise, gasped while running, whispered while hiding, spat in the middle of a confrontation). Most lines are 3 to 8 words. Many scenes should have only one short line, and some may have none at all.
+- Do a strict dialogue/action pass before returning JSON: "The lion fell", "she runs", "the door bursts open", "his eyes widen", "the dragon roars", and similar descriptions are visible action or sound, NEVER dialogue. Do not make characters announce what the audience can see.
+- Keep each character's identity, age, face, hair/fur/scales, clothing/markings, size and voice consistent in every scene. For animals and mythical beings, describe anatomy, movement, scale, markings, and distinctive features concretely; do not humanize them unless the premise explicitly calls for it.
+- Do not invent nonsensical lines just to fill dialogue. Silence, breath, animal calls, environmental sound and meaningful physical acting are valid story beats.
 - Vary the shots like a real film: wide action shots, low angles, over-the-shoulder, tracking behind a runner, close-ups on hands, objects and eyes, POV. A close-up on a face is for a reaction beat, never the whole scene.
 - Escalate: each scene raises the danger or changes the situation (new place, new threat, new reveal). No two scenes may look alike.
 - No narrator voice over the pictures unless the format is documentary. In drama the characters in the scene speak, and nobody talks to the camera.
@@ -1452,7 +1460,8 @@ Sort everything in the story into these kinds and put each in the right place.
 2. ACTION: anything that physically happens (a lion falls, a door slams, she runs, he grabs the knife, rain starts). The actors and the camera SHOW it in "visualPrompt" and "secondHalfAction". NEVER put an action in a line, and never let a character or the narrator describe what the viewer is already watching. If the story says "the lion fell", the picture shows the lion falling and nobody says it.
 3. THOUGHTS, FEELINGS, MEMORIES, FEARS and LIES: bring them to the screen as pictures. Show them with the actor's face and body, with objects and with short visual inserts (a memory flashing in a window reflection, a shaking hand, a photo turned face down, an empty chair). Do not speak them, unless the person truly says it out loud to someone.
 4. BACKGROUND (who, where, when, why): reveal it the way a film does, through natural dialogue between people who already know each other, through objects and places in the shot, and through what people do. Use a "Narrator" voice-over ONLY when the user's own script has a narrator or voice-over, or for a short jump in time or place ("Three years later."). That is at most one short line in the opening and one more at a jump or the close. Never use the narrator to describe the picture.
-5. SOUNDS (a roar, a crash, a scream, rain, footsteps, a phone ringing, wings): put them in "sound", not in lines.
+5. SOUNDS (a roar, a crash, a scream, rain, footsteps, a phone ringing, wings): put them in "sound", not in lines. A creature's roar/growl/howl is a sound cue unless the user explicitly enabled talking animals/creatures; do not translate animal sounds into human dialogue.
+6. CONTINUITY AND PLAUSIBILITY: every action must be physically possible for that character and setting. Preserve left/right positions, held objects, injuries, clothing, weather and time of day between adjacent shots. Do not introduce props, powers, characters or plot facts that are not established.
 If the story is plain prose with no dialogue, write it as a SCREENPLAY: keep every event and the order of events, show every action, and invent short natural spoken lines for the people where they would obviously speak (calling for help, answering a threat, an argument, a greeting).
 LINE TEST: before keeping any line ask, "Would this person say these exact words out loud, at this moment, to this person?" If a line describes what is happening, tells the viewer what they can already see, explains the plot to nobody, names the speaker, or sounds like narration, delete it or turn it into action. No line repeats another. Every reply answers the line before it. Everything said must make sense in the story.
 For every line also give "emotion" (how it is said, 1 to 3 words, like whispering, breathless, cold) and "doing" (what the speaker physically does while saying it, 3 to 8 words, like backing toward the door or gripping the rail). Nobody delivers a line standing still and facing the camera.
@@ -1484,6 +1493,8 @@ const castRules = (need, format, silent = false) => `CAST: write at least ${sile
 const sceneJsonShape = `{ "sceneNumber": 1, "visualPrompt": "<what the camera sees in the first half>", "secondHalfAction": "<20 second scenes only: what happens next in the SAME place, 1 to 2 sentences, empty for 10 second scenes>", "cameraMotion": "<camera instruction>", "sound": "<2 to 4 realistic sounds of this scene>", "lines": [ { "speaker": "<character name>", "text": "<spoken words>", "emotion": "<how it is said>", "doing": "<what the speaker does while saying it>", "half": 1 } ] }`;
 const sceneRules = (cam) => `SCENE RULES:
 - "visualPrompt": describe only what the camera sees, in 60 to 100 words. START with the shot type and the physical action in progress (for example: Low tracking shot behind a man sprinting through a market as crates explode behind him), then name who is in frame and REPEAT each visible character's full visual description word for word, then the physics (how fabric, hair, smoke, water, dust, debris and light move), the setting and lighting. The characters must be doing something physical with their whole body or with objects, never just standing and speaking to the camera. No dialogue, no subtitles, no captions, no logos, no readable text.
+- VISUAL STORY FIRST: write the physical action as a filmable, present-tense event, not a summary ("the lion's front paws skid in the mud; its body rolls down the bank" rather than "the lion falls"). Every line in "lines" must be words the named character intentionally speaks aloud; never place stage directions, sound effects, thoughts, exposition, or action descriptions there.
+- CHARACTER CONTINUITY: reuse each character's exact approved visual description word-for-word whenever visible. Animals and mythical creatures remain the same species/design/scale and do not gain human speech unless the brief explicitly allows it. Use believable weight, contact, momentum and reactions; no teleporting, morphing, duplicated limbs, or unexplained changes of costume or location.
 - "secondHalfAction": for 20 second scenes, a bigger physical beat that follows straight on from the first half in the same place (the chase turns a corner, the door breaks, the floor gives way, the enemy appears, a crash), so the full 20 seconds escalates and is never repetition or just more talking.
 - "cameraMotion": one sentence in film language applying the ${cam.label} profile to this shot.
 - "lines": 0 to 3 SHORT lines per scene (usually 3 to 8 words each), spoken in the middle of the action, from different characters whenever the scene allows. A scene with a single line, or an empty list, is fine when the action carries it. Every "speaker" must exactly match a character name. "half" is 1 or 2 (always 1 for 10 second scenes): the half of the scene in which the line is spoken. Respect each scene's word limits exactly; a line must be a complete thought that fits its half.

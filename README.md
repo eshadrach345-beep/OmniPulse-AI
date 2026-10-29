@@ -8,6 +8,16 @@ Vite + React front end with a single Vercel serverless API.
 - Multi-part stories (projects and episodes, with memory of earlier parts): `docs/SERIES.md`. Its tables are created automatically; `prisma/schema.prisma` mirrors them for Prisma tooling (not used at runtime).
 - Owner testing: set `OWNER_ACCESS_CODE`, then use "Have an access code?" on the sign-in screen. No sample or mock data: every number in the UI comes from the database, the social networks, or a live AI call.
 
+## AI film / short-drama production notes
+
+Story Studio supports four presentation modes (Movie, Dialogue drama, Short drama series, and Narrated story), genre/cast controls (including real animals and mythical creatures), character continuity, scene-by-scene storyboards, and multi-part stories. Movie and short-drama modes are instructed to keep physical actions in the picture and reserve spoken lines for actual dialogue; documentary/narrated mode is the explicit exception.
+
+For a reliable deployment:
+- Set `GEMINI_API_KEY` for Gemini and `GROQ_API_KEY` (or `LLM_API_KEY`) for the backup writer. `LLM_PRIMARY=backup` makes the backup writer primary for non-search writing; grounded live search still requires Gemini.
+- Set `FAL_KEY` and verify that the configured `FAL_VIDEO_MODEL` supports the request's duration/resolution. The video provider synthesizes each shot from a prompt; prompt instructions improve action, continuity and dialogue intent but cannot guarantee perfect lip-sync, character identity, or feature-film consistency for every generated clip.
+- Use short scene clips and review the assembled cut before publishing. For dependable dialogue audio, ensure the selected video model actually supports native audio/lip-sync; text-to-video models that do not support it may produce silent footage or imperfect speech even when the prompt requests dialogue.
+- Run `npm run build`, `npm run build:api`, and `node scripts/test-screenplay.mjs` before deploying. Test with a dialogue drama, a no-dialogue action movie, an animal story, and a mythical-creature story.
+
 ## Setup checklist
 1. **Database**: Vercel → Storage → add *Neon Postgres* (sets `DATABASE_URL`). Tables are created automatically.
 2. **Secrets**: set `SESSION_SECRET` (32+ chars) and `APP_URL` (your live URL). See `docs/ENVIRONMENT.md` for all variables.

@@ -13,9 +13,9 @@ They are *not* needed in Google AI Studio. This app runs on Vercel, not in the A
 | `GEMINI_API_KEY` | Google AI Studio key |
 | `GEMINI_MODEL` | Optional. Default `gemini-3.8-flash` with automatic fallbacks |
 | `GEMINI_MODEL` | Recommended: `gemini-2.5-flash-lite` (cheap and fast) or `gemini-2.5-flash`. Leave unset to try both automatically |
-| `LLM_API_KEY` | Backup AI writer (any OpenAI-compatible service, for example a free Groq key). Used automatically when Gemini is out of quota |
-| `LLM_BASE_URL` | Optional. Default `https://api.groq.com/openai/v1` |
-| `LLM_MODEL` | Optional. Default `llama-3.3-70b-versatile` |
+| `LLM_API_KEY` | Backup AI writer key. Also accepts `GROQ_API_KEY`, `OPENROUTER_API_KEY`, `OPENAI_API_KEY`, or `MISTRAL_API_KEY` if `LLM_API_KEY` is not set. Used automatically when Gemini is out of quota |
+| `LLM_BASE_URL` | Optional OpenAI-compatible API base URL. Defaults to the matching endpoint for recognized provider-specific key names, otherwise Groq |
+| `LLM_MODEL` | Optional model name. Defaults to a provider-specific model when a provider-specific key is used, otherwise `llama-3.3-70b-versatile` |
 | `LLM_PRIMARY` | Optional. Set to `backup` to use the backup AI first and keep Gemini for live search only |
 | `VIDEO_PROVIDER` | Optional. `fal` (default), `deapi`, or `auto` (fal first, deAPI if fal fails) |
 | `DEAPI_API_KEY` | Optional second video provider (deapi.ai, free starter credit) |

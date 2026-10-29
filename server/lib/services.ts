@@ -6,6 +6,7 @@ export const ENV_ALIASES: Record<string, string[]> = {
   FAL_KEY: ['FAL_KEY', 'FAL_AI_API_KEY', 'FAL_API_KEY', 'FAL_AI_KEY', 'FALAI_API_KEY', 'FAL_SECRET'],
   RESEND_API_KEY: ['RESEND_API_KEY', 'RESEND_KEY'],
   DEAPI_API_KEY: ['DEAPI_API_KEY', 'DEAPI_KEY', 'DE_API_KEY'],
+  LLM_API_KEY: ['LLM_API_KEY', 'GROQ_API_KEY', 'OPENROUTER_API_KEY', 'OPENAI_API_KEY', 'MISTRAL_API_KEY'],
 };
 /** Returns the value and the variable name that held it (accepts common alternative names). */
 export const lookupEnv = (name: string, ...alts: string[]): { value: string; found: string } | null => {
@@ -216,16 +217,18 @@ function noteGeminiFailure(f: GeminiFail) {
 export const aiWriterStatus = () => ({ geminiBlockedSeconds: Math.max(0, Math.ceil((geminiBlockedUntil - Date.now()) / 1000)), backupConfigured: haveFallbackLlm(), backupModel: (process.env.LLM_MODEL || 'llama-3.3-70b-versatile').trim() });
 
 const haveGemini = () => !!lookupEnv('GEMINI_API_KEY') || !!lookupEnv('GOOGLE_API_KEY');
-const haveFallbackLlm = () => !!(process.env.LLM_API_KEY || '').trim();
+const fallbackKey = () => lookupEnv('LLM_API_KEY')?.value || '';
+const haveFallbackLlm = () => !!fallbackKey();
 
 /** Any OpenAI-compatible chat service (Groq, OpenRouter, OpenAI, Mistral...). Set LLM_API_KEY, and optionally LLM_BASE_URL and LLM_MODEL. */
 async function callCompat(prompt: string, o: { json: boolean; timeoutMs: number; maxTokens?: number }): Promise<string> {
-  const base = (process.env.LLM_BASE_URL || 'https://api.groq.com/openai/v1').trim().replace(/\/+$/, '');
-  const model = (process.env.LLM_MODEL || 'llama-3.3-70b-versatile').trim();
+  const key = fallbackKey();
+  const base = (process.env.LLM_BASE_URL || (process.env.OPENROUTER_API_KEY ? 'https://openrouter.ai/api/v1' : process.env.OPENAI_API_KEY ? 'https://api.openai.com/v1' : process.env.MISTRAL_API_KEY ? 'https://api.mistral.ai/v1' : 'https://api.groq.com/openai/v1')).trim().replace(/\/+$/, '');
+  const model = (process.env.LLM_MODEL || (process.env.OPENROUTER_API_KEY ? 'meta-llama/llama-3.3-70b-instruct' : process.env.OPENAI_API_KEY ? 'gpt-4o-mini' : process.env.MISTRAL_API_KEY ? 'mistral-small-latest' : 'llama-3.3-70b-versatile')).trim();
   let r: Response;
   try {
     r = await fetch(`${base}/chat/completions`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${(process.env.LLM_API_KEY || '').trim()}` },
+      method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
       body: JSON.stringify({ model, temperature: 0.9, max_tokens: o.maxTokens || 8000, messages: [{ role: 'user', content: prompt }], ...(o.json ? { response_format: { type: 'json_object' } } : {}) }),
       signal: AbortSignal.timeout(o.timeoutMs),
     });
@@ -275,9 +278,11 @@ export async function llmGenerate(prompt: string, o: { json?: boolean; timeoutMs
   const order = wantsBackupFirst ? [tryBackup, tryGemini] : [tryGemini, tryBackup];
   for (const step of order) { const hit = await step(); if (hit) return hit; }
   const quota = errs.some((f) => f.status === 429);
+  const backupError = errs.find((f) => /backup ai/i.test(f.message)) || (backup ? errs[errs.length - 1] : null);
+  const detail = backup && backupError ? ` Backup provider detail: ${backupError.message.slice(0, 180)}. Check LLM_BASE_URL, LLM_MODEL, and the backup key in Vercel.` : '';
   throw new HttpError(424, quota
-    ? 'The AI writer is at its usage limit right now. Your work is kept and it will retry automatically. If this keeps happening, enable billing for your Gemini key or add a backup AI key (LLM_API_KEY).'
-    : 'The AI writer is temporarily unavailable. It will retry automatically.', 'GEMINI');
+    ? `The AI writer reached Gemini's usage limit and the backup provider did not complete the request.${detail || ' Configure a valid LLM_API_KEY (or GROQ_API_KEY / OPENROUTER_API_KEY / OPENAI_API_KEY) and redeploy.'}`
+    : `The AI writer is temporarily unavailable.${detail || ' Check the AI provider keys and model settings, then retry.'}`, 'GEMINI');
 }
 
 /** Plain JSON generation (scripts, A/B ideas). Optionally grounded with Google Search. */

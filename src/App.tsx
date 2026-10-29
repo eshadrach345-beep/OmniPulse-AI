@@ -278,9 +278,11 @@ function Workspace({ user: currentUser, initialDashboard, onLogout, onUserChange
 
   // Video studio handlers
   const handleSaveNewVideo = (video: GeneratedVideo) => {
-    setVideos(prev => [video, ...prev]);
+    setVideos(prev => prev.some(existing => existing.id === video.id)
+      ? prev.map(existing => existing.id === video.id ? video : existing)
+      : [video, ...prev]);
     setSelectedVideoId(video.id);
-    showToast(`AI Video "${video.title}" generated successfully!`);
+    showToast(`Video "${video.title}" saved successfully.`);
   };
 
   const handleScheduleVideoDirect = (video: GeneratedVideo) => {

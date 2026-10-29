@@ -12,11 +12,11 @@ const check = (ok, msg) => { if (!ok) { failed++; console.error('FAIL:', msg); }
 const names = ['Mara', 'Jonah', 'Dex'];
 
 // descriptions of what happens are ACTIONS: they must never be spoken
-for (const t of ['The lion fell.', 'The lion falls', 'A door slams.', 'Mara opens the door.', 'Mara and Jonah run toward the gate.', 'She was running toward the gate.', 'He fell.', 'His hand shook.', 'The big lion roared.', 'The car skidded off the road.', 'Dex grabbed the knife.', 'The old tree collapsed.'])
+for (const t of ['The lion fell.', 'The lion falls', 'A door slams.', 'Mara opens the door.', 'Mara and Jonah run toward the gate.', 'She was running toward the gate.', 'He fell.', 'His hand shook.', 'The big lion roared.', 'The car skidded off the road.', 'Dex grabbed the knife.', 'The old tree collapsed.', 'The dragon roared.', 'The wolf snarled and lunged.', 'A griffin swoops over the ridge.', 'The creature vanished into smoke.', 'The frightened horse reared and bolted.', 'Her hands trembled as the floor cracked.'])
   check(S.isStageDirection(t, 'Mara', names), `should be an action, not speech: "${t}"`);
 
 // real speech must stay speech
-for (const t of ['He fell!', 'Mara, open the door.', 'I saw the lion fall.', 'Did the lion fall?', 'Mara hates this place.', 'The meeting was cancelled.', 'The lion is dangerous.', 'You stole it from me.', 'We have to leave now.', 'Run!', 'It is over.', 'The plan failed.', 'He loves her.', 'Where were you last night?'])
+for (const t of ['He fell!', 'Mara, open the door.', 'I saw the lion fall.', 'Did the lion fall?', 'Mara hates this place.', 'The meeting was cancelled.', 'The lion is dangerous.', 'You stole it from me.', 'We have to leave now.', 'Run!', 'It is over.', 'The plan failed.', 'He loves her.', 'Where were you last night?', 'The dragon is beautiful.', 'I heard the wolf growl.', 'Mara, run to the gate!', 'You look frightened.'])
   check(!S.isStageDirection(t, 'Mara', names), `should stay speech: "${t}"`);
 
 // plain prose: quotes are dialogue, events are actions, a time jump is the only narration
