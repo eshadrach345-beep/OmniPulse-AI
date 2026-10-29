@@ -625,7 +625,7 @@ async function callCompat(prompt, o) {
         r = await fetch(`${base}/chat/completions`, {
             method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
             // Keep completion requests within conservative provider limits. Some Groq models reject 9k–12k max_tokens before generation starts.
-            body: JSON.stringify({ model, temperature: 0.7, max_tokens: Math.max(1024, Math.min(o.maxTokens || 6000, 6000)), messages: [{ role: 'user', content: prompt }], ...(o.json ? { response_format: { type: 'json_object' } } : {}) }),
+            body: JSON.stringify({ model, temperature: 0.7, max_tokens: Math.max(1024, Math.min(o.maxTokens || 2800, 2800)), messages: [{ role: 'user', content: prompt }], ...(o.json ? { response_format: { type: 'json_object' } } : {}) }),
             signal: AbortSignal.timeout(o.timeoutMs),
         });
     }
@@ -2942,8 +2942,8 @@ async function prepareStory(row, user, input, single, noCap = false) {
     const base = { idea, format, look, niche: input.niche, aspectRatio: aspect, scenes: plan.scenes, mood: brief.mood, cameraProfile: brief.cameraProfile, pacing, characterLock: brief.characterLock, continuity, style, silentCast };
     return { idea, format, look, aspect, brief, continuity, script, available, plan, notes, mood, cam, base, presentation, silentCast, castMin: castMinimum(plan.targetSeconds, format) };
 }
-const WRITER_OPTS = { timeoutMs: 44_000, deadlineMs: 52_000, maxTokens: 12_000 };
-const CHUNK = 6;
+const WRITER_OPTS = { timeoutMs: 44_000, deadlineMs: 52_000, maxTokens: 2800 };
+const CHUNK = 3;
 /**
  * Writes the storyboard, one bounded step at a time.
  * Up to 8 scenes (or a pasted script) are written in one request. Longer parts are written as an outline first and then in chunks,
@@ -2958,7 +2958,7 @@ async function writeStoryboard(row, user, input, draft, single = false, scriptOp
         return { done: true, sb: finishStory(ctx, (await geminiRaw(storyboardPrompt({ ...base, castMin }), WRITER_OPTS)).data || {}, input) };
     // long part: outline first
     if (!draft?.outline) {
-        const o = (await geminiRaw(outlinePrompt({ ...base, castMin }), { timeoutMs: 40_000, deadlineMs: 50_000, maxTokens: 7_000 })).data || {};
+        const o = (await geminiRaw(outlinePrompt({ ...base, castMin }), { timeoutMs: 40_000, deadlineMs: 50_000, maxTokens: 2500 })).data || {};
         const outline = (Array.isArray(o.outline) ? o.outline : []).map((x, i) => ({ sceneNumber: Number(x?.sceneNumber) || i + 1, summary: str(x?.summary, 300) })).filter((x) => x.summary);
         if (outline.length < Math.ceil(plan.scenes.length * 0.6) || !Array.isArray(o.characters) || !o.characters.length)
             throw new HttpError(424, 'The story plan came back incomplete. Retrying.', 'GEMINI');
@@ -2968,10 +2968,10 @@ async function writeStoryboard(row, user, input, draft, single = false, scriptOp
     const total = plan.scenes.length;
     const have = (draft.scenes || []).length;
     const ranges = [];
-    for (let f = have + 1; f <= total && ranges.length < 2; f += CHUNK)
+    for (let f = have + 1; f <= total && ranges.length < 1; f += CHUNK)
         ranges.push([f, Math.min(total, f + CHUNK - 1)]);
     const writerPlan = { title: str(draft.title, 100), logline: str(draft.logline, 300), characters: draft.characters || [], outline: draft.outline };
-    const outs = await Promise.all(ranges.map(([f, t]) => geminiRaw(chunkPrompt(base, writerPlan, f, t), { timeoutMs: 40_000, deadlineMs: 50_000, maxTokens: 9_000 })));
+    const outs = await Promise.all(ranges.map(([f, t]) => geminiRaw(chunkPrompt(base, writerPlan, f, t), { timeoutMs: 40_000, deadlineMs: 50_000, maxTokens: 2800 })));
     const scenes = [...(draft.scenes || [])];
     outs.forEach((o, i) => {
         const got = Array.isArray(o.data?.scenes) ? o.data.scenes : [];

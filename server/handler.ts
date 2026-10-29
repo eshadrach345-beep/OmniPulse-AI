@@ -585,8 +585,8 @@ async function prepareStory(row: any, user: { secondsLimit: number }, input: Sto
 }
 
 type StoryCtx = Awaited<ReturnType<typeof prepareStory>>;
-const WRITER_OPTS = { timeoutMs: 44_000, deadlineMs: 52_000, maxTokens: 12_000 };
-const CHUNK = 6;
+const WRITER_OPTS = { timeoutMs: 44_000, deadlineMs: 52_000, maxTokens: 2800 };
+const CHUNK = 3;
 
 /**
  * Writes the storyboard, one bounded step at a time.
@@ -601,7 +601,7 @@ async function writeStoryboard(row: any, user: { secondsLimit: number }, input: 
 
   // long part: outline first
   if (!draft?.outline) {
-    const o: any = (await geminiRaw(outlinePrompt({ ...base, castMin }), { timeoutMs: 40_000, deadlineMs: 50_000, maxTokens: 7_000 })).data || {};
+    const o: any = (await geminiRaw(outlinePrompt({ ...base, castMin }), { timeoutMs: 40_000, deadlineMs: 50_000, maxTokens: 2500 })).data || {};
     const outline = (Array.isArray(o.outline) ? o.outline : []).map((x: any, i: number) => ({ sceneNumber: Number(x?.sceneNumber) || i + 1, summary: str(x?.summary, 300) })).filter((x: any) => x.summary);
     if (outline.length < Math.ceil(plan.scenes.length * 0.6) || !Array.isArray(o.characters) || !o.characters.length) throw new HttpError(424, 'The story plan came back incomplete. Retrying.', 'GEMINI');
     return { done: false, draft: { ...o, outline, scenes: [] } };
@@ -610,9 +610,9 @@ async function writeStoryboard(row: any, user: { secondsLimit: number }, input: 
   const total = plan.scenes.length;
   const have = (draft.scenes || []).length;
   const ranges: [number, number][] = [];
-  for (let f = have + 1; f <= total && ranges.length < 2; f += CHUNK) ranges.push([f, Math.min(total, f + CHUNK - 1)]);
+  for (let f = have + 1; f <= total && ranges.length < 1; f += CHUNK) ranges.push([f, Math.min(total, f + CHUNK - 1)]);
   const writerPlan = { title: str(draft.title, 100), logline: str(draft.logline, 300), characters: draft.characters || [], outline: draft.outline };
-  const outs = await Promise.all(ranges.map(([f, t]) => geminiRaw(chunkPrompt(base, writerPlan, f, t), { timeoutMs: 40_000, deadlineMs: 50_000, maxTokens: 9_000 })));
+  const outs = await Promise.all(ranges.map(([f, t]) => geminiRaw(chunkPrompt(base, writerPlan, f, t), { timeoutMs: 40_000, deadlineMs: 50_000, maxTokens: 2800 })));
   const scenes = [...(draft.scenes || [])];
   outs.forEach((o, i) => {
     const got: any[] = Array.isArray((o.data as any)?.scenes) ? (o.data as any).scenes : [];

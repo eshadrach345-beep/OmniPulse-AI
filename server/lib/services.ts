@@ -230,7 +230,7 @@ async function callCompat(prompt: string, o: { json: boolean; timeoutMs: number;
     r = await fetch(`${base}/chat/completions`, {
       method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
       // Keep completion requests within conservative provider limits. Some Groq models reject 9k–12k max_tokens before generation starts.
-      body: JSON.stringify({ model, temperature: 0.7, max_tokens: Math.max(1024, Math.min(o.maxTokens || 6000, 6000)), messages: [{ role: 'user', content: prompt }], ...(o.json ? { response_format: { type: 'json_object' } } : {}) }),
+      body: JSON.stringify({ model, temperature: 0.7, max_tokens: Math.max(1024, Math.min(o.maxTokens || 2800, 2800)), messages: [{ role: 'user', content: prompt }], ...(o.json ? { response_format: { type: 'json_object' } } : {}) }),
       signal: AbortSignal.timeout(o.timeoutMs),
     });
   } catch (e: any) { throw new GeminiFail(0, e?.name === 'TimeoutError' ? 'The backup AI took too long to answer.' : (e?.message || 'Network error talking to the backup AI.')); }

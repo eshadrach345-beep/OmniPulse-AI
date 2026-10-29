@@ -20,3 +20,8 @@ After changing variables, redeploy the Vercel project. Never put these keys in c
 4. If generation fails, inspect Vercel Runtime Logs for `Gemini failed` and `Backup AI failed`. The latter includes the provider's HTTP status and message, without printing the secret key.
 
 This change improves failover behavior but does not validate the user's live credentials or guarantee provider availability. A provider may still fail because of invalid credentials, exhausted quota, model retirement, or account restrictions.
+
+
+## Conservative token budget (Groq)
+
+The OpenAI-compatible backup writer caps output at 2,800 tokens per request, and long storyboards are generated in three-scene chunks one chunk at a time. This avoids concurrent burst requests and leaves more of an 8,000-token-per-minute budget for prompt tokens. If a prompt itself is unusually large, the provider can still reject it; inspect Groq Logs for the exact error and retry-after details.
