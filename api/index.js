@@ -511,12 +511,25 @@ let lastGood = null;
 class GeminiFail extends Error {
     status;
     keyBad;
-    constructor(status, message, keyBad = false) {
+    retryMs;
+    constructor(status, message, keyBad = false, retryMs = 0) {
         super(message);
         this.status = status;
         this.keyBad = keyBad;
+        this.retryMs = retryMs;
     }
 }
+/** How long a provider says we must wait ("try again in 20m30s", "retry in 12s", a Retry-After header). A daily limit with no time given rests for 30 minutes. */
+function waitFromLimit(message, retryAfter) {
+    const m = String(message).match(/(?:try again|retry) in\s+(?:(\d+)h)?\s*(?:(\d+)m(?!s))?\s*(?:([\d.]+)s)?/i);
+    if (m && (m[1] || m[2] || m[3]))
+        return Math.min(6 * 3600_000, (Number(m[1] || 0) * 3600 + Number(m[2] || 0) * 60 + Math.ceil(Number(m[3] || 0)) + 2) * 1000);
+    const ra = Number(retryAfter);
+    if (ra > 0)
+        return Math.min(6 * 3600_000, (ra + 2) * 1000);
+    return /per day|tokens per day|requests per day|TPD|RPD|daily/i.test(message) ? 30 * 60_000 : 60_000;
+}
+const niceWait = (ms) => ms >= 3600_000 ? `${Math.round(ms / 360_000) / 10} hours` : ms >= 90_000 ? `${Math.ceil(ms / 60_000)} minutes` : `${Math.max(5, Math.ceil(ms / 1000))} seconds`;
 async function callGemini(key, model, prompt, o) {
     const body = { contents: [{ role: 'user', parts: [{ text: prompt }] }], generationConfig: { maxOutputTokens: o.maxTokens || 8192 } };
     if (o.grounded)
@@ -681,7 +694,7 @@ async function callBackup(b, prompt, o) {
         }
         const d = await r.json().catch(() => ({}));
         if (!r.ok)
-            throw new GeminiFail(r.status, `${r.status} ${tidy(d?.error?.message || 'rejected')}`, r.status === 401);
+            throw new GeminiFail(r.status, `${r.status} ${tidy(d?.error?.message || 'rejected')}`, r.status === 401, r.status === 429 ? waitFromLimit(String(d?.error?.message || ''), r.headers.get('retry-after')) : 0);
         const text = String((d?.content || []).map((c) => c?.text || '').join(''));
         if (!text.trim())
             throw new GeminiFail(0, `${b.label} returned an empty answer.`);
@@ -702,14 +715,25 @@ async function callBackup(b, prompt, o) {
     let r = await send(o.json);
     if (o.json && (r.status === 400 || r.status === 422))
         r = await send(false); // some models do not accept JSON mode
-    const d = await r.json().catch(() => ({}));
-    if (!r.ok) {
-        console.error('Backup AI failed', b.id, b.model, r.status, JSON.stringify(d).slice(0, 300));
-        throw new GeminiFail(r.status, `${r.status} ${tidy(d?.error?.message || d?.message || 'rejected')}`, r.status === 401);
+    let d = await r.json().catch(() => ({}));
+    const fail = (res, data) => {
+        const msg = tidy(data?.error?.message || data?.message || 'rejected');
+        console.error('Backup AI failed', b.id, b.model, res.status, JSON.stringify(data).slice(0, 300));
+        return new GeminiFail(res.status, `${res.status} ${msg}`, res.status === 401, res.status === 429 ? waitFromLimit(String(data?.error?.message || data?.message || ''), res.headers.get('retry-after')) : 0);
+    };
+    if (!r.ok)
+        throw fail(r, d);
+    const read = (data) => { const m = data?.choices?.[0]?.message; return String(m?.content || '').trim() || String(m?.reasoning_content || m?.reasoning || '').trim(); };
+    let text = read(d);
+    if (!text && o.json) { // JSON mode sometimes returns nothing: ask once more in plain mode
+        r = await send(false);
+        d = await r.json().catch(() => ({}));
+        if (!r.ok)
+            throw fail(r, d);
+        text = read(d);
     }
-    const text = String(d?.choices?.[0]?.message?.content || '');
-    if (!text.trim())
-        throw new GeminiFail(0, `${b.label} returned an empty answer.`);
+    if (!text)
+        throw new GeminiFail(0, `${b.label} returned an empty answer (${d?.choices?.[0]?.finish_reason || 'no reason given'}). Try another LLM_MODEL if this keeps happening.`);
     return text;
 }
 /**
@@ -756,7 +780,7 @@ async function llmGenerate(prompt, o = {}) {
     const tryBackups = async () => {
         for (const b of backups) {
             if ((blockedBackups.get(b.id) || 0) > Date.now()) {
-                errs.push({ who: b.label, f: new GeminiFail(429, 'resting after hitting its own limit') });
+                errs.push({ who: b.label, f: new GeminiFail(429, 'at its free limit', false, (blockedBackups.get(b.id) || 0) - Date.now()) });
                 continue;
             }
             const left = deadline - Date.now();
@@ -770,7 +794,7 @@ async function llmGenerate(prompt, o = {}) {
             catch (e) {
                 const f = e instanceof GeminiFail ? e : new GeminiFail(0, e?.message || 'failed');
                 if (f.status === 429)
-                    blockedBackups.set(b.id, Date.now() + 60_000);
+                    blockedBackups.set(b.id, Date.now() + (f.retryMs || 60_000));
                 errs.push({ who: b.label, f });
             }
         }
@@ -782,11 +806,20 @@ async function llmGenerate(prompt, o = {}) {
         if (hit)
             return hit;
     }
-    const quota = errs.some((e) => e.f.status === 429) && !errs.some((e) => e.f.keyBad);
+    const limited = errs.filter((e) => e.f.status === 429);
+    const geminiResting = geminiBlockedMs() > 0 || errs.some((e) => e.who.startsWith('Gemini') && e.f.status === 429);
+    const geminiOk = !geminiKeyList().length || geminiBlockedMs() > 0; // no Gemini key, or every Gemini key is resting
+    const everythingAtLimit = geminiOk && backups.every((b) => limited.some((e) => e.who === b.label)) && errs.every((e) => e.f.status === 429) && (limited.length > 0 || geminiBlockedMs() > 0);
+    if (geminiResting || limited.length) {
+        const waits = [geminiBlockedMs(), ...limited.map((e) => e.f.retryMs)].filter((n) => n > 0);
+        const wait = waits.length ? Math.min(...waits) : 0;
+        const names = [...(geminiResting ? ['Gemini'] : []), ...limited.filter((e) => !e.who.startsWith('Gemini')).map((e) => e.who)];
+        if (everythingAtLimit) {
+            throw new HttpError(424, `Your AI writers have used their free allowance for now (${names.join(' and ') || 'all of them'}). ${wait ? `The soonest one is ready again in about ${niceWait(wait)}. ` : ''}Your work is kept and it will carry on by itself. To keep going right now, add another free key in Vercel (for example CEREBRAS_API_KEY, OPENROUTER_API_KEY or a second Gemini key as GEMINI_API_KEY_2) and redeploy.`, 'GEMINI');
+        }
+    }
     const detail = errs.length ? ` Details: ${errs.map((e) => `${e.who}: ${e.f.keyBad ? 'the key was rejected (check it is copied correctly and is active)' : tidy(e.f.message)}`).join('; ')}.` : '';
-    throw new HttpError(424, backups.length || !quota
-        ? `The AI writers could not answer right now. It will retry automatically.${detail} Open Settings, System check (owner only) and run it to see which key needs attention.`
-        : `The AI writer is at its usage limit right now. Your work is kept and it will retry automatically. Add a backup AI key (for example a free Groq key as LLM_API_KEY) so this never blocks you.${detail}`, 'GEMINI');
+    throw new HttpError(424, `The AI writers could not answer right now. It will retry automatically.${detail} Open Settings, System check (owner only) and run it to see which key needs attention.`, 'GEMINI');
 }
 /** Sends a tiny request to every configured AI writer and reports what happened, so a wrong key or model is easy to find. */
 async function testAiWriters() {
@@ -815,7 +848,7 @@ async function testAiWriters() {
                 out.push({ name: `${b.label} (${b.model})`, ok: true, message: 'Working.' });
             }
             catch (e) {
-                out.push({ name: `${b.label} (${b.model})`, ok: false, message: e?.keyBad ? 'The key was rejected. Check that it is copied correctly and is still active.' : tidy(e?.message || 'failed') });
+                out.push({ name: `${b.label} (${b.model})`, ok: false, message: e?.keyBad ? 'The key was rejected. Check that it is copied correctly and is still active.' : e?.status === 429 ? `The key works, but its free allowance is used up. Ready again in about ${niceWait(e.retryMs || 60_000)}.` : tidy(e?.message || 'failed') });
             }
         }),
     ]);

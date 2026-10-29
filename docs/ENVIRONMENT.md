@@ -71,3 +71,7 @@ Use Vercel Cron on a Pro plan, or a free pinger such as cron-job.org. "Publish n
 1. Open Settings, System check (owner only) and run it. The "AI writers" row tests every key with a tiny request and tells you exactly what is wrong (key rejected, out of quota, wrong model, no internet).
 2. A key that is rejected (401) is wrong or inactive: copy it again with no spaces, then **redeploy** (Vercel only reads new variables on a new deploy).
 3. Add a second source of capacity: a free Groq key as `GROQ_API_KEY`, or another Gemini key from a different Google project as `GEMINI_API_KEY_2`.
+
+## Free daily limits
+Free AI plans count tokens per day (for example 60,000 on a small Groq plan). One script uses roughly 5,000 to 6,000 tokens, so a small free plan covers about ten scripts a day. When every writer is at its limit the app says so, shows how long until the soonest one is ready, keeps your work, and carries on by itself. To keep going immediately, add another key (a second Gemini key from another Google project, or a free Cerebras or OpenRouter key). Check each provider's current free limits on its own site, because they change.
+Not sure which version is live? Open Settings, System check: version 26 and later has a row called "AI writers (Gemini and backups)".
