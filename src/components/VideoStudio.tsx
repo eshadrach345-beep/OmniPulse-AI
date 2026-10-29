@@ -16,6 +16,7 @@ import {
   StudioAudioService,
 } from '../services/aiService';
 import { STUDIO_VOICES, StudioVoice } from '../data/voicesData';
+import { registerLocalProcess, unregisterLocalProcess } from '../services/processRegistry';
 import { CAMERA_OPTIONS, GENRE_OPTIONS, MOOD_OPTIONS, PRESENTATION_OPTIONS, formatSeconds } from '../data/storyOptions';
 import { 
   Play, 
@@ -120,6 +121,16 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
   const [isCreating, setIsCreating] = useState(false);
   const createMode: 'story' | 'voiceover' = 'story'; // the single voice-over form is no longer offered
   const [isGenerating, setIsGenerating] = useState(false);
+  const generationController = useRef<AbortController | null>(null);
+  const generationId = useRef<string | null>(null);
+  useEffect(() => {
+    const onGlobalStop = (event: Event) => {
+      const detail = (event as CustomEvent<{ id?: string }>).detail;
+      if (generationController.current && (!detail?.id || detail.id === generationId.current)) generationController.current.abort();
+    };
+    window.addEventListener('omnipulse:stop-local-process', onGlobalStop);
+    return () => window.removeEventListener('omnipulse:stop-local-process', onGlobalStop);
+  }, []);
   const [statusMessage, setStatusMessage] = useState('');
   const [genError, setGenError] = useState<string | null>(null);
   const [videoLoadError, setVideoLoadError] = useState(false);
@@ -406,6 +417,11 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
     if (!ideaPrompt.trim()) return;
     if (!selectedVoiceId) { setGenError('Please choose a voice, or tap No voice-over, before rendering.'); return; }
 
+    if (generationController.current) generationController.current.abort();
+    const controller = new AbortController();
+    generationController.current = controller;
+    generationId.current = `direct-video-${Date.now()}`;
+    registerLocalProcess({ id: generationId.current, type: 'Direct Video', title: ideaPrompt.trim().slice(0, 90), startedAt: Date.now() }, () => controller.abort());
     setIsGenerating(true);
     setGenError(null);
     setStatusMessage('Writing your script and storyboard...');
@@ -423,6 +439,7 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
         seconds: selectedSeconds,
         voiceMomentum,
         voiceQuality,
+        signal: controller.signal,
       }, (m) => setStatusMessage(m));
 
       onSaveNewVideo(generated);
@@ -431,9 +448,16 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
       resetPlayer();
       setIdeaPrompt('');
     } catch (err) {
-      console.error(err);
-      setGenError(err instanceof Error ? err.message : 'Video generation failed. Please try again.');
+      if (controller.signal.aborted || (err instanceof Error && /stopped by you/i.test(err.message))) {
+        setGenError('Process stopped. Any provider request already accepted may still finish remotely.');
+      } else {
+        console.error(err);
+        setGenError(err instanceof Error ? err.message : 'Video generation failed. Please try again.');
+      }
     } finally {
+      if (generationController.current === controller) generationController.current = null;
+      if (generationId.current) unregisterLocalProcess(generationId.current);
+      generationId.current = null;
       setIsGenerating(false);
       setStatusMessage('');
     }
@@ -1162,14 +1186,17 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
               {genError && (
                 <div role="alert" className="mb-2 text-xs text-rose-300 bg-rose-500/10 border border-rose-500/30 rounded-lg px-3 py-2">{genError}</div>
               )}
-              <button
-                type="submit"
-                disabled={isGenerating || !ideaPrompt.trim() || !selectedVoiceId}
-                className="w-full py-3 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white rounded-lg text-xs font-semibold shadow-md shadow-indigo-600/30 transition-all flex items-center justify-center gap-2"
-              >
-                <Wand2 className="w-4 h-4" />
-                <span>{isGenerating ? statusMessage || 'Directing Video...' : 'Direct & Render Video'}</span>
-              </button>
+              <div className="flex flex-col sm:flex-row gap-2">
+                <button
+                  type="submit"
+                  disabled={isGenerating || !ideaPrompt.trim() || !selectedVoiceId}
+                  className="flex-1 py-3 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white rounded-lg text-xs font-semibold shadow-md shadow-indigo-600/30 transition-all flex items-center justify-center gap-2"
+                >
+                  <Wand2 className="w-4 h-4" />
+                  <span>{isGenerating ? statusMessage || 'Directing Video...' : 'Direct & Render Video'}</span>
+                </button>
+                {isGenerating && <button type="button" onClick={() => { if (window.confirm('Stop this generation process? A request already accepted by an external provider may still finish remotely.')) generationController.current?.abort(); }} className="py-3 px-4 rounded-lg border border-rose-700 bg-rose-950/50 text-rose-200 hover:bg-rose-900/70 text-xs font-semibold flex items-center justify-center gap-2"><Square className="w-3.5 h-3.5 fill-current" /> Stop process</button>}
+              </div>
             </form>
             )}
           </div>
