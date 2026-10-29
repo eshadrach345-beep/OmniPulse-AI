@@ -620,27 +620,37 @@ async function callCompat(prompt, o) {
     const key = fallbackKey();
     const base = (process.env.LLM_BASE_URL || (process.env.OPENROUTER_API_KEY ? 'https://openrouter.ai/api/v1' : process.env.OPENAI_API_KEY ? 'https://api.openai.com/v1' : process.env.MISTRAL_API_KEY ? 'https://api.mistral.ai/v1' : 'https://api.groq.com/openai/v1')).trim().replace(/\/+$/, '');
     const model = (process.env.LLM_MODEL || (process.env.OPENROUTER_API_KEY ? 'meta-llama/llama-3.3-70b-instruct' : process.env.OPENAI_API_KEY ? 'gpt-4o-mini' : process.env.MISTRAL_API_KEY ? 'mistral-small-latest' : 'openai/gpt-oss-120b')).trim();
-    let r;
-    try {
-        r = await fetch(`${base}/chat/completions`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
-            // Keep completion requests within conservative provider limits. Some Groq models reject 9k–12k max_tokens before generation starts.
-            body: JSON.stringify({ model, temperature: 0.7, max_tokens: Math.max(1024, Math.min(o.maxTokens || 2800, 2800)), messages: [{ role: 'user', content: prompt }], ...(o.json ? { response_format: { type: 'json_object' } } : {}) }),
-            signal: AbortSignal.timeout(o.timeoutMs),
-        });
+    const maxTokens = Math.max(1024, Math.min(o.maxTokens || 2800, 2800));
+    const strictJsonPrompt = `${prompt}\n\nOUTPUT REQUIREMENT: Return exactly one syntactically valid JSON object. Do not use Markdown fences, comments, trailing commas, or text before/after the JSON. Escape all quotation marks inside strings. Ensure every opened bracket and quote is closed.`;
+    // Retry the provider's specific JSON-validator error once without response_format.
+    for (let attempt = 0; attempt < 2; attempt++) {
+        let r;
+        const useJsonMode = o.json && attempt === 0;
+        try {
+            r = await fetch(`${base}/chat/completions`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
+                body: JSON.stringify({ model, temperature: attempt ? 0.2 : 0.7, max_tokens: maxTokens, messages: [{ role: 'user', content: attempt && o.json ? strictJsonPrompt : prompt }], ...(useJsonMode ? { response_format: { type: 'json_object' } } : {}) }),
+                signal: AbortSignal.timeout(o.timeoutMs),
+            });
+        } catch (e) {
+            throw new GeminiFail(0, e?.name === 'TimeoutError' ? 'The backup AI took too long to answer.' : (e?.message || 'Network error talking to the backup AI.'));
+        }
+        const d = await r.json().catch(() => ({}));
+        const message = String(d?.error?.message || `Backup AI ${r.status}`);
+        if (!r.ok) {
+            const jsonValidationFailure = o.json && attempt === 0 && r.status === 400 && /failed to validate json|failed_generation|invalid json|json validation/i.test(message);
+            if (jsonValidationFailure) {
+                console.warn('Backup AI JSON mode rejected; retrying once with an explicit JSON-only prompt.', model);
+                continue;
+            }
+            console.error('Backup AI failed', model, r.status, JSON.stringify(d).slice(0, 300));
+            throw new GeminiFail(r.status, message, r.status === 401);
+        }
+        const text = String(d?.choices?.[0]?.message?.content || '');
+        if (!text.trim()) throw new GeminiFail(0, 'The backup AI returned an empty answer.');
+        return text;
     }
-    catch (e) {
-        throw new GeminiFail(0, e?.name === 'TimeoutError' ? 'The backup AI took too long to answer.' : (e?.message || 'Network error talking to the backup AI.'));
-    }
-    const d = await r.json().catch(() => ({}));
-    if (!r.ok) {
-        console.error('Backup AI failed', model, r.status, JSON.stringify(d).slice(0, 300));
-        throw new GeminiFail(r.status, String(d?.error?.message || `Backup AI ${r.status}`), r.status === 401);
-    }
-    const text = String(d?.choices?.[0]?.message?.content || '');
-    if (!text.trim())
-        throw new GeminiFail(0, 'The backup AI returned an empty answer.');
-    return text;
+    throw new GeminiFail(400, 'The backup AI could not satisfy JSON mode after a retry.');
 }
 /**
  * Writes text with the best available AI. Gemini first (unless it is out of quota), then the backup service if one is set.
