@@ -585,7 +585,7 @@ async function withModels(key, deadline, run) {
             }
             catch (e) {
                 last = e instanceof GeminiFail ? e : new GeminiFail(0, e?.message || 'Gemini failed');
-                if (last.keyBad)
+                if (last.keyBad || last.status === 429 || last.status === 503 || /quota|RESOURCE_EXHAUSTED|overloaded|rate.?limit/i.test(last.message))
                     return null;
             }
         }
@@ -661,9 +661,10 @@ async function llmGenerate(prompt, o = {}) {
         if (Date.now() < geminiBlockedUntil)
             throw new HttpError(424, `The AI writer has reached its free usage limit and needs about ${Math.ceil((geminiBlockedUntil - Date.now()) / 1000)} seconds. It will try again by itself.`, 'GEMINI');
         const key = need('GEMINI_API_KEY', 'GOOGLE_API_KEY');
-        const budget = backup ? Math.min(deadline, start + 26_000) : deadline;
+        // Reserve enough of the request budget for the backup provider. When Gemini is throttled or overloaded, fail over quickly instead of spending the entire serverless window retrying models.
+        const budget = backup ? Math.min(deadline - 30_000, start + 14_000) : deadline;
         try {
-            const { out, model } = await withModels(key, budget, (m) => callGemini(key, m, prompt, { grounded: false, json, timeoutMs: Math.max(8_000, Math.min(o.timeoutMs || 40_000, budget - Date.now())), maxTokens: o.maxTokens }));
+            const { out, model } = await withModels(key, budget, (m) => callGemini(key, m, prompt, { grounded: false, json, timeoutMs: Math.max(3_000, Math.min(o.timeoutMs || 14_000, 14_000, budget - Date.now())), maxTokens: o.maxTokens }));
             return { text: out.text, provider: 'gemini', model };
         }
         catch (e) {
@@ -697,7 +698,7 @@ async function llmGenerate(prompt, o = {}) {
     }
     const quota = errs.some((f) => f.status === 429);
     const backupError = errs.find((f) => /backup ai/i.test(f.message)) || (backup ? errs[errs.length - 1] : null);
-    const detail = backup && backupError ? ` Backup provider detail: ${backupError.message.slice(0, 240)}. Check LLM_BASE_URL, LLM_MODEL, and the backup key in Vercel.` : '';
+    const detail = backup && backupError ? ` Backup provider detail: ${backupError.message.slice(0, 240)}. Check GROQ_API_KEY (or LLM_API_KEY), LLM_BASE_URL, and LLM_MODEL in Vercel.` : backup ? ' The backup provider is configured but also failed. Check GROQ_API_KEY, LLM_BASE_URL, and LLM_MODEL in Vercel Runtime Logs.' : ' No backup AI key was detected. Add GROQ_API_KEY in Vercel to enable automatic failover.';
     throw new HttpError(424, quota
         ? `The AI writer reached Gemini's usage limit and the backup provider did not complete the request.${detail || ' Configure a valid LLM_API_KEY (or GROQ_API_KEY / OPENROUTER_API_KEY / OPENAI_API_KEY) and redeploy.'}`
         : `The AI writer is temporarily unavailable.${detail || ' Check the AI provider keys and model settings, then retry.'}`, 'GEMINI');
