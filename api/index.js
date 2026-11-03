@@ -641,12 +641,12 @@ const keyBlockedMs = (k) => Math.max(0, (blockedKeys.get(keyTag(k)) || 0) - Date
 /** Time until at least one Gemini key can be used again (0 when one is ready). */
 const geminiBlockedMs = () => { const ks = geminiKeyList(); return ks.length ? Math.min(...ks.map(keyBlockedMs)) : 0; };
 const SERVICES = [
+    { id: 'cerebras', label: 'Cerebras', env: 'CEREBRAS_API_KEY', base: 'https://api.cerebras.ai/v1', model: 'llama-3.3-70b', prefix: 'csk-' },
     { id: 'groq', label: 'Groq', env: 'GROQ_API_KEY', base: 'https://api.groq.com/openai/v1', model: 'llama-3.3-70b-versatile', prefix: 'gsk_' },
-    { id: 'openrouter', label: 'OpenRouter', env: 'OPENROUTER_API_KEY', base: 'https://openrouter.ai/api/v1', model: 'meta-llama/llama-3.3-70b-instruct', prefix: 'sk-or-' },
+    { id: 'openrouter', label: 'OpenRouter', env: 'OPENROUTER_API_KEY', base: 'https://openrouter.ai/api/v1', model: 'meta-llama/llama-3.3-70b-instruct:free', prefix: 'sk-or-' },
     { id: 'openai', label: 'OpenAI', env: 'OPENAI_API_KEY', base: 'https://api.openai.com/v1', model: 'gpt-4o-mini' },
     { id: 'deepseek', label: 'DeepSeek', env: 'DEEPSEEK_API_KEY', base: 'https://api.deepseek.com/v1', model: 'deepseek-chat' },
     { id: 'mistral', label: 'Mistral', env: 'MISTRAL_API_KEY', base: 'https://api.mistral.ai/v1', model: 'mistral-small-latest' },
-    { id: 'cerebras', label: 'Cerebras', env: 'CEREBRAS_API_KEY', base: 'https://api.cerebras.ai/v1', model: 'llama-3.3-70b', prefix: 'csk-' },
     { id: 'together', label: 'Together', env: 'TOGETHER_API_KEY', base: 'https://api.together.xyz/v1', model: 'meta-llama/Llama-3.3-70B-Instruct-Turbo' },
     { id: 'xai', label: 'xAI', env: 'XAI_API_KEY', base: 'https://api.x.ai/v1', model: 'grok-3-mini', prefix: 'xai-' },
 ];
@@ -667,7 +667,7 @@ function llmBackups() {
     for (const s of SERVICES) {
         const k = (process.env[s.env] || '').trim();
         if (k && !out.some((o) => o.key === k))
-            out.push({ id: s.id, label: s.label, kind: 'openai', key: k, base: s.base, model: s.model });
+            out.push({ id: s.id, label: s.label, kind: 'openai', key: k, base: s.base, model: (process.env[`${s.id.toUpperCase()}_MODEL`] || s.model).trim() });
     }
     const ant = (process.env.ANTHROPIC_API_KEY || '').trim();
     if (ant && !out.some((o) => o.key === ant))
@@ -680,6 +680,29 @@ const aiWriterStatus = () => ({ geminiBlockedSeconds: Math.ceil(geminiBlockedMs(
 const haveGemini = () => geminiKeyList().length > 0;
 /** Keeps a provider's error message short and removes anything that looks like a key. */
 const tidy = (m) => String(m || '').replace(/[A-Za-z0-9_\-]{24,}/g, '…').replace(/\s+/g, ' ').trim().slice(0, 160);
+const modelCache = new Map();
+/** Asks the service which models this key can use and picks a good one. Free services rename and retire models often, so a fixed name is not enough. */
+async function discoverModel(b, current) {
+    try {
+        const r = await fetch(`${b.base}/models`, { headers: { Authorization: `Bearer ${b.key}` }, signal: AbortSignal.timeout(8_000) });
+        if (!r.ok)
+            return null;
+        const d = await r.json();
+        const list = Array.isArray(d?.data) ? d.data : Array.isArray(d) ? d : [];
+        let models = list.map((m) => ({ id: String(m?.id || ''), free: m?.pricing ? Number(m.pricing.prompt) === 0 && Number(m.pricing.completion) === 0 : false })).filter((m) => m.id && !/embed|whisper|tts|vision|\bvl\b|guard|moderation|image|audio|rerank|safety/i.test(m.id));
+        if (b.id === 'openrouter')
+            models = models.filter((m) => m.free || m.id.endsWith(':free'));
+        for (const re of [/llama-?3\.3-?70b/i, /gpt-oss-?120b/i, /qwen.*(235b|32b)/i, /llama.*70b/i, /gpt-oss/i, /deepseek/i, /gemma.*(27b|12b)/i, /llama.*8b/i]) {
+            const hit = models.find((m) => re.test(m.id) && m.id !== current);
+            if (hit)
+                return hit.id;
+        }
+        return models.find((m) => m.id !== current)?.id || null;
+    }
+    catch {
+        return null;
+    }
+}
 /** One call to a backup writer. Handles services that reject JSON mode by asking again without it. */
 async function callBackup(b, prompt, o) {
     const net = (e) => new GeminiFail(0, e?.name === 'TimeoutError' ? `${b.label} took too long to answer.` : (e?.message || `Network error talking to ${b.label}.`));
@@ -700,34 +723,60 @@ async function callBackup(b, prompt, o) {
             throw new GeminiFail(0, `${b.label} returned an empty answer.`);
         return text;
     }
-    const send = async (json) => {
+    const modelKey = `${b.id}|${b.base}`;
+    let model = modelCache.get(modelKey) || b.model;
+    const errText = (data) => String(data?.error?.message || data?.message || '');
+    const ask = async (json, m, maxTok) => {
+        let res;
         try {
-            return await fetch(`${b.base}/chat/completions`, {
+            res = await fetch(`${b.base}/chat/completions`, {
                 method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${b.key}` },
-                body: JSON.stringify({ model: b.model, temperature: 0.9, max_tokens: o.maxTokens || 8000, messages: [{ role: 'user', content: prompt }], ...(json ? { response_format: { type: 'json_object' } } : {}) }),
+                body: JSON.stringify({ model: m, temperature: 0.9, max_tokens: maxTok, messages: [{ role: 'user', content: prompt }], ...(json ? { response_format: { type: 'json_object' } } : {}) }),
                 signal: AbortSignal.timeout(o.timeoutMs),
             });
         }
         catch (e) {
             throw net(e);
         }
+        return { r: res, d: (await res.json().catch(() => ({}))) };
     };
-    let r = await send(o.json);
-    if (o.json && (r.status === 400 || r.status === 422))
-        r = await send(false); // some models do not accept JSON mode
-    let d = await r.json().catch(() => ({}));
+    let maxTok = o.maxTokens || 8000;
+    let a = await ask(o.json, model, maxTok);
+    // some models do not accept JSON mode
+    if (o.json && !a.r.ok && [400, 422].includes(a.r.status) && !/model|context|token|exceed/i.test(errText(a.d)))
+        a = await ask(false, model, maxTok);
+    // the model name is wrong, retired, or needs credits (free services change their models often): find one that works for this key
+    if (!a.r.ok && (a.r.status === 404 || a.r.status === 402 || (a.r.status === 400 && /model|does not exist|not found|decommission|not supported/i.test(errText(a.d))))) {
+        const alt = await discoverModel(b, model);
+        if (alt && alt !== model) {
+            model = alt;
+            modelCache.set(modelKey, alt);
+            a = await ask(o.json, model, maxTok);
+            if (o.json && !a.r.ok && [400, 422].includes(a.r.status))
+                a = await ask(false, model, maxTok);
+        }
+    }
+    // small free plans limit the size of one request: ask for a shorter answer
+    if (!a.r.ok && [400, 413].includes(a.r.status) && /context|max_tokens|too (large|long|many)|maximum|exceed/i.test(errText(a.d)) && maxTok > 3500) {
+        maxTok = 3500;
+        a = await ask(o.json, model, maxTok);
+        if (o.json && !a.r.ok && [400, 422].includes(a.r.status))
+            a = await ask(false, model, maxTok);
+    }
+    let r = a.r, d = a.d;
     const fail = (res, data) => {
-        const msg = tidy(data?.error?.message || data?.message || 'rejected');
-        console.error('Backup AI failed', b.id, b.model, res.status, JSON.stringify(data).slice(0, 300));
-        return new GeminiFail(res.status, `${res.status} ${msg}`, res.status === 401, res.status === 429 ? waitFromLimit(String(data?.error?.message || data?.message || ''), res.headers.get('retry-after')) : 0);
+        const msg = tidy(errText(data) || 'rejected');
+        console.error('Backup AI failed', b.id, model, res.status, JSON.stringify(data).slice(0, 300));
+        return new GeminiFail(res.status, `${res.status} ${msg}`, res.status === 401, res.status === 429 ? waitFromLimit(errText(data), res.headers.get('retry-after')) : 0);
     };
     if (!r.ok)
         throw fail(r, d);
     const read = (data) => { const m = data?.choices?.[0]?.message; return String(m?.content || '').trim() || String(m?.reasoning_content || m?.reasoning || '').trim(); };
     let text = read(d);
     if (!text && o.json) { // JSON mode sometimes returns nothing: ask once more in plain mode
-        r = await send(false);
-        d = await r.json().catch(() => ({}));
+        const again = await ask(false, model, maxTok);
+        r = again.r;
+        d = again.d;
         if (!r.ok)
             throw fail(r, d);
         text = read(d);
@@ -845,7 +894,7 @@ async function testAiWriters() {
         ...llmBackups().map(async (b) => {
             try {
                 await callBackup(b, 'Reply with the single word OK.', { json: false, timeoutMs: 15_000, maxTokens: 20 });
-                out.push({ name: `${b.label} (${b.model})`, ok: true, message: 'Working.' });
+                out.push({ name: `${b.label} (${modelCache.get(`${b.id}|${b.base}`) || b.model})`, ok: true, message: 'Working.' });
             }
             catch (e) {
                 out.push({ name: `${b.label} (${b.model})`, ok: false, message: e?.keyBad ? 'The key was rejected. Check that it is copied correctly and is still active.' : e?.status === 429 ? `The key works, but its free allowance is used up. Ready again in about ${niceWait(e.retryMs || 60_000)}.` : tidy(e?.message || 'failed') });
@@ -4150,9 +4199,11 @@ function episodeView(e) {
         : en.parts.some((p) => !p.url && !p.jobId && p.tries >= MAX_PART_TRIES) ? 'failed'
             : en.parts.some((p) => p.jobId) ? 'rendering' : 'waiting');
     const cfg = e.brief || {};
-    const note = e.status === 'PROCESSING' && Number(e.attempts) > 0
-        ? ((e.brief || {}).mode === 'paste' ? 'The AI helper was busy, so it is trying again. If it is still busy, your script will be used exactly as you pasted it.' : 'The AI writer was busy, so it is trying again by itself. Nothing is lost.')
-        : e.status === 'RENDERING' && e.error ? String(e.error) : '';
+    const note = e.status === 'PROCESSING' && e.error
+        ? `${String(e.error)}${Number(e.attempts) > 0 ? ` (try ${Number(e.attempts) + 1} of ${MAX_SCRIPT_ATTEMPTS})` : ''}`
+        : e.status === 'PROCESSING' && Number(e.attempts) > 0
+            ? ((e.brief || {}).mode === 'paste' ? 'The AI helper was busy, so it is trying again. If it is still busy, your script will be used exactly as you pasted it.' : 'The AI writer was busy, so it is trying again by itself. Nothing is lost.')
+            : e.status === 'RENDERING' && e.error ? String(e.error) : '';
     return {
         id: e.id, projectId: e.project_id, partNumber: e.part_number, status: e.status,
         promptInput: e.prompt_input, title: String(sb.title || ''), logline: String(sb.logline || ''), storySoFar: String(sb.storySoFar || ''),
@@ -4462,11 +4513,16 @@ async function advanceEpisode(row, user, ep) {
         console.error(`episode ${ep.id} (${cur.status}) step failed:`, e?.message);
         const attempts = (cur.attempts || 0) + 1;
         const permanent = e instanceof HttpError && [400, 402, 403, 409].includes(e.status);
-        if (permanent || attempts >= MAX_SCRIPT_ATTEMPTS)
+        const reason = e instanceof HttpError ? String(e.message).slice(0, 400) : 'Something went wrong, so it is trying again.';
+        // every AI writer is at its free limit: that is not a failure. Wait without using up retries, and keep the real reason on screen.
+        const resting = e instanceof HttpError && e.code === 'GEMINI' && /free allowance|usage limit|limit right now/i.test(e.message);
+        if (resting)
+            await sql() `UPDATE episodes SET error = ${reason}, locked_until = now() + 90 * interval '1 second', updated_at = now() WHERE id = ${ep.id} AND status = 'PROCESSING'`;
+        else if (permanent || attempts >= MAX_SCRIPT_ATTEMPTS)
             await failEpisode(ep.id, String(e?.message || 'Something went wrong while making this part.'));
         else {
             const pause = Math.min(45, 4 * 2 ** (attempts - 1));
-            await sql() `UPDATE episodes SET attempts = ${attempts}, locked_until = now() + ${pause}::int * interval '1 second' WHERE id = ${ep.id}`;
+            await sql() `UPDATE episodes SET attempts = ${attempts}, error = ${reason}, locked_until = now() + ${pause}::int * interval '1 second' WHERE id = ${ep.id}`;
         } // growing pause, then the next poll tries again
     }
     return reload();

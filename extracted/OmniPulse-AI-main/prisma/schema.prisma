@@ -1,0 +1,59 @@
+// Series memory: a Project groups the Episodes (parts) of one story.
+//
+// The running app talks to Neon with the serverless SQL driver (server/lib/db.ts creates these same tables on first use), so this file is
+// not needed at runtime. It describes the exact tables so Prisma tooling can be used alongside: `npx prisma db pull` should show no
+// differences, and `npx prisma studio` can browse the data. Table and column names are mapped to the snake_case names in the database.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Project {
+  id          String    @id
+  /// users.id (the users table is created by the app, not modelled here)
+  userId      String    @map("user_id")
+  title       String    @default("")
+  genre       String    @default("")
+  /// { "characters": [{ name, role, gender, description }] }  - the cast every later part must keep looking the same
+  characterDb Json      @default("{\"characters\":[]}") @map("character_db")
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  episodes    Episode[]
+
+  @@index([userId, updatedAt(sort: Desc)], map: "projects_user_idx")
+  @@map("projects")
+}
+
+model Episode {
+  id             String    @id
+  projectId      String    @map("project_id")
+  project        Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  partNumber     Int       @map("part_number")
+  /// What the person asked for in this part ("What happens next in Part 2?")
+  promptInput    String    @map("prompt_input")
+  /// Where the joined MP4 is served from, set when the part is COMPLETED
+  finalVideoUrl  String?   @map("final_video_url")
+  /// The full storyboard: title, logline, storySoFar, characters and scenes (sceneId, visualPrompt, voiceoverText, cameraMotion, ...)
+  storyboardJson Json      @default("{}") @map("storyboard_json")
+  /// PROCESSING (writing the script) -> RENDERING (scenes in parallel) -> COMPLETED, or FAILED at any point
+  status         String    @default("PROCESSING")
+  /// The settings the part was made with: { format, look, aspect, niche, brief }
+  brief          Json      @default("{}")
+  /// One entry per scene: { index, tries, jobId?, url?, error? }
+  renderJobs     Json?     @map("render_jobs")
+  error          String?
+  attempts       Int       @default(0)
+  /// Short lease so two requests never run the same step at once
+  lockedUntil    DateTime? @map("locked_until") @db.Timestamptz(6)
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([projectId, partNumber])
+  @@index([status])
+  @@map("episodes")
+}

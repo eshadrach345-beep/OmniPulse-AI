@@ -75,3 +75,8 @@ Use Vercel Cron on a Pro plan, or a free pinger such as cron-job.org. "Publish n
 ## Free daily limits
 Free AI plans count tokens per day (for example 60,000 on a small Groq plan). One script uses roughly 5,000 to 6,000 tokens, so a small free plan covers about ten scripts a day. When every writer is at its limit the app says so, shows how long until the soonest one is ready, keeps your work, and carries on by itself. To keep going immediately, add another key (a second Gemini key from another Google project, or a free Cerebras or OpenRouter key). Check each provider's current free limits on its own site, because they change.
 Not sure which version is live? Open Settings, System check: version 26 and later has a row called "AI writers (Gemini and backups)".
+
+## Using Cerebras and OpenRouter
+In Vercel, Settings, Environment Variables, add `CEREBRAS_API_KEY` (starts with `csk-`) and `OPENROUTER_API_KEY` (starts with `sk-or-`), then redeploy. Use these exact names so both work together; `LLM_API_KEY` holds only one key. Writers are tried in this order: Gemini, `LLM_API_KEY`, Cerebras, Groq, OpenRouter, then the others. A writer that is at its limit rests and the next one is used.
+Free services rename and retire models often. If a model name stops working, the app asks the service which models your key can use and picks one by itself. To choose one yourself, set `CEREBRAS_MODEL` or `OPENROUTER_MODEL` (or `GROQ_MODEL`, and so on).
+OpenRouter's free models have small daily limits for accounts without credits, so treat it as a reserve. The System check row "AI writers" shows which model each key is using.

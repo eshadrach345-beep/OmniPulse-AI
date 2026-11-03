@@ -240,12 +240,12 @@ const geminiBlockedMs = () => { const ks = geminiKeyList(); return ks.length ? M
 // ---- backup writers (any OpenAI-compatible service, plus Anthropic) --------------------------------------
 export interface LlmBackup { id: string; label: string; kind: 'openai' | 'anthropic'; key: string; base: string; model: string }
 const SERVICES: { id: string; label: string; env: string; base: string; model: string; prefix?: string }[] = [
+  { id: 'cerebras', label: 'Cerebras', env: 'CEREBRAS_API_KEY', base: 'https://api.cerebras.ai/v1', model: 'llama-3.3-70b', prefix: 'csk-' },
   { id: 'groq', label: 'Groq', env: 'GROQ_API_KEY', base: 'https://api.groq.com/openai/v1', model: 'llama-3.3-70b-versatile', prefix: 'gsk_' },
-  { id: 'openrouter', label: 'OpenRouter', env: 'OPENROUTER_API_KEY', base: 'https://openrouter.ai/api/v1', model: 'meta-llama/llama-3.3-70b-instruct', prefix: 'sk-or-' },
+  { id: 'openrouter', label: 'OpenRouter', env: 'OPENROUTER_API_KEY', base: 'https://openrouter.ai/api/v1', model: 'meta-llama/llama-3.3-70b-instruct:free', prefix: 'sk-or-' },
   { id: 'openai', label: 'OpenAI', env: 'OPENAI_API_KEY', base: 'https://api.openai.com/v1', model: 'gpt-4o-mini' },
   { id: 'deepseek', label: 'DeepSeek', env: 'DEEPSEEK_API_KEY', base: 'https://api.deepseek.com/v1', model: 'deepseek-chat' },
   { id: 'mistral', label: 'Mistral', env: 'MISTRAL_API_KEY', base: 'https://api.mistral.ai/v1', model: 'mistral-small-latest' },
-  { id: 'cerebras', label: 'Cerebras', env: 'CEREBRAS_API_KEY', base: 'https://api.cerebras.ai/v1', model: 'llama-3.3-70b', prefix: 'csk-' },
   { id: 'together', label: 'Together', env: 'TOGETHER_API_KEY', base: 'https://api.together.xyz/v1', model: 'meta-llama/Llama-3.3-70B-Instruct-Turbo' },
   { id: 'xai', label: 'xAI', env: 'XAI_API_KEY', base: 'https://api.x.ai/v1', model: 'grok-3-mini', prefix: 'xai-' },
 ];
@@ -263,7 +263,7 @@ export function llmBackups(): LlmBackup[] {
       out.push({ id: base ? 'custom' : svc.id, label: base ? 'Backup AI (custom URL)' : svc.label, kind: 'openai', key: generic, base: base || svc.base, model: (process.env.LLM_MODEL || svc.model).trim() });
     }
   }
-  for (const s of SERVICES) { const k = (process.env[s.env] || '').trim(); if (k && !out.some((o) => o.key === k)) out.push({ id: s.id, label: s.label, kind: 'openai', key: k, base: s.base, model: s.model }); }
+  for (const s of SERVICES) { const k = (process.env[s.env] || '').trim(); if (k && !out.some((o) => o.key === k)) out.push({ id: s.id, label: s.label, kind: 'openai', key: k, base: s.base, model: (process.env[`${s.id.toUpperCase()}_MODEL`] || s.model).trim() }); }
   const ant = (process.env.ANTHROPIC_API_KEY || '').trim();
   if (ant && !out.some((o) => o.key === ant)) out.push({ id: 'anthropic', label: 'Anthropic', kind: 'anthropic', key: ant, base: 'https://api.anthropic.com', model: (process.env.ANTHROPIC_MODEL || 'claude-haiku-5-5').trim() });
   return out;
@@ -276,6 +276,24 @@ export const aiWriterStatus = () => ({ geminiBlockedSeconds: Math.ceil(geminiBlo
 const haveGemini = () => geminiKeyList().length > 0;
 /** Keeps a provider's error message short and removes anything that looks like a key. */
 const tidy = (m: string) => String(m || '').replace(/[A-Za-z0-9_\-]{24,}/g, '…').replace(/\s+/g, ' ').trim().slice(0, 160);
+
+const modelCache = new Map<string, string>();
+/** Asks the service which models this key can use and picks a good one. Free services rename and retire models often, so a fixed name is not enough. */
+async function discoverModel(b: LlmBackup, current: string): Promise<string | null> {
+  try {
+    const r = await fetch(`${b.base}/models`, { headers: { Authorization: `Bearer ${b.key}` }, signal: AbortSignal.timeout(8_000) });
+    if (!r.ok) return null;
+    const d: any = await r.json();
+    const list: any[] = Array.isArray(d?.data) ? d.data : Array.isArray(d) ? d : [];
+    let models = list.map((m) => ({ id: String(m?.id || ''), free: m?.pricing ? Number(m.pricing.prompt) === 0 && Number(m.pricing.completion) === 0 : false })).filter((m) => m.id && !/embed|whisper|tts|vision|\bvl\b|guard|moderation|image|audio|rerank|safety/i.test(m.id));
+    if (b.id === 'openrouter') models = models.filter((m) => m.free || m.id.endsWith(':free'));
+    for (const re of [/llama-?3\.3-?70b/i, /gpt-oss-?120b/i, /qwen.*(235b|32b)/i, /llama.*70b/i, /gpt-oss/i, /deepseek/i, /gemma.*(27b|12b)/i, /llama.*8b/i]) {
+      const hit = models.find((m) => re.test(m.id) && m.id !== current);
+      if (hit) return hit.id;
+    }
+    return models.find((m) => m.id !== current)?.id || null;
+  } catch { return null; }
+}
 
 /** One call to a backup writer. Handles services that reject JSON mode by asking again without it. */
 async function callBackup(b: LlmBackup, prompt: string, o: { json: boolean; timeoutMs: number; maxTokens?: number }): Promise<string> {
@@ -292,28 +310,42 @@ async function callBackup(b: LlmBackup, prompt: string, o: { json: boolean; time
     if (!text.trim()) throw new GeminiFail(0, `${b.label} returned an empty answer.`);
     return text;
   }
-  const send = async (json: boolean) => {
+  const modelKey = `${b.id}|${b.base}`;
+  let model = modelCache.get(modelKey) || b.model;
+  const errText = (data: any) => String(data?.error?.message || data?.message || '');
+  const ask = async (json: boolean, m: string, maxTok: number) => {
+    let res: Response;
     try {
-      return await fetch(`${b.base}/chat/completions`, {
+      res = await fetch(`${b.base}/chat/completions`, {
         method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${b.key}` },
-        body: JSON.stringify({ model: b.model, temperature: 0.9, max_tokens: o.maxTokens || 8000, messages: [{ role: 'user', content: prompt }], ...(json ? { response_format: { type: 'json_object' } } : {}) }),
+        body: JSON.stringify({ model: m, temperature: 0.9, max_tokens: maxTok, messages: [{ role: 'user', content: prompt }], ...(json ? { response_format: { type: 'json_object' } } : {}) }),
         signal: AbortSignal.timeout(o.timeoutMs),
       });
     } catch (e: any) { throw net(e); }
+    return { r: res, d: (await res.json().catch(() => ({}))) as any };
   };
-  let r = await send(o.json);
-  if (o.json && (r.status === 400 || r.status === 422)) r = await send(false); // some models do not accept JSON mode
-  let d: any = await r.json().catch(() => ({}));
+  let maxTok = o.maxTokens || 8000;
+  let a = await ask(o.json, model, maxTok);
+  // some models do not accept JSON mode
+  if (o.json && !a.r.ok && [400, 422].includes(a.r.status) && !/model|context|token|exceed/i.test(errText(a.d))) a = await ask(false, model, maxTok);
+  // the model name is wrong, retired, or needs credits (free services change their models often): find one that works for this key
+  if (!a.r.ok && (a.r.status === 404 || a.r.status === 402 || (a.r.status === 400 && /model|does not exist|not found|decommission|not supported/i.test(errText(a.d))))) {
+    const alt = await discoverModel(b, model);
+    if (alt && alt !== model) { model = alt; modelCache.set(modelKey, alt); a = await ask(o.json, model, maxTok); if (o.json && !a.r.ok && [400, 422].includes(a.r.status)) a = await ask(false, model, maxTok); }
+  }
+  // small free plans limit the size of one request: ask for a shorter answer
+  if (!a.r.ok && [400, 413].includes(a.r.status) && /context|max_tokens|too (large|long|many)|maximum|exceed/i.test(errText(a.d)) && maxTok > 3500) { maxTok = 3500; a = await ask(o.json, model, maxTok); if (o.json && !a.r.ok && [400, 422].includes(a.r.status)) a = await ask(false, model, maxTok); }
+  let r = a.r, d: any = a.d;
   const fail = (res: Response, data: any) => {
-    const msg = tidy(data?.error?.message || data?.message || 'rejected');
-    console.error('Backup AI failed', b.id, b.model, res.status, JSON.stringify(data).slice(0, 300));
-    return new GeminiFail(res.status, `${res.status} ${msg}`, res.status === 401, res.status === 429 ? waitFromLimit(String(data?.error?.message || data?.message || ''), res.headers.get('retry-after')) : 0);
+    const msg = tidy(errText(data) || 'rejected');
+    console.error('Backup AI failed', b.id, model, res.status, JSON.stringify(data).slice(0, 300));
+    return new GeminiFail(res.status, `${res.status} ${msg}`, res.status === 401, res.status === 429 ? waitFromLimit(errText(data), res.headers.get('retry-after')) : 0);
   };
   if (!r.ok) throw fail(r, d);
   const read = (data: any) => { const m = data?.choices?.[0]?.message; return String(m?.content || '').trim() || String(m?.reasoning_content || m?.reasoning || '').trim(); };
   let text = read(d);
   if (!text && o.json) { // JSON mode sometimes returns nothing: ask once more in plain mode
-    r = await send(false); d = await r.json().catch(() => ({}));
+    const again = await ask(false, model, maxTok); r = again.r; d = again.d;
     if (!r.ok) throw fail(r, d);
     text = read(d);
   }
@@ -398,7 +430,7 @@ export async function testAiWriters(): Promise<{ name: string; ok: boolean; mess
       catch (e: any) { const f = new GeminiFail(e?.status || 0, e?.message || 'failed', !!e?.keyBad); noteGeminiFailure(f, k); out.push({ name, ok: false, message: tidy(e?.message || 'failed') }); }
     }),
     ...llmBackups().map(async (b) => {
-      try { await callBackup(b, 'Reply with the single word OK.', { json: false, timeoutMs: 15_000, maxTokens: 20 }); out.push({ name: `${b.label} (${b.model})`, ok: true, message: 'Working.' }); }
+      try { await callBackup(b, 'Reply with the single word OK.', { json: false, timeoutMs: 15_000, maxTokens: 20 }); out.push({ name: `${b.label} (${modelCache.get(`${b.id}|${b.base}`) || b.model})`, ok: true, message: 'Working.' }); }
       catch (e: any) { out.push({ name: `${b.label} (${b.model})`, ok: false, message: e?.keyBad ? 'The key was rejected. Check that it is copied correctly and is still active.' : e?.status === 429 ? `The key works, but its free allowance is used up. Ready again in about ${niceWait(e.retryMs || 60_000)}.` : tidy(e?.message || 'failed') }); }
     }),
   ]);

@@ -1465,7 +1465,9 @@ function episodeView(e: any) {
     : en.parts.some((p) => !p.url && !p.jobId && p.tries >= MAX_PART_TRIES) ? 'failed'
     : en.parts.some((p) => p.jobId) ? 'rendering' : 'waiting');
   const cfg = e.brief || {};
-  const note = e.status === 'PROCESSING' && Number(e.attempts) > 0
+  const note = e.status === 'PROCESSING' && e.error
+    ? `${String(e.error)}${Number(e.attempts) > 0 ? ` (try ${Number(e.attempts) + 1} of ${MAX_SCRIPT_ATTEMPTS})` : ''}`
+    : e.status === 'PROCESSING' && Number(e.attempts) > 0
     ? ((e.brief || {}).mode === 'paste' ? 'The AI helper was busy, so it is trying again. If it is still busy, your script will be used exactly as you pasted it.' : 'The AI writer was busy, so it is trying again by itself. Nothing is lost.')
     : e.status === 'RENDERING' && e.error ? String(e.error) : '';
   return {
@@ -1730,8 +1732,12 @@ async function advanceEpisode(row: any, user: ReturnType<typeof toUser>, ep: any
     console.error(`episode ${ep.id} (${cur.status}) step failed:`, e?.message);
     const attempts = (cur.attempts || 0) + 1;
     const permanent = e instanceof HttpError && [400, 402, 403, 409].includes(e.status);
-    if (permanent || attempts >= MAX_SCRIPT_ATTEMPTS) await failEpisode(ep.id, String(e?.message || 'Something went wrong while making this part.'));
-    else { const pause = Math.min(45, 4 * 2 ** (attempts - 1)); await sql()`UPDATE episodes SET attempts = ${attempts}, locked_until = now() + ${pause}::int * interval '1 second' WHERE id = ${ep.id}`; } // growing pause, then the next poll tries again
+    const reason = e instanceof HttpError ? String(e.message).slice(0, 400) : 'Something went wrong, so it is trying again.';
+    // every AI writer is at its free limit: that is not a failure. Wait without using up retries, and keep the real reason on screen.
+    const resting = e instanceof HttpError && e.code === 'GEMINI' && /free allowance|usage limit|limit right now/i.test(e.message);
+    if (resting) await sql()`UPDATE episodes SET error = ${reason}, locked_until = now() + 90 * interval '1 second', updated_at = now() WHERE id = ${ep.id} AND status = 'PROCESSING'`;
+    else if (permanent || attempts >= MAX_SCRIPT_ATTEMPTS) await failEpisode(ep.id, String(e?.message || 'Something went wrong while making this part.'));
+    else { const pause = Math.min(45, 4 * 2 ** (attempts - 1)); await sql()`UPDATE episodes SET attempts = ${attempts}, error = ${reason}, locked_until = now() + ${pause}::int * interval '1 second' WHERE id = ${ep.id}`; } // growing pause, then the next poll tries again
   }
   return reload();
 }
