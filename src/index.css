@@ -82,3 +82,19 @@
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
 }
+
+
+/* Responsive finishing touches shared across the public site and workspace. */
+@layer base {
+  html { scroll-behavior: smooth; }
+  body { min-width: 320px; }
+  #root { min-height: 100vh; }
+  button, a, input, select, textarea { touch-action: manipulation; }
+  button, a { transition-property: color, background-color, border-color, box-shadow, opacity, transform; transition-duration: 160ms; }
+  img, video, canvas, svg { max-width: 100%; }
+}
+
+@media (max-width: 639px) {
+  main { overflow-wrap: anywhere; }
+  input, select, textarea { max-width: 100%; }
+}
