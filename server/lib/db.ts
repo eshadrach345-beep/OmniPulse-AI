@@ -53,6 +53,17 @@ export function ensureSchema(): Promise<void> {
         attempts INT NOT NULL DEFAULT 0,
         PRIMARY KEY (email, purpose)
       )`;
+      await q`CREATE TABLE IF NOT EXISTS media_assets (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        pathname TEXT NOT NULL UNIQUE,
+        blob_url TEXT NOT NULL,
+        original_name TEXT NOT NULL,
+        content_type TEXT NOT NULL,
+        size_bytes BIGINT NOT NULL DEFAULT 0,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      )`;
+      await q`CREATE INDEX IF NOT EXISTS media_assets_user_idx ON media_assets (user_id, created_at DESC)`;
       await q`CREATE TABLE IF NOT EXISTS dashboards (
         user_id TEXT PRIMARY KEY,
         data JSONB NOT NULL,
