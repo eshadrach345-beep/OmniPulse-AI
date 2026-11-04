@@ -21,6 +21,11 @@ export interface SocialAccount {
   publishable?: boolean;
 }
 
+export interface ResearchSource {
+  title: string; url: string; domain?: string; faviconUrl?: string; imageUrl?: string;
+  snippet?: string; publishedAt?: string; sourceType?: 'video' | 'article' | 'news' | 'website'; platform?: string;
+}
+
 export interface NicheCategory {
   id: string;
   name: string;
@@ -37,8 +42,8 @@ export interface NicheCategory {
   viralHashtags: HashtagGroup;
   suggestedKeywords: string[];
   bestPractices: BestPractice[];
-  /** Sources found by live web search (Google grounding). */
-  researchSources?: { title: string; url: string }[];
+  /** Rich source cards returned by live web research. */
+  researchSources?: ResearchSource[];
   /** True when the research really used live web search. */
   researchGrounded?: boolean;
 }
