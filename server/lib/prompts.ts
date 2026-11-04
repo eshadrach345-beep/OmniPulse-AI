@@ -24,13 +24,13 @@ ${notes.slice(0, 28000)}
 
 Rules:
 - Use ONLY what is in the notes. Do not add facts, creators, statistics or URLs that are not there.
-- If sources do not provide measured hashtag volume, competition or velocity, do not present values as real platform analytics. Treat velocityScore as a heuristic editorial score only, not measured reach.
+- Only label a hashtag "viral" when dated source evidence supports current attention. If sources do not provide measured hashtag volume, competition or velocity, use "Not measured" for volume and "Unknown" for competition. velocityScore may only be a clearly understood editorial relevance score, never actual platform analytics or measured reach.
 - Never label a topic viral, breakout or rising without dated evidence of increasing attention; otherwise use Evergreen or clearly caveated Rising.
 - Do not invent creator handles. If an account cannot be verified from a direct source URL, omit it.
 - estimatedReachMultiplier must be 'Not measured' unless the supplied evidence provides defensible comparative data.
 - "url" for a creator must be a URL that appears in the notes, otherwise "".
 - Each topic needs a "whyNow" sentence. "velocity" is a short qualitative phrase (e.g. "Rising quickly"), "volume" is "Large", "Medium" or "Small", and "estimatedReachMultiplier" is a qualitative phrase. Never invent percentages.
-- Hashtags must be real, relevant hashtags that start with #.
+- Only include hashtags that appear verbatim in the supplied source evidence. If sources do not show enough tags, return fewer rather than inventing them. Every tag must start with #.
 - 3 to 5 trendingTopics, 4 to 6 trendingCreators (as many as the notes support), 3 to 5 hashtags in each group, using "Not measured" volume and "Unknown" competition whenever sources provide no measurement, 4 to 8 suggestedKeywords, 3 to 5 bestPractices.
 
 Return ONLY valid JSON in exactly this shape:
