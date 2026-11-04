@@ -545,7 +545,7 @@ const researchTrends: Handler = async ({ req, res, body }) => {
   await rateLimit(`ai:${row.id}`, 120, 3600);
   const niche = str(body.niche || 'Tech & AI SaaS', 80), custom = str(body.customQuery, 120);
   if (body.step === 'format') {
-    const notes = str(body.notes, 30000);
+    const notes = str(body.notes, 52000);
     if (notes.length < 50) throw new HttpError(400, 'No research notes to format.');
     const r = await geminiFormat(trendsFormatPrompt(niche, notes));
     return json(res, 200, { success: true, ...r.data, model: r.model });
