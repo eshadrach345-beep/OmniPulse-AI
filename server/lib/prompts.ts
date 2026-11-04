@@ -583,6 +583,7 @@ function writerHead(a: WriterBase): string {
     commercial: 'A premium brand commercial or product advertisement. Make the product, service or brand the visual hero. Open with a striking visual hook, demonstrate the product in believable use, communicate only benefits supported by the user brief, create a memorable brand mood, and finish with a clear, tasteful call to action. Never invent prices, guarantees, certifications, customer testimonials or performance claims.',
   };
   const mood = STORY_MOODS[a.mood], cam = CAMERA_PROFILES[a.cameraProfile];
+  const commercialDirection = a.format === 'commercial' ? `\nBRAND COMMERCIAL ART DIRECTION:\n- Treat the product or service as the hero. Build a premium visual sequence: striking opening image, product reveal, tactile close-up details, believable real-world use, clear benefit demonstration, brand moment and memorable final call to action.\n- Use refined composition, deliberate negative space, controlled highlights, realistic materials, premium colour grading and smooth purposeful camera movement. Avoid generic stock-footage staging.\n- If the brief names brand colours, product materials, packaging, logo placement or audience, honour those details consistently. Do not invent a logo, price, discount, guarantee, certification, customer review, performance statistic or product feature.\n- Keep all on-screen text extremely short and add it in post-production direction only; never ask the video model to render readable words or logos. The voice-over must sound like a confident premium advertisement, not a generic narrator.\n` : '';
   const lock = a.characterLock
     ? `\nMAIN CHARACTER LOCK: The FIRST character in "characters" is the protagonist${a.characterLock.name ? `, named "${a.characterLock.name}"` : ''}. Their visual description is fixed by the user and must be used word for word: "${a.characterLock.descriptor}". Copy it unchanged into every scene's "visualPrompt" in which they appear.\n`
     : '';
@@ -597,6 +598,7 @@ Every "visualPrompt" must show this mood through lighting, colour, weather, text
 CAMERA PROFILE: ${cam.label}. Base instruction: ${cam.direct}.
 PACING: ${a.pacing}
 ${lock}
+${commercialDirection}
 ${a.style || ACTION_DIRECTION}
 
 ${ORIGINALITY}
