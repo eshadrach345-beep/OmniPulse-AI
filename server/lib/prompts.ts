@@ -27,11 +27,15 @@ Rules:
 - Only label a hashtag "viral" when dated source evidence supports current attention. If sources do not provide measured hashtag volume, competition or velocity, use "Not measured" for volume and "Unknown" for competition. velocityScore may only be a clearly understood editorial relevance score, never actual platform analytics or measured reach.
 - Never label a topic viral, breakout or rising without dated evidence of increasing attention; otherwise use Evergreen or clearly caveated Rising.
 - Do not invent creator handles. If an account cannot be verified from a direct source URL, omit it.
+- Return up to 50 distinct creators/accounts only when supported by the supplied evidence. Rank them by the strongest available evidence, prioritising official public video views and recency. Never imply this is a complete platform-wide ranking.
+- For every creator, include 1 to 3 recent high-performing video examples when direct video URLs are present in the evidence. Each example must include its exact title, exact URL, platform, publication date when supplied, exact thumbnail URL when supplied, and numeric public view count only when explicitly supplied. Do not infer or calculate private impressions.
+- For YouTube API evidence, public view counts, likes, comments, subscribers and thumbnails are source-backed. Label view counts as public views, never impressions. For TikTok/Instagram/other networks, use only metrics explicitly visible in the supplied evidence; otherwise leave the metric unavailable.
+- A creator's avatar/profile image URL may be included only when it appears verbatim in the evidence. Never manufacture image URLs.
 - estimatedReachMultiplier must be 'Not measured' unless the supplied evidence provides defensible comparative data.
 - "url" for a creator must be a URL that appears in the notes, otherwise "".
 - Each topic needs a "whyNow" sentence. "velocity" is a short qualitative phrase (e.g. "Rising quickly"), "volume" is "Large", "Medium" or "Small", and "estimatedReachMultiplier" is a qualitative phrase. Never invent percentages.
 - Only include hashtags that appear verbatim in the supplied source evidence. If sources do not show enough tags, return fewer rather than inventing them. Every tag must start with #.
-- 3 to 5 trendingTopics, 4 to 6 trendingCreators (as many as the notes support), 3 to 5 hashtags in each group, using "Not measured" volume and "Unknown" competition whenever sources provide no measurement, 4 to 8 suggestedKeywords, 3 to 5 bestPractices.
+- 3 to 5 trendingTopics, up to 50 verified trendingCreators when evidence supports them (never pad the list), 3 to 5 hashtags in each group, using "Not measured" volume and "Unknown" competition whenever sources provide no measurement, 4 to 8 suggestedKeywords, 3 to 5 bestPractices.
 
 Return ONLY valid JSON in exactly this shape:
 {
@@ -42,8 +46,16 @@ Return ONLY valid JSON in exactly this shape:
       "estimatedReachMultiplier": "<phrase>", "falVideoPrompt": "<cinematic visual prompt for an AI video generator>" }
   ],
   "trendingCreators": [
-    { "name": "<name>", "handle": "<@handle>", "platform": "<TikTok|Instagram|YouTube|X|LinkedIn|Facebook>", "url": "<url or empty>",
-      "whyTrending": "<one sentence>", "contentStyle": "<format/style that is working>", "takeaway": "<idea a creator can borrow>", "exampleHook": "<an original hook inspired by their approach>" }
+    { "rank": 1, "name": "<verified creator/channel name>", "handle": "<verified handle or channel name>", "platform": "<TikTok|Instagram|YouTube|X|LinkedIn|Facebook>",
+      "url": "<verified profile/channel URL>", "avatarUrl": "<exact image URL from evidence or empty>",
+      "rankingBasis": "<e.g. 82,400 public views on a video published 2026-10-12; otherwise explain evidence limits>",
+      "whyTrending": "<one sentence>", "contentStyle": "<specific format, hook, pacing and topic style>",
+      "takeaway": "<original idea users can adapt, not copy verbatim>", "exampleHook": "<new original hook>",
+      "recentVideos": [
+        { "title": "<exact sourced video title>", "url": "<exact video URL>", "thumbnailUrl": "<exact thumbnail URL or empty>",
+          "platform": "<platform>", "publishedAt": "<date or empty>", "views": null, "metricLabel": "<Public views|Not publicly available>" }
+      ]
+    }
   ],
   "viralHashtags": {
     "viral": [ { "tag": "#<tag>", "volume": "<Large|Medium|Small>", "competition": "<Low|Medium|High>", "velocityScore": <1-100>, "category": "viral" } ],
