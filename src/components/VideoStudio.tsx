@@ -486,6 +486,20 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
         </div>
       </div>
 
+      <section className="rounded-2xl border border-fuchsia-500/25 bg-gradient-to-r from-fuchsia-950/55 via-slate-900 to-indigo-950/50 p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="flex items-start gap-3">
+          <div className="w-11 h-11 shrink-0 rounded-xl bg-fuchsia-500/15 border border-fuchsia-400/25 flex items-center justify-center"><ImagePlus className="w-5 h-5 text-fuchsia-300" /></div>
+          <div>
+            <p className="text-[10px] uppercase tracking-[.18em] font-bold text-fuchsia-300">OmniPulse Ad Studio</p>
+            <h2 className="text-sm sm:text-base font-bold text-white mt-0.5">Create product ads and brand campaigns</h2>
+            <p className="text-xs text-slate-400 mt-1 max-w-2xl">Upload a product photo, develop campaign concepts, generate brand visuals and animate them into an advertisement.</p>
+          </div>
+        </div>
+        <button onClick={() => setIsAdMakerOpen(true)} className="shrink-0 inline-flex items-center justify-center gap-2 rounded-xl bg-fuchsia-600 hover:bg-fuchsia-500 text-white px-4 py-3 text-xs font-bold shadow-lg shadow-fuchsia-950/40">
+          <Wand2 className="w-4 h-4" /> Open Ad Studio
+        </button>
+      </section>
+
       {isBlankState ? (
         <div className="bg-slate-900/60 border border-dashed border-slate-700 rounded-2xl p-10 text-center space-y-3">
           <Video className="w-10 h-10 text-indigo-400 mx-auto" />
