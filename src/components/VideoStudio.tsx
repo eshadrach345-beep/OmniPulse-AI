@@ -1251,7 +1251,7 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
             </div>
 
             <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-3 text-[11px] leading-relaxed text-amber-100/80">
-              Each platform applies its own publishing rules and account permissions. TikTok apps that have not passed audit may only publish privately. Check each platform's result after submission.
+              Each platform applies its own publishing rules and account permissions. TikTok apps that have not passed audit may only publish privately. X currently shares the video link with your post rather than uploading the MP4 itself. Instagram and Facebook also require the right Meta permissions. Check each platform's result after submission.
             </div>
             {publishError && <p role="alert" className="rounded-lg border border-rose-500/30 bg-rose-500/10 p-3 text-xs text-rose-200">{publishError}</p>}
             <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2">
