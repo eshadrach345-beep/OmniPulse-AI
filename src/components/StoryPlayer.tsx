@@ -1,11 +1,44 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Play, Pause, ChevronLeft, ChevronRight, Volume2, VolumeX, Download, Loader2, AlertTriangle } from 'lucide-react';
+import { Play, Pause, ChevronLeft, ChevronRight, Volume2, VolumeX, Download, Loader2, AlertTriangle, FileText } from 'lucide-react';
 import { GeneratedVideo } from '../types';
 
 const wait = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 /** How long a line takes to say, so captions follow the speech. */
 const phraseMs = (text: string) => Math.max(850, Math.min(2400, (text.trim().split(/\s+/).length / 2.6 + 0.25) * 1000));
 const captionPhrases = (text: string) => { const words = text.trim().split(/\s+/).filter(Boolean); const out: string[] = []; for (let i = 0; i < words.length; i += 5) out.push(words.slice(i, i + 5).join(' ')); return out; };
+
+/** Builds an editable sidecar subtitle file from the approved screenplay lines.
+ * Timing is estimated within each scene because source clips do not expose word-level timestamps. */
+const subtitleTimestamp = (seconds: number) => {
+  const ms = Math.max(0, Math.round(seconds * 1000));
+  const hours = Math.floor(ms / 3600000);
+  const minutes = Math.floor((ms % 3600000) / 60000);
+  const wholeSeconds = Math.floor((ms % 60000) / 1000);
+  const millis = ms % 1000;
+  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(wholeSeconds).padStart(2, '0')},${String(millis).padStart(3, '0')}`;
+};
+const buildSrt = (items: VideoScene[]) => {
+  let offset = 0;
+  let cueNumber = 1;
+  const cues: string[] = [];
+  for (const scene of items) {
+    const duration = Math.max(0.5, Number(scene.duration) || 4);
+    const phrases = (scene.lines || []).flatMap((line) => captionPhrases(String(line.text || '')).filter(Boolean));
+    const gap = phrases.length > 1 ? Math.min(0.12, duration / (phrases.length * 4)) : 0;
+    const usable = Math.max(0.2, duration - gap * Math.max(0, phrases.length - 1));
+    const weights = phrases.map((phrase) => Math.max(1, phrase.split(/\\s+/).length));
+    const totalWeight = weights.reduce((sum, weight) => sum + weight, 0) || 1;
+    let cursor = offset;
+    phrases.forEach((phrase, index) => {
+      const span = Math.max(0.18, usable * weights[index] / totalWeight);
+      const end = Math.min(offset + duration, cursor + span);
+      cues.push(`${cueNumber++}\\n${subtitleTimestamp(cursor)} --> ${subtitleTimestamp(Math.max(cursor + 0.12, end))}\\n${phrase}`);
+      cursor = end + gap;
+    });
+    offset += duration;
+  }
+  return cues.join('\\n\\n') + (cues.length ? '\\n' : '');
+};
 /**
  * Plays a multi-character production. The video engine makes the pictures and the voices together, so the sound always matches.
  * Two video elements take turns: while one plays, the other already loads the next scene, so scene changes do not stall.
@@ -90,6 +123,20 @@ export const StoryPlayer: React.FC<{ video: GeneratedVideo }> = ({ video }) => {
 
   const ids = scenes.map((s) => s.clipJobId).filter(Boolean) as string[];
   const fileName = (video.title || 'omnipulse-video').replace(/[^\w\- ]+/g, '').trim().slice(0, 60) || 'omnipulse-video';
+  const downloadSubtitles = () => {
+    const content = buildSrt(scenes);
+    if (!content.trim()) return;
+    const blob = new Blob([content], { type: 'application/x-subrip;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${fileName}.srt`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 10000);
+  };
+
   const downloadAll = () => {
     if (!ids.length) {
       setJoin({ state: 'error', msg: 'This production has no downloadable scene jobs.' });
@@ -154,6 +201,10 @@ export const StoryPlayer: React.FC<{ video: GeneratedVideo }> = ({ video }) => {
         <button onClick={downloadAll} disabled={join.state === 'working' || !ids.length} className="w-full py-3 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-60 text-white text-xs font-semibold flex items-center justify-center gap-2">
           {join.state === 'working' ? <><Loader2 className="w-4 h-4 animate-spin" />Joining scenes...</> : <><Download className="w-4 h-4" />Download full video (one MP4)</>}
         </button>
+        <button onClick={downloadSubtitles} disabled={!scenes.some((scene) => scene.lines?.some((line) => line.text?.trim()))} className="w-full py-2.5 rounded-lg border border-slate-700 bg-slate-900 hover:bg-slate-800 disabled:opacity-40 text-slate-200 text-xs font-semibold flex items-center justify-center gap-2">
+          <FileText className="w-4 h-4" />Download subtitles (.SRT)
+        </button>
+        <p className="text-[10px] text-slate-500">Subtitle timing is estimated from the approved dialogue and scene lengths. This downloads a separate subtitle file; it does not burn captions into the MP4.</p>
         {join.msg && (
           <p role={join.state === 'error' ? 'alert' : 'status'} className={`text-[11px] flex items-start gap-1.5 ${join.state === 'error' ? 'text-rose-300' : 'text-slate-400'}`}>
             {join.state === 'error' && <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />}{join.msg}
