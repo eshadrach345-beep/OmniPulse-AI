@@ -8,6 +8,7 @@ import {
   AspectRatioType, 
   PlatformId, 
   VideoScene,
+  SocialAccount,
   NicheCategory,
   VideoDirectorStyle,
   HookFormulaStyle
@@ -60,6 +61,9 @@ interface VideoStudioProps {
   activeNiche: NicheCategory;
   onSaveNewVideo: (video: GeneratedVideo) => void;
   onScheduleVideoDirect: (video: GeneratedVideo) => void;
+  onPublishVideoDirect: (video: GeneratedVideo, caption: string, platforms: PlatformId[]) => Promise<void> | void;
+  accounts: SocialAccount[];
+  onRequestConnect: (account: SocialAccount) => void;
   selectedVideoId?: string;
   /** Seconds of video left in this month's plan, if known. */
   secondsLeft?: number | null;
@@ -94,6 +98,9 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
   activeNiche,
   onSaveNewVideo,
   onScheduleVideoDirect,
+  onPublishVideoDirect,
+  accounts,
+  onRequestConnect,
   selectedVideoId,
   secondsLeft,
   initialCreateRequested,
@@ -139,6 +146,11 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
   const [isVoiceSettingsOpen, setIsVoiceSettingsOpen] = useState(false);
   const [isKeySavedToast, setIsKeySavedToast] = useState(false);
   const [exportNotice, setExportNotice] = useState<string | null>(null);
+  const [isPublishOpen, setIsPublishOpen] = useState(false);
+  const [publishCaption, setPublishCaption] = useState('');
+  const [publishPlatforms, setPublishPlatforms] = useState<PlatformId[]>([]);
+  const [isPublishing, setIsPublishing] = useState(false);
+  const [publishError, setPublishError] = useState<string | null>(null);
 
   // Real Video Player State
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -340,60 +352,65 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
     setIsVoiceSettingsOpen(false);
   };
 
-  // High-Fidelity MP4 Video Master Exporter
-  const handleExportRealVideo = async () => {
-    try {
-      setExportNotice('Preparing your MP4 file...');
-      const videoUrl = currentVideoSrc;
-      const cleanTitle = (activeVideo.title || 'omnipulse_video')
-        .toLowerCase()
-        .replace(/[^a-z0-9]/gi, '_')
-        .replace(/_+/g, '_');
-      const downloadFileName = `${cleanTitle}.mp4`;
-
-      const response = await fetch(videoUrl);
-      if (!response.ok) {
-        throw new Error(`Failed to fetch video stream (HTTP ${response.status})`);
-      }
-
-      const blob = await response.blob();
-      const blobUrl = window.URL.createObjectURL(blob);
-
-      const a = document.createElement('a');
-      a.style.display = 'none';
-      a.href = blobUrl;
-      a.download = downloadFileName;
-      document.body.appendChild(a);
-      a.click();
-
-      setTimeout(() => {
-        document.body.removeChild(a);
-        window.URL.revokeObjectURL(blobUrl);
-      }, 3000);
-
-      setExportNotice(`Exported ${downloadFileName}`);
-    } catch (err: any) {
-      console.warn('Blob export exception, using direct anchor fallback:', err);
-      try {
-        const cleanTitle = (activeVideo.title || 'omnipulse_video')
-          .toLowerCase()
-          .replace(/[^a-z0-9]/gi, '_');
-        const downloadFileName = `${cleanTitle}.mp4`;
-        const a = document.createElement('a');
-        a.href = currentVideoSrc;
-        a.download = downloadFileName;
-        a.target = '_blank';
-        a.rel = 'noopener noreferrer';
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        setExportNotice(`✓ Export triggered for "${downloadFileName}"! Check your downloads.`);
-      } catch (fallbackErr) {
-        setExportNotice(`Video asset available at ${currentVideoSrc}`);
-      }
+  // Stream the file from our authenticated API. Avoid fetch()->blob(), which buffers the entire MP4 in phone memory.
+  const handleExportRealVideo = () => {
+    const cleanTitle = (activeVideo.title || 'omnipulse_video')
+      .toLowerCase()
+      .replace(/[^a-z0-9]/gi, '_')
+      .replace(/_+/g, '_');
+    const name = cleanTitle || 'omnipulse_video';
+    const url = activeVideo.videoJobId
+      ? `/api/video/download?id=${encodeURIComponent(activeVideo.videoJobId)}&name=${encodeURIComponent(name)}`
+      : currentVideoSrc;
+    if (!url) {
+      setExportNotice('This video does not have a downloadable MP4 file yet.');
+      return;
     }
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${name}.mp4`;
+    a.rel = 'noopener noreferrer';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setExportNotice(activeVideo.videoJobId
+      ? 'Your MP4 is streaming directly from OmniPulse. Check your browser downloads.'
+      : 'Download started from the video provider. Check your browser downloads.');
+    window.setTimeout(() => setExportNotice(null), 6500);
+  };
 
-    setTimeout(() => setExportNotice(null), 5000);
+  const openPublishDialog = () => {
+    const connected = accounts.filter((a) => a.connected && a.publishable !== false);
+    const preferred = connected.filter((a) => activeVideo.targetPlatforms.includes(a.id)).map((a) => a.id);
+    setPublishPlatforms(preferred.length ? preferred : connected.map((a) => a.id));
+    setPublishCaption([
+      activeVideo.callToAction || activeVideo.userPrompt || activeVideo.title,
+      ...(activeVideo.hashtags || []).slice(0, 8),
+    ].filter(Boolean).join(' ').trim());
+    setPublishError(null);
+    setIsPublishOpen(true);
+  };
+
+  const togglePublishPlatform = (id: PlatformId) => {
+    setPublishPlatforms((current) => current.includes(id)
+      ? current.filter((p) => p !== id)
+      : [...current, id]);
+  };
+
+  const handlePublishNow = async () => {
+    if (!publishPlatforms.length) { setPublishError('Select at least one connected platform.'); return; }
+    if (!publishCaption.trim()) { setPublishError('Add a caption before publishing.'); return; }
+    if (!activeVideo.videoUrl) { setPublishError('This video has no finished MP4 URL to send to social platforms yet.'); return; }
+    setIsPublishing(true);
+    setPublishError(null);
+    try {
+      await onPublishVideoDirect(activeVideo, publishCaption.trim(), publishPlatforms);
+      setIsPublishOpen(false);
+    } catch (e) {
+      setPublishError(e instanceof Error ? e.message : 'Publishing could not be completed.');
+    } finally {
+      setIsPublishing(false);
+    }
   };
 
   // Generate Video
