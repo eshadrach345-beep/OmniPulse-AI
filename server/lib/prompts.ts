@@ -1,19 +1,18 @@
 // Prompt templates for Gemini (inputs are length-limited by the caller).
-/** Step 1: the Google-Search-grounded research pass (free text, with real findings). */
+/** Evidence-first research brief. Search evidence is gathered independently of the LLM provider. */
 export function trendsResearchPrompt(niche: string, customQuery: string): string {
-  return `You are a senior social media trend researcher covering TikTok, Instagram Reels, YouTube Shorts and X.
+  return `You are a meticulous market-intelligence researcher for creators and small businesses.
 Niche: "${niche}"
 ${customQuery ? `Focus keyword or question: "${customQuery}"` : ''}
+Prioritise the last 14 days for fast-moving trends and the last 90 days for context. Treat search snippets as leads, not proof.
 
-Use Google Search extensively. Research what is genuinely being discussed, shared and growing in this niche RIGHT NOW (prefer the last 14 days). Cover all of these:
-1. 4-5 specific trending topics: real products, launches, news events, formats, challenges or debates. For each, say exactly what is happening and why it is timely.
-2. 5-6 real creators, influencers, brands or accounts who are currently trending or growing fast in this niche. For each give: their name, handle, main platform, a profile or content URL if you found one, why they are trending now, the content style/format that is working for them, and one idea another creator could borrow (inspiration, not copying).
-3. Hashtags real people use in this niche (viral, niche-specific, evergreen) and keywords people search.
-4. What content tactics are working in this niche now (hooks, formats, posting patterns).
+Analyse only the supplied evidence. Separate confirmed facts from reasoned recommendations. Cross-check important claims across at least two independent sources where possible. Prefer original platform posts, company announcements, reputable trade publications, government/statistical sources and named research reports over SEO listicles. State dates and geography. If evidence is weak, say so and omit the claim.
 
-Be specific and factual. Name concrete things you found. Do not invent statistics, follower counts or URLs. If you are unsure about a creator or handle, leave it out.`;
+Cover: (1) 4-6 concrete trends with what happened, timing, evidence strength, commercial relevance and a practical content angle; (2) 3-6 identifiable creators/brands only where identity, platform and activity are supported; (3) hashtags and search phrases found in evidence, distinguishing verified examples from suggestions; (4) platform-specific content formats and hooks labelled as recommendations, not algorithm facts; (5) customer pain points, opportunities, risks and what should be validated before spending money; (6) methodology and limitations.
+
+Never claim access to platform-internal analytics. Never invent statistics, follower counts, handles, URLs, search volume, engagement rates, growth rates, sales results or algorithm rules. Include [SOURCE n] beside factual claims.
+  `;
 }
-
 /** Step 2: turn the research notes into the JSON the app displays. */
 export function trendsFormatPrompt(niche: string, notes: string): string {
   return `Convert the research notes below into JSON for a creator-intelligence app. Niche: "${niche}".
@@ -25,6 +24,10 @@ ${notes.slice(0, 14000)}
 
 Rules:
 - Use ONLY what is in the notes. Do not add facts, creators, statistics or URLs that are not there.
+- If sources do not provide measured hashtag volume, competition or velocity, do not present values as real platform analytics. Treat velocityScore as a heuristic editorial score only, not measured reach.
+- Never label a topic viral, breakout or rising without dated evidence of increasing attention; otherwise use Evergreen or clearly caveated Rising.
+- Do not invent creator handles. If an account cannot be verified from a direct source URL, omit it.
+- estimatedReachMultiplier must be 'Not measured' unless the supplied evidence provides defensible comparative data.
 - "url" for a creator must be a URL that appears in the notes, otherwise "".
 - Each topic needs a "whyNow" sentence. "velocity" is a short qualitative phrase (e.g. "Rising quickly"), "volume" is "Large", "Medium" or "Small", and "estimatedReachMultiplier" is a qualitative phrase. Never invent percentages.
 - Hashtags must be real, relevant hashtags that start with #.
