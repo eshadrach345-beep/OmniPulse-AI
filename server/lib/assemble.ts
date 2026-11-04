@@ -32,7 +32,7 @@ export function assembleParts(o: AssembleInput) {
     const v = ch?.voice || (ch?.gender === 'female' ? 'a female voice' : 'a male voice');
     const words = l.text.replace(/"/g, "'");
     const how = l.emotion ? `, ${l.emotion.replace(/[.\s]+$/, '')}` : '', act = l.doing ? ` while ${l.doing.replace(/^while\s+/i, '').replace(/[.\s]+$/, '')}` : '';
-    return l.speaker.toLowerCase() === 'narrator' ? `A narrator, off screen, speaking in the voice of ${v}, says: "${words}"` : `${l.speaker}, speaking in the voice of ${v}${how}${act}, says: "${words}"`;
+    return l.speaker.toLowerCase() === 'narrator' ? `A narrator, off screen, speaking in the voice of ${v}, says: "${words}"` : `${l.speaker}, speaking in the exact same established voice identity as their previous appearances (same timbre, pitch, accent and cadence), voice of ${v}${how}${act}, says only: "${words}"`;
   }).join(' Then ');
   const genreLook = GENRES[brief.genre]?.render, energy = presentation === 'movie' ? INTENSITIES[brief.intensity]?.render : '';
   const openers = {
