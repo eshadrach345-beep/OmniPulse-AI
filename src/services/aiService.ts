@@ -281,6 +281,7 @@ export async function generateAIVideoScript(params: {
     hookFormula: grokHookStyle,
     voiceName: chosenVoice.speakerName,
     seconds,
+    variationSeed: typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : 'short-video-' + Date.now() + '-' + Math.random().toString(36).slice(2),
   };
   const transient = (e: unknown) => e instanceof ApiError && ([0, 502, 503, 504].includes(e.status) || (e.status === 424 && e.code === 'GEMINI'));
   let scriptData: any;
@@ -298,7 +299,7 @@ export async function generateAIVideoScript(params: {
   try { ({ jobId } = await api.post<{ jobId: string }>('/video/render', { prompt: falPrompt, seconds })); }
   catch (e) { throw new Error(`Video render step failed: ${e instanceof Error ? e.message : 'unknown error'}`); }
   const generatedVideoUrl = await pollRender(jobId, onStatus);
-  const falEngineName = 'fal-ai/minimax/video-01';
+  const falEngineName = 'fal-ai/minimax/h3-max-turbo';
 
   // If Gemini generated the script, build the complete video object
   {
