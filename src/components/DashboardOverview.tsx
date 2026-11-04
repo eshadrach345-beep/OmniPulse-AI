@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { SocialAccount, ScheduledPost, GeneratedVideo, ABTestExperiment } from '../types';
-import { Share2, Video, CalendarClock, Send, Check, Circle, ArrowRight, Loader2, Bot, Clapperboard } from 'lucide-react';
+import { Share2, Video, CalendarClock, Send, Check, Circle, ArrowRight, Loader2, Bot, Clapperboard, Sparkles, TrendingUp, WandSparkles } from 'lucide-react';
 import { ProjectSummary, Series, isActive } from '../services/seriesService';
 
 type Tab = 'dashboard' | 'video-studio' | 'series' | 'trends-hashtags' | 'scheduler' | 'ab-testing' | 'analytics';
@@ -74,6 +74,26 @@ export const DashboardOverview: React.FC<Props> = ({ accounts, posts, videos, ex
 
   return (
     <div className="space-y-6">
+      <section className="relative isolate overflow-hidden rounded-3xl border border-indigo-400/20 bg-linear-to-br from-slate-900 via-slate-900 to-indigo-950/80 p-5 sm:p-7 shadow-2xl shadow-black/20">
+        <div className="pointer-events-none absolute -right-16 -top-24 h-64 w-64 rounded-full bg-indigo-400/10 blur-3xl" />
+        <div className="pointer-events-none absolute right-1/3 -bottom-28 h-56 w-56 rounded-full bg-emerald-400/10 blur-3xl" />
+        <div className="relative flex flex-col lg:flex-row lg:items-end lg:justify-between gap-6">
+          <div className="max-w-2xl">
+            <div className="inline-flex items-center gap-2 rounded-full border border-indigo-300/20 bg-indigo-300/5 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-indigo-200"><Sparkles className="h-3.5 w-3.5" /> Creator command centre</div>
+            <h1 className="mt-4 font-display text-3xl sm:text-4xl font-extrabold leading-tight tracking-tight text-white">Make every post a smarter move.</h1>
+            <p className="mt-3 max-w-xl text-sm sm:text-base leading-relaxed text-slate-300">Find what is working in your niche, turn the strongest ideas into original videos, then publish and learn from the results—all from one studio.</p>
+          </div>
+          <div className="flex flex-wrap gap-2 shrink-0">
+            <button onClick={() => onNavigate('trends-hashtags')} className="inline-flex items-center gap-2 rounded-xl border border-slate-600 bg-slate-950/60 px-4 py-3 text-xs font-semibold text-slate-100 hover:border-indigo-300/50 hover:bg-slate-900"><TrendingUp className="h-4 w-4 text-indigo-300" />Research trends</button>
+            <button onClick={() => onNavigate('video-studio')} className="inline-flex items-center gap-2 rounded-xl bg-indigo-500 px-4 py-3 text-xs font-bold text-white shadow-lg shadow-indigo-950/40 hover:bg-indigo-400"><WandSparkles className="h-4 w-4" />Create a video</button>
+          </div>
+        </div>
+        <div className="relative mt-7 grid grid-cols-1 sm:grid-cols-3 gap-2">
+          <div className="rounded-xl border border-white/5 bg-black/15 p-3"><p className="text-[10px] uppercase tracking-wider text-slate-500">Discover</p><p className="mt-1 text-xs font-semibold text-slate-200">Creators, trends & outliers</p></div>
+          <div className="rounded-xl border border-white/5 bg-black/15 p-3"><p className="text-[10px] uppercase tracking-wider text-slate-500">Produce</p><p className="mt-1 text-xs font-semibold text-slate-200">Stories, shorts & brand ads</p></div>
+          <div className="rounded-xl border border-white/5 bg-black/15 p-3"><p className="text-[10px] uppercase tracking-wider text-slate-500">Grow</p><p className="mt-1 text-xs font-semibold text-slate-200">Schedule, test & improve</p></div>
+        </div>
+      </section>
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <Stat icon={Share2} label="Channels connected" value={`${connected} / ${accounts.length}`} />
         <Stat icon={Video} label="Videos generated" value={videos.length} />
