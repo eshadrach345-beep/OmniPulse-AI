@@ -201,6 +201,8 @@ export interface VideoScene {
   onScreenText: string;
   /** Editor-controlled placement for the on-screen title overlay. */
   overlayPosition?: 'top' | 'center' | 'bottom';
+  /** Visual treatment for the editor preview title; not burned into the source MP4. */
+  overlayStyle?: 'cinematic' | 'minimal' | 'lower_third';
   soundEffectCue: string;
   motionStyle: 'Dynamic Zoom' | 'Hand Sketch Draw' | 'Kinetic Kinetic Typography' | 'Isometric Pan';
   bgGradient: string;
