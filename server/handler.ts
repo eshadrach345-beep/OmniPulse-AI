@@ -1062,10 +1062,10 @@ const systemCheck: Handler = async ({ req, res }) => {
       return `APP_URL ${u}`;
     }),
     run('Gemini (scripts, trends, A/B)', async () => { const r = await geminiRaw('Return exactly this JSON and nothing else: {"ok":true}'); return `Working. Model in use: ${r.model}.`; }),
-    run('Gemini live web search (trends)', async () => {
-      const r = await geminiRaw('Use Google Search. Return only this JSON: {"headline":"<one real tech news headline from this week>"}', { grounded: true });
-      if (!r.grounded) throw new Error('Gemini answered without using live search, so trend research would be generic. Check that your Gemini key/plan allows Google Search grounding.');
-      return `Working. ${r.sources.length} live sources returned (model ${r.model}).`;
+    run('Live trend research (Tavily / Brave)', async () => {
+      if (lookupEnv('TAVILY_API_KEY')) return 'Tavily key is configured. Trend Radar uses live web search and extracted page content.';
+      if (lookupEnv('BRAVE_SEARCH_API_KEY')) return 'Brave Search key is configured. Trend Radar uses live web search and extracted page content.';
+      throw new Error('Add TAVILY_API_KEY or BRAVE_SEARCH_API_KEY in Vercel to enable evidence-based Trend Radar research.');
     }),
     run('Voice-over (deAPI or fal.ai)', async () => { const a = await synthesize('Test.', 'pNInz6obpgDQGcFmaJgB', 'male'); return `Working. Generated ${a.audio.length} bytes of audio.`; }),
     run('fal.ai (video rendering)', async () => {
@@ -1942,7 +1942,7 @@ const routes: Record<string, Handler> = {
     ok: true, build: (process.env.VERCEL_GIT_COMMIT_SHA || 'local').slice(0, 7),
     configured: {
       database: !!(process.env.DATABASE_URL || process.env.POSTGRES_URL), sessionSecret: (process.env.SESSION_SECRET || '').length >= 32,
-      gemini: !!lookupEnv('GEMINI_API_KEY'), fal: !!lookupEnv('FAL_KEY'), postpeer: ppConfigured(), deapi: !!lookupEnv('DEAPI_API_KEY'), resend: !!lookupEnv('RESEND_API_KEY'),
+      gemini: !!lookupEnv('GEMINI_API_KEY'), groq: !!lookupEnv('GROQ_API_KEY'), tavily: !!lookupEnv('TAVILY_API_KEY'), brave: !!lookupEnv('BRAVE_SEARCH_API_KEY'), fal: !!lookupEnv('FAL_KEY'), postpeer: ppConfigured(), deapi: !!lookupEnv('DEAPI_API_KEY'), resend: !!lookupEnv('RESEND_API_KEY'),
       flutterwave: !!process.env.FLW_SECRET_KEY, flutterwaveHash: !!process.env.FLW_SECRET_HASH, social: Object.fromEntries(PLATFORM_IDS.map((p) => [p, isConfigured(p)])), cron: !!process.env.CRON_SECRET, ownerCode: !!process.env.OWNER_ACCESS_CODE,
     },
   }),
