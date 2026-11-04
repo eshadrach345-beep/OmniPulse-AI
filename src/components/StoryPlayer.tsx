@@ -6,13 +6,6 @@ const wait = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 /** How long a line takes to say, so captions follow the speech. */
 const phraseMs = (text: string) => Math.max(850, Math.min(2400, (text.trim().split(/\s+/).length / 2.6 + 0.25) * 1000));
 const captionPhrases = (text: string) => { const words = text.trim().split(/\s+/).filter(Boolean); const out: string[] = []; for (let i = 0; i < words.length; i += 5) out.push(words.slice(i, i + 5).join(' ')); return out; };
-const saveBlob = (blob: Blob, name: string) => {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 15000);
-};
-
 /**
  * Plays a multi-character production. The video engine makes the pictures and the voices together, so the sound always matches.
  * Two video elements take turns: while one plays, the other already loads the next scene, so scene changes do not stall.
@@ -96,17 +89,20 @@ export const StoryPlayer: React.FC<{ video: GeneratedVideo }> = ({ video }) => {
 
   const ids = scenes.map((s) => s.clipJobId).filter(Boolean) as string[];
   const fileName = (video.title || 'omnipulse-video').replace(/[^\w\- ]+/g, '').trim().slice(0, 60) || 'omnipulse-video';
-  const downloadAll = async () => {
-    setJoin({ state: 'working', msg: 'Joining your scenes into one video. This can take up to a minute.' });
-    try {
-      const r = await fetch(`/api/video/merge?ids=${encodeURIComponent(ids.join(','))}&name=${encodeURIComponent(fileName)}`, { credentials: 'same-origin' });
-      if (!r.ok) {
-        const d = await r.json().catch(() => ({} as { error?: string }));
-        throw new Error(d.error || `The scenes could not be joined (error ${r.status}). You can still download each scene below.`);
-      }
-      saveBlob(await r.blob(), `${fileName}.mp4`);
-      setJoin({ state: 'idle', msg: '' });
-    } catch (e) { setJoin({ state: 'error', msg: e instanceof Error ? e.message : 'The scenes could not be joined.' }); }
+  const downloadAll = () => {
+    if (!ids.length) {
+      setJoin({ state: 'error', msg: 'This production has no downloadable scene jobs.' });
+      return;
+    }
+    const url = `/api/video/merge?ids=${encodeURIComponent(ids.join(','))}&name=${encodeURIComponent(fileName)}`;
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${fileName}.mp4`;
+    a.rel = 'noopener noreferrer';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setJoin({ state: 'idle', msg: 'The server is joining the scenes and will stream the MP4 to your downloads when it is ready.' });
   };
 
   const ratio = video.aspectRatio === '16:9' ? '16 / 9' : video.aspectRatio === '1:1' ? '1 / 1' : '9 / 16';
