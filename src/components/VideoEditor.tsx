@@ -1,10 +1,24 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { GeneratedVideo, VideoScene } from '../types';
+import { GeneratedVideo, VideoScene, VideoMediaLayer, VideoMediaTrack } from '../types';
 import { api } from '../services/api';
-import { ArrowDown, ArrowUp, Clapperboard, Copy, Film, Layers3, Scissors, Undo2, Redo2, Plus, Trash2, Sparkles, Wand2, Loader2, Check } from 'lucide-react';
+import { ArrowDown, ArrowUp, Clapperboard, Copy, Film, Layers3, Scissors, Undo2, Redo2, Plus, Trash2, Sparkles, Wand2, Loader2, Check, Image as ImageIcon, Music2, RefreshCw } from 'lucide-react';
 
 interface DirectorEdit { scene: number; reason: string; visualDirection: string; overlayText: string; soundEffect: string; transition: string }
 interface DirectorPlan { summary: string; edits: DirectorEdit[] }
+interface EditorMediaAsset { id: string; name: string; contentType: string; size: number; createdAt: string }
+interface TranscriptSegment { start: number; end: number; text: string }
+interface TranscriptResult { assetId: string; name: string; text: string; duration: number; segments: TranscriptSegment[] }
+interface DirectorMediaMatch {
+  assetId: string; name: string; contentType: string; kind: 'video' | 'image' | 'audio';
+  track: 'overlay' | 'audio'; startAt: number; duration: number; reason: string; visualTreatment: string;
+}
+interface DirectorMediaPlan { summary: string; matches: DirectorMediaMatch[] }
+interface SceneRenderResult { asset: EditorMediaAsset; downloadUrl: string; duration: number; renderedLayers: number; captionsBurnedIn: boolean }
+interface FilmAssembleResult { asset: EditorMediaAsset; downloadUrl: string; sceneCount: number }
+const formatTime = (seconds: number) => {
+  const value = Math.max(0, Number(seconds) || 0);
+  return `${Math.floor(value / 60)}:${String(Math.floor(value % 60)).padStart(2, '0')}`;
+};
 interface Props { video: GeneratedVideo; onSave: (video: GeneratedVideo) => void }
 
 /** Non-destructive scene timeline: the source render jobs remain intact while the edit list controls the final join order. */
@@ -17,10 +31,203 @@ export const VideoEditor: React.FC<Props> = ({ video, onSave }) => {
   const [directorInstruction, setDirectorInstruction] = useState('');
   const [directorPlan, setDirectorPlan] = useState<DirectorPlan | null>(null);
   const [directorBusy, setDirectorBusy] = useState(false);
+  const [mediaAssets, setMediaAssets] = useState<EditorMediaAsset[]>([]);
+  const [mediaLoading, setMediaLoading] = useState(false);
+  const [selectedAssetId, setSelectedAssetId] = useState('');
+  const [selectedMediaTrack, setSelectedMediaTrack] = useState<VideoMediaTrack>('main');
+  const [mediaUrls, setMediaUrls] = useState<Record<string, string>>({});
+  const [mediaError, setMediaError] = useState('');
+  const [transcribing, setTranscribing] = useState(false);
+  const [transcript, setTranscript] = useState<TranscriptResult | null>(null);
+  const [previewTime, setPreviewTime] = useState(0);
+  const [mediaMatchBusy, setMediaMatchBusy] = useState(false);
+  const [mediaMatchPlan, setMediaMatchPlan] = useState<DirectorMediaPlan | null>(null);
+  const [mediaMatchError, setMediaMatchError] = useState('');
+  const [renderingScene, setRenderingScene] = useState(false);
+  const [renderError, setRenderError] = useState('');
+  const [renderedScene, setRenderedScene] = useState<SceneRenderResult | null>(null);
+  const [renderingFilm, setRenderingFilm] = useState(false);
+  const [filmProgress, setFilmProgress] = useState('');
+  const [filmError, setFilmError] = useState('');
+  const [finishedFilm, setFinishedFilm] = useState<FilmAssembleResult | null>(null);
   const [directorError, setDirectorError] = useState('');
 
   useEffect(() => { setScenes(video.scenes || []); setSelected(0); setUndoStack([]); setRedoStack([]); }, [video.id]);
   const totalSeconds = useMemo(() => scenes.reduce((sum, scene) => sum + Math.max(0, Number(scene.duration) || 0), 0), [scenes]);
+  const mainLayer = current?.mediaLayers?.find((layer) => layer.track === 'main');
+  const overlayLayers = current?.mediaLayers?.filter((layer) => layer.track === 'overlay') || [];
+  const audioLayers = current?.mediaLayers?.filter((layer) => layer.track === 'audio') || [];
+  const activeCaption = current?.captions?.find((cue) => previewTime >= cue.start && previewTime <= cue.end);
+
+  useEffect(() => { setPreviewTime(0); }, [current?.id]);
+
+  useEffect(() => {
+    let active = true;
+    setMediaLoading(true);
+    api.get<{ assets: EditorMediaAsset[] }>('/media/list')
+      .then((result) => { if (active) setMediaAssets(result.assets || []); })
+      .catch((error) => { if (active) setMediaError(error instanceof Error ? error.message : 'Could not load your private media library.'); })
+      .finally(() => { if (active) setMediaLoading(false); });
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    const ids: string[] = Array.from(new Set<string>((current?.mediaLayers || []).map((layer) => layer.assetId).filter((id): id is string => Boolean(id) && !mediaUrls[id])));
+    if (!ids.length) return;
+    const resolveUrls = async () => {
+      const results: Array<readonly [string, string] | null> = await Promise.all(ids.map(async (id): Promise<readonly [string, string] | null> => {
+        try {
+          const result = await api.get<{ url: string }>(`/media/url?id=${encodeURIComponent(id)}`);
+          return [id, result.url] as const;
+        } catch { return null; }
+      }));
+      if (!active) return;
+      const resolved: Record<string, string> = {};
+      results.forEach((item) => { if (item) resolved[item[0]] = item[1]; });
+      if (Object.keys(resolved).length) setMediaUrls((currentUrls) => ({ ...currentUrls, ...resolved }));
+    };
+    void resolveUrls();
+    return () => { active = false; };
+  }, [current?.id, current?.mediaLayers, mediaUrls]);
+
+  const addMediaLayer = () => {
+    const asset = mediaAssets.find((item) => item.id === selectedAssetId);
+    if (!asset || !current) return;
+    const kind: VideoMediaLayer['kind'] = asset.contentType.startsWith('audio/') ? 'audio' : asset.contentType.startsWith('image/') ? 'image' : 'video';
+    const track: VideoMediaTrack = kind === 'audio' ? 'audio' : selectedMediaTrack === 'audio' ? 'overlay' : selectedMediaTrack;
+    const layer: VideoMediaLayer = {
+      id: `${asset.id}-${Date.now().toString(36)}`,
+      assetId: asset.id,
+      name: asset.name,
+      contentType: asset.contentType,
+      kind,
+      track,
+      startAt: 0,
+      sourceIn: 0,
+      duration: Math.max(1, Number(current.duration) || 5),
+      volume: 1,
+      opacity: 1,
+      scale: 55,
+      x: 50,
+      y: 50,
+    };
+    const existing = current.mediaLayers || [];
+    const next = track === 'main' ? existing.filter((item) => item.track !== 'main') : existing;
+    patchCurrent({ mediaLayers: [...next, layer] });
+    api.get<{ url: string }>(`/media/url?id=${encodeURIComponent(asset.id)}`)
+      .then((result) => setMediaUrls((urls) => ({ ...urls, [asset.id]: result.url })))
+      .catch((error) => setMediaError(error instanceof Error ? error.message : 'Could not preview this media asset.'));
+    setMediaError('');
+  };
+
+  const patchMediaLayer = (id: string, patch: Partial<VideoMediaLayer>) => {
+    if (!current) return;
+    patchCurrent({ mediaLayers: (current.mediaLayers || []).map((layer) => layer.id === id ? { ...layer, ...patch } : layer) });
+  };
+
+  const removeMediaLayer = (id: string) => {
+    if (!current) return;
+    patchCurrent({ mediaLayers: (current.mediaLayers || []).filter((layer) => layer.id !== id) });
+  };
+
+  const transcribeSelectedAsset = async () => {
+    if (!selectedAssetId) return;
+    setTranscribing(true);
+    setMediaError('');
+    setTranscript(null);
+    try {
+      const result = await api.post<TranscriptResult>('/media/transcribe', { id: selectedAssetId });
+      setTranscript(result);
+    } catch (error) {
+      setMediaError(error instanceof Error ? error.message : 'Transcription could not be completed.');
+    } finally { setTranscribing(false); }
+  };
+
+  const applyTranscript = () => {
+    if (!current || !transcript?.segments?.length) return;
+    const captions = transcript.segments.map((segment) => ({
+      start: Math.max(0, segment.start),
+      end: Math.max(segment.start, segment.end),
+      text: segment.text,
+    }));
+    const duration = Math.max(Number(current.duration) || 0, transcript.duration || 0);
+    patchCurrent({ captions, voiceoverText: transcript.text, duration: duration || current.duration });
+  };
+
+  const requestMediaMatches = async () => {
+    if (!transcript?.segments?.length) return;
+    setMediaMatchBusy(true); setMediaMatchError(''); setMediaMatchPlan(null);
+    try {
+      const result = await api.post<DirectorMediaPlan>('/video/director/match', {
+        instruction: directorInstruction || 'Match the spoken moments to the most relevant supporting clips, images and sound from my uploads.',
+        segments: transcript.segments,
+        duration: transcript.duration,
+      });
+      setMediaMatchPlan(result);
+    } catch (error) {
+      setMediaMatchError(error instanceof Error ? error.message : 'The AI Director could not match your media.');
+    } finally { setMediaMatchBusy(false); }
+  };
+
+  const applyMediaMatches = () => {
+    if (!current || !mediaMatchPlan?.matches?.length) return;
+    const stamp = Date.now();
+    const additions: VideoMediaLayer[] = mediaMatchPlan.matches.map((match, index) => ({
+      id: `director-${match.assetId}-${stamp}-${index}`,
+      assetId: match.assetId,
+      name: match.name,
+      contentType: match.contentType,
+      kind: match.kind,
+      track: match.track,
+      startAt: Math.max(0, match.startAt),
+      sourceIn: 0,
+      duration: Math.max(0.5, match.duration),
+      volume: 0.8,
+      opacity: 1,
+      scale: 55,
+      x: 50,
+      y: 50,
+    }));
+    patchCurrent({ mediaLayers: [...(current.mediaLayers || []), ...additions] });
+    setMediaMatchPlan(null);
+  };
+
+  const renderCurrentScene = async () => {
+    if (!current) return;
+    setRenderingScene(true); setRenderError(''); setRenderedScene(null);
+    try {
+      const result = await api.post<SceneRenderResult>('/video/editor/render', { scene: current, aspectRatio: video.aspectRatio });
+      setRenderedScene(result);
+      const library = await api.get<{ assets: EditorMediaAsset[] }>('/media/list');
+      setMediaAssets(library.assets || []);
+    } catch (error) {
+      setRenderError(error instanceof Error ? error.message : 'This scene could not be rendered.');
+    } finally { setRenderingScene(false); }
+  };
+
+  const renderFullFilm = async () => {
+    if (scenes.length < 2 || scenes.length > 14) return;
+    setRenderingFilm(true); setFilmError(''); setFinishedFilm(null);
+    const assetIds: string[] = [];
+    try {
+      for (let index = 0; index < scenes.length; index++) {
+        const scene = scenes[index];
+        setFilmProgress(`Rendering scene ${index + 1} of ${scenes.length}…`);
+        const rendered = await api.post<SceneRenderResult>('/video/editor/render', { scene, aspectRatio: video.aspectRatio });
+        assetIds.push(rendered.asset.id);
+      }
+      setFilmProgress('Assembling the finished film…');
+      const result = await api.post<FilmAssembleResult>('/video/editor/assemble', { assetIds, title: video.title });
+      setFinishedFilm(result);
+      setFilmProgress('');
+      const library = await api.get<{ assets: EditorMediaAsset[] }>('/media/list');
+      setMediaAssets(library.assets || []);
+    } catch (error) {
+      setFilmError(error instanceof Error ? error.message : 'The full film could not be assembled.');
+      setFilmProgress('');
+    } finally { setRenderingFilm(false); }
+  };
   const current = scenes[selected];
 
   const commit = (next: VideoScene[]) => {
@@ -140,7 +347,19 @@ export const VideoEditor: React.FC<Props> = ({ video, onSave }) => {
         </div>
         <div className="rounded-xl border border-slate-800 bg-slate-900 p-4 space-y-3">
           <div className="flex items-center gap-2"><Layers3 className="w-4 h-4 text-fuchsia-300" /><h3 className="text-sm font-semibold text-white">Clip & overlay inspector</h3></div>
-          {current?.clipUrl && <div className="overflow-hidden rounded-lg border border-slate-700 bg-black"><video src={current.clipUrl} controls playsInline preload="metadata" className="max-h-56 w-full object-contain" aria-label="Selected scene preview" /></div>}
+          {current && <div className="overflow-hidden rounded-lg border border-slate-700 bg-black">
+            <div className="relative mx-auto aspect-video max-h-64 w-full bg-slate-950">
+              {mainLayer?.kind === 'image' && mediaUrls[mainLayer.assetId]
+                ? <img src={mediaUrls[mainLayer.assetId]} alt={mainLayer.name} className="h-full w-full object-contain" />
+                : <video key={mainLayer?.assetId || current.clipUrl || current.id} src={(mainLayer && mainLayer.kind === 'video' ? mediaUrls[mainLayer.assetId] : '') || current.clipUrl || undefined} controls playsInline preload="metadata" onTimeUpdate={(event) => setPreviewTime(event.currentTarget.currentTime)} className="h-full w-full object-contain" aria-label="Selected scene preview" />}
+              {overlayLayers.filter((layer) => previewTime >= layer.startAt && previewTime <= layer.startAt + layer.duration).map((layer) => mediaUrls[layer.assetId] ? <div key={layer.id} className="pointer-events-none absolute" style={{ left: `${layer.x}%`, top: `${layer.y}%`, width: `${Math.max(10, Math.min(100, layer.scale))}%`, opacity: layer.opacity, transform: 'translate(-50%, -50%)' }}>
+                {layer.kind === 'image' ? <img src={mediaUrls[layer.assetId]} alt={layer.name} className="w-full rounded-md shadow-xl" /> : <video src={mediaUrls[layer.assetId]} muted loop autoPlay playsInline className="w-full rounded-md shadow-xl" />}
+              </div> : null)}
+              {!mainLayer && !current.clipUrl && <div className="absolute inset-0 grid place-items-center text-xs text-slate-500">Attach a video or image to preview this scene</div>}
+              {activeCaption && <div className="pointer-events-none absolute bottom-5 left-3 right-3 text-center"><span className="inline-block rounded bg-black/80 px-3 py-1.5 text-sm font-semibold text-white shadow-lg">{activeCaption.text}</span></div>}
+            </div>
+          </div>}
+          {audioLayers.map((layer) => mediaUrls[layer.assetId] ? <div key={layer.id} className="rounded-lg border border-slate-700 bg-slate-950 p-2"><p className="mb-1 text-[10px] text-slate-400">{layer.name} · audio track · starts at {formatTime(layer.startAt)}</p><audio src={mediaUrls[layer.assetId]} controls preload="metadata" onLoadedMetadata={(event) => { event.currentTarget.currentTime = Math.max(0, layer.sourceIn); event.currentTarget.volume = Math.max(0, Math.min(1, layer.volume)); }} className="w-full" /></div> : null)}
           {current && <>
             <label className="block space-y-1"><span className="text-[11px] font-medium text-slate-400">Scene name / beat</span><input value={current.beat || ''} onChange={(e) => patchCurrent({ beat: e.target.value })} placeholder="Opening, reveal, climax..." className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-white outline-none focus:border-indigo-400" /></label>
             <label className="block space-y-1"><span className="text-[11px] font-medium text-slate-400">Text overlay</span><textarea value={current.onScreenText || ''} onChange={(e) => patchCurrent({ onScreenText: e.target.value })} rows={3} maxLength={180} placeholder="Add a title, lower-third or callout..." className="w-full resize-y rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-white outline-none focus:border-indigo-400" /></label>
@@ -156,9 +375,91 @@ export const VideoEditor: React.FC<Props> = ({ video, onSave }) => {
                 {Number(current.duration) >= 20 && <label className="flex items-center gap-2 text-[10px] text-slate-400">Dialogue timing <select value={line.half || 1} onChange={(e) => patchLine(lineIndex, { half: Number(e.target.value) as 1 | 2 })} className="rounded border border-slate-700 bg-slate-900 px-2 py-1 text-slate-200"><option value={1}>First half</option><option value={2}>Second half</option></select></label>}
               </div>) : <p className="text-[10px] text-slate-500">No dialogue lines yet. Add one to create a subtitle or spoken line for this scene.</p>}
             </div>
+          <div className="space-y-3 rounded-xl border border-indigo-500/20 bg-slate-950/70 p-3">
+            <div className="flex items-center gap-2"><Layers3 className="h-4 w-4 text-indigo-300" /><div><h4 className="text-xs font-semibold text-white">Creator media tracks</h4><p className="text-[10px] text-slate-500">Attach private video, image and audio assets to this scene.</p></div></div>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+              <select value={selectedAssetId} onChange={(event) => setSelectedAssetId(event.target.value)} className="min-w-0 rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-2 text-xs text-white">
+                <option value="">{mediaLoading ? 'Loading media library…' : 'Choose an uploaded asset'}</option>
+                {mediaAssets.map((asset) => <option key={asset.id} value={asset.id}>{asset.name} · {asset.contentType.split('/')[0]}</option>)}
+              </select>
+              <div className="flex gap-2">
+                <select value={selectedMediaTrack} onChange={(event) => setSelectedMediaTrack(event.target.value as VideoMediaTrack)} className="rounded-lg border border-slate-700 bg-slate-900 px-2 py-2 text-xs text-white">
+                  <option value="main">Main shot</option><option value="overlay">Overlay</option><option value="audio">Audio</option>
+                </select>
+                <button type="button" onClick={addMediaLayer} disabled={!selectedAssetId} className="inline-flex items-center gap-1 rounded-lg bg-indigo-600 px-3 py-2 text-xs font-semibold text-white disabled:opacity-40"><Plus className="h-3.5 w-3.5" />Add</button>
+              </div>
+            </div>
+            {mediaAssets.length === 0 && !mediaLoading && <p className="text-[10px] text-slate-500">Your private media library is empty. Upload clips, images or audio in Creator Upload Studio first.</p>}
+            {mediaError && <p role="alert" className="text-[10px] text-rose-300">{mediaError}</p>}
+            {(current.mediaLayers || []).length > 0 && <div className="space-y-2">
+              {(current.mediaLayers || []).map((layer) => <div key={layer.id} className="space-y-2 rounded-lg border border-slate-800 bg-slate-900/80 p-2.5">
+                <div className="flex items-center justify-between gap-2"><div className="flex min-w-0 items-center gap-2">{layer.kind === 'audio' ? <Music2 className="h-3.5 w-3.5 shrink-0 text-emerald-300" /> : layer.kind === 'image' ? <ImageIcon className="h-3.5 w-3.5 shrink-0 text-amber-300" /> : <Film className="h-3.5 w-3.5 shrink-0 text-indigo-300" />}<span className="truncate text-[11px] font-medium text-slate-200">{layer.name}</span></div><button type="button" onClick={() => removeMediaLayer(layer.id)} className="rounded p-1 text-rose-300 hover:bg-rose-950/40" aria-label={`Remove ${layer.name}`}><Trash2 className="h-3.5 w-3.5" /></button></div>
+                <div className="grid grid-cols-3 gap-2">
+                  <label className="space-y-1 text-[10px] text-slate-400">Source in (sec)<input type="number" min="0" step="0.1" value={layer.sourceIn} onChange={(event) => patchMediaLayer(layer.id, { sourceIn: Math.max(0, Number(event.target.value) || 0) })} className="w-full rounded border border-slate-700 bg-slate-950 px-2 py-1.5 text-xs text-white" /></label>
+                  <label className="space-y-1 text-[10px] text-slate-400">Start at (sec)<input type="number" min="0" step="0.1" value={layer.startAt} onChange={(event) => patchMediaLayer(layer.id, { startAt: Math.max(0, Number(event.target.value) || 0) })} className="w-full rounded border border-slate-700 bg-slate-950 px-2 py-1.5 text-xs text-white" /></label>
+                  <label className="space-y-1 text-[10px] text-slate-400">Duration (sec)<input type="number" min="0.5" step="0.5" value={layer.duration} onChange={(event) => patchMediaLayer(layer.id, { duration: Math.max(0.5, Number(event.target.value) || 0.5) })} className="w-full rounded border border-slate-700 bg-slate-950 px-2 py-1.5 text-xs text-white" /></label>
+                </div>
+                {layer.track === 'overlay' && <><div className="grid grid-cols-2 gap-2"><label className="text-[10px] text-slate-400">Overlay size {layer.scale}%<input type="range" min="15" max="100" step="1" value={layer.scale} onChange={(event) => patchMediaLayer(layer.id, { scale: Number(event.target.value) })} className="w-full" /></label><label className="text-[10px] text-slate-400">Opacity {Math.round(layer.opacity * 100)}%<input type="range" min="0.1" max="1" step="0.05" value={layer.opacity} onChange={(event) => patchMediaLayer(layer.id, { opacity: Number(event.target.value) })} className="w-full" /></label></div><div className="grid grid-cols-2 gap-2"><label className="text-[10px] text-slate-400">Horizontal {layer.x}%<input type="range" min="0" max="100" step="1" value={layer.x} onChange={(event) => patchMediaLayer(layer.id, { x: Number(event.target.value) })} className="w-full" /></label><label className="text-[10px] text-slate-400">Vertical {layer.y}%<input type="range" min="0" max="100" step="1" value={layer.y} onChange={(event) => patchMediaLayer(layer.id, { y: Number(event.target.value) })} className="w-full" /></label></div></>}
+                {layer.track === 'audio' && <label className="block text-[10px] text-slate-400">Audio volume {Math.round(layer.volume * 100)}%<input type="range" min="0" max="1.5" step="0.05" value={layer.volume} onChange={(event) => patchMediaLayer(layer.id, { volume: Number(event.target.value) })} className="w-full" /></label>}
+              </div>)}
+            </div>}
+            <div className="border-t border-slate-800 pt-3 space-y-2">
+              <div className="flex flex-wrap items-center justify-between gap-2"><p className="text-[11px] font-semibold text-slate-200">Timed transcription & captions</p><button type="button" onClick={() => void transcribeSelectedAsset()} disabled={!selectedAssetId || transcribing || !mediaAssets.find((asset) => asset.id === selectedAssetId)?.contentType.match(/^(audio|video)\//)} className="inline-flex items-center gap-1.5 rounded-lg border border-fuchsia-500/40 px-2.5 py-1.5 text-[10px] font-semibold text-fuchsia-200 disabled:opacity-40">{transcribing ? <RefreshCw className="h-3 w-3 animate-spin" /> : <Wand2 className="h-3 w-3" />}{transcribing ? 'Transcribing…' : 'Transcribe selected upload'}</button></div>
+              <p className="text-[10px] text-slate-500">Uses Groq Whisper to create timestamped speech segments. The selected upload is sent to Groq for transcription; current file limit is 100 MB.</p>
+              {transcript && <div className="space-y-2 rounded-lg border border-fuchsia-500/20 bg-slate-900 p-2"><p className="text-[10px] font-semibold text-fuchsia-200">{transcript.name} · {transcript.segments.length} timed segments</p><div className="max-h-36 space-y-1 overflow-y-auto">{transcript.segments.slice(0, 16).map((segment, index) => <div key={index} className="flex gap-2 text-[10px]"><span className="shrink-0 tabular-nums text-slate-500">{formatTime(segment.start)}–{formatTime(segment.end)}</span><span className="text-slate-300">{segment.text}</span></div>)}</div><button type="button" onClick={applyTranscript} className="rounded-lg bg-fuchsia-700 px-3 py-2 text-[10px] font-semibold text-white hover:bg-fuchsia-600">Apply timed captions to this scene</button></div>}
+              {transcript && <div className="space-y-2 rounded-lg border border-indigo-500/20 bg-slate-900 p-2">
+                <div className="flex flex-wrap items-center justify-between gap-2"><div><p className="text-[11px] font-semibold text-indigo-200">AI Director · contextual media matching</p><p className="text-[10px] text-slate-500">Find the best moments in your own uploaded media.</p></div><button type="button" onClick={() => void requestMediaMatches()} disabled={mediaMatchBusy || mediaAssets.length === 0} className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-2 text-[10px] font-semibold text-white disabled:opacity-40">{mediaMatchBusy ? <RefreshCw className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}{mediaMatchBusy ? 'Matching moments…' : 'Find matching moments'}</button></div>
+                {mediaMatchError && <p role="alert" className="text-[10px] text-rose-300">{mediaMatchError}</p>}
+                {mediaMatchPlan && <div className="space-y-2"><p className="text-[10px] text-slate-300">{mediaMatchPlan.summary}</p>{mediaMatchPlan.matches.map((match, index) => <div key={`${match.assetId}-${index}`} className="rounded-md border border-slate-800 bg-slate-950 p-2"><div className="flex items-center justify-between gap-2"><span className="truncate text-[10px] font-semibold text-white">{match.name}</span><span className="shrink-0 text-[10px] tabular-nums text-indigo-300">{formatTime(match.startAt)} · {match.duration.toFixed(1)}s</span></div><p className="mt-1 text-[10px] text-slate-400">{match.reason}</p><p className="text-[10px] text-slate-500">{match.visualTreatment}</p></div>)}<div className="flex flex-wrap gap-2"><button type="button" onClick={applyMediaMatches} className="rounded-lg bg-indigo-600 px-3 py-2 text-[10px] font-semibold text-white">Apply {mediaMatchPlan.matches.length} placements to timeline</button><button type="button" onClick={() => setMediaMatchPlan(null)} className="rounded-lg border border-slate-700 px-3 py-2 text-[10px] text-slate-300">Discard proposal</button></div></div>}
+              </div>}
+              {!!current.captions?.length && <p className="text-[10px] text-emerald-300">{current.captions.length} timed caption cues saved on this scene.</p>}
+            </div>
+          </div>
           </>}
           <p className="text-[10px] leading-relaxed text-slate-500">Reordering and removing clips changes the scene sequence used by the film joiner. Text overlays and subtitle edits are saved and previewed in the studio; they do not alter the original generated audio or burn into the exported MP4 yet.</p>
         </div>
+      <div className="space-y-2 rounded-xl border border-slate-800 bg-slate-950/70 p-3">
+        <div className="flex items-center justify-between gap-2"><div><h3 className="text-xs font-semibold text-white">Multitrack timeline</h3><p className="text-[10px] text-slate-500">Select any block to inspect and edit that scene's layers.</p></div><span className="text-[10px] text-slate-500">{scenes.length} scene lanes</span></div>
+        {([
+          ['main', 'Main footage'],
+          ['overlay', 'Visual overlays'],
+          ['audio', 'Audio / music'],
+          ['captions', 'Timed captions'],
+        ] as const).map(([track, label]) => <div key={track} className="grid min-w-0 grid-cols-[88px_minmax(0,1fr)] gap-2">
+          <div className="flex items-center text-[10px] font-semibold text-slate-400">{label}</div>
+          <div className="flex min-w-0 gap-1.5 overflow-x-auto pb-1">
+            {scenes.map((scene, index) => {
+              const layers = track === 'captions' ? [] : (scene.mediaLayers || []).filter((layer) => layer.track === track);
+              const fallback = track === 'main' && !layers.length && scene.clipUrl ? 'Generated clip' : '';
+              const title = track === 'captions' ? (scene.captions?.length ? `${scene.captions.length} subtitle cues` : 'No captions') : layers.map((layer) => layer.name).join(', ') || fallback || 'Empty';
+              const active = index === selected;
+              return <button key={scene.id} type="button" onClick={() => setSelected(index)} title={title} className={`min-w-[112px] max-w-[180px] flex-1 rounded-md border px-2 py-2 text-left transition-colors ${active ? 'border-indigo-400 bg-indigo-500/15 text-white' : 'border-slate-800 bg-slate-900 text-slate-400 hover:border-slate-600'}`}>
+                <span className="block text-[9px] uppercase tracking-wide opacity-60">Scene {index + 1}</span>
+                <span className="block truncate text-[10px] font-medium">{title}</span>
+              </button>;
+            })}
+          </div>
+        </div>)}
+      </div>
+      <div className="space-y-2 rounded-xl border border-indigo-500/30 bg-indigo-950/20 p-3">
+        <div className="flex items-center justify-between gap-2">
+          <div><h3 className="text-xs font-semibold text-white">Render edited scene</h3><p className="text-[10px] text-slate-400">Composites the selected scene's footage, overlays, audio and timed captions into a saved MP4.</p></div>
+          <button type="button" onClick={renderCurrentScene} disabled={!current || renderingScene || (Number(current.duration) || 0) > 90 || (!mainLayer && !current.clipJobId)} className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-2 text-xs font-semibold text-white disabled:opacity-40">
+            {renderingScene ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Clapperboard className="h-3.5 w-3.5" />}{renderingScene ? 'Rendering…' : 'Render scene'}
+          </button>
+        </div>
+        {(Number(current?.duration) || 0) > 90 && <p className="text-[10px] text-amber-300">This first compositor pass supports scenes up to 90 seconds. Split this scene into shorter sections.</p>}
+        {renderError && <p role="alert" className="text-[10px] text-rose-300">{renderError}</p>}
+        {renderedScene && <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-emerald-500/20 bg-emerald-950/20 p-2"><span className="min-w-0 text-[10px] text-emerald-200">Saved to Media Library · {renderedScene.renderedLayers} layers · {renderedScene.captionsBurnedIn ? 'captions burned in' : 'no captions'}</span><a href={renderedScene.downloadUrl} target="_blank" rel="noreferrer" download className="rounded-md bg-emerald-600 px-3 py-1.5 text-[10px] font-semibold text-white">Download MP4</a></div>}
+        <div className="border-t border-slate-800 pt-2">
+          <div className="flex items-center justify-between gap-2"><div><p className="text-[11px] font-semibold text-white">Assemble the full film</p><p className="text-[9px] text-slate-500">Render each scene, then join the MP4s into one saved production.</p></div><button type="button" onClick={renderFullFilm} disabled={renderingFilm || scenes.length < 2 || scenes.length > 14 || scenes.some((scene) => (Number(scene.duration) || 0) > 90 || (!scene.mediaLayers?.some((layer) => layer.track === 'main') && !scene.clipJobId))} className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-indigo-400/40 px-3 py-2 text-[10px] font-semibold text-indigo-200 disabled:opacity-40">{renderingFilm ? <Loader2 className="h-3 w-3 animate-spin" /> : <Film className="h-3 w-3" />}{renderingFilm ? 'Working…' : 'Render full film'}</button></div>
+          {renderingFilm && <p role="status" className="mt-2 text-[10px] text-indigo-200">{filmProgress}</p>}
+          {filmError && <p role="alert" className="mt-2 text-[10px] text-rose-300">{filmError}</p>}
+          {finishedFilm && <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-emerald-500/20 bg-emerald-950/20 p-2"><span className="text-[10px] text-emerald-200">Finished film saved · {finishedFilm.sceneCount} scenes</span><a href={finishedFilm.downloadUrl} target="_blank" rel="noreferrer" download className="rounded-md bg-emerald-600 px-3 py-1.5 text-[10px] font-semibold text-white">Download full film</a></div>}
+          {scenes.length > 14 && <p className="mt-2 text-[9px] text-amber-300">This first assembly pass supports up to 14 scenes. Larger films need the background render queue stage.</p>}
+        </div>
+        <p className="text-[9px] leading-relaxed text-slate-500">Current limits: 90 seconds per scene, 12 visual overlays, 8 audio layers and a 250 MB finished file. This is the first scene-rendering pass, not yet a full-film background render queue.</p>
+      </div>
       </div>
       {saved && <p className="text-[10px] text-emerald-400" role="status">Edits saved to your video library.</p>}
     </section>
