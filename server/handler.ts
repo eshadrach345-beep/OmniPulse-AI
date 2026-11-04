@@ -526,7 +526,7 @@ const adImageRender: Handler = async ({ req, res, body }) => {
   }
   const voiceover = str(body.voiceover || '', 300);
   const voiceGender = body.voiceGender === 'male' ? 'male' : 'female';
-  const wordCount = voiceover.trim() ? voiceover.trim().split(/\\s+/).length : 0;
+  const wordCount = voiceover.trim() ? voiceover.trim().split(/\s+/).length : 0;
   const wordLimit = seconds === 5 ? 10 : 22;
   if (wordCount > wordLimit) throw new HttpError(400, `The voice-over is too long for a ${seconds}-second ad. Keep it to ${wordLimit} words or fewer.`);
   let targetAudioUrl: string | undefined;
