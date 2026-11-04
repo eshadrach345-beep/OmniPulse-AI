@@ -17,7 +17,7 @@ const subtitleTimestamp = (seconds: number) => {
   const millis = ms % 1000;
   return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(wholeSeconds).padStart(2, '0')},${String(millis).padStart(3, '0')}`;
 };
-const buildSrt = (items: VideoScene[]) => {
+const buildSrt = (items: GeneratedVideo['scenes']) => {
   let offset = 0;
   let cueNumber = 1;
   const cues: string[] = [];
