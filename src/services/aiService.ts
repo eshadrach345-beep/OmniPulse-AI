@@ -334,6 +334,7 @@ export async function generateAIVideoScript(params: {
       scenes,
       hashtags: Array.isArray(scriptData.hashtags) ? scriptData.hashtags : [],
       videoUrl: generatedVideoUrl,
+      videoJobId: jobId,
       thumbnailUrl: placeholderThumb(scriptData?.title || idea),
       createdAt: new Date().toISOString(),
       directorStyle: aiDirectorEngine,
