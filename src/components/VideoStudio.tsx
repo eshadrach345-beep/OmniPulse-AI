@@ -475,7 +475,7 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
   const subtitleText = visibleSubtitleLines.length
     ? visibleSubtitleLines.map((line) => String(line.text || '').trim()).filter(Boolean).join(' ')
     : !subtitleLines.length
-      ? String(currentScene?.voiceoverText || currentScene?.narration || '').replace(/(?:^|\s)[A-Z][A-Za-z .'-]{0,24}:\s/g, ' ').trim();
+      ? String(currentScene?.voiceoverText || currentScene?.narration || '').replace(/(?:^|\s)[A-Z][A-Za-z .'-]{0,24}:\s/g, ' ').trim()
       : '';
 
   return (
