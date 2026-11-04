@@ -396,7 +396,7 @@ export function continuityBlock(c?: SeriesContinuity): string {
   if (!c) return '';
   const clip = (v: string, n: number) => String(v || '').replace(/\s+/g, ' ').trim().slice(0, n);
   const cast = c.characters.length
-    ? c.characters.map((ch) => `- ${clip(ch.name, 30)} (${clip(ch.role, 60) || 'character'}, ${ch.gender === 'female' ? 'female' : 'male'}): ${clip(ch.description, 400) || 'no fixed look yet'}`).join('\n')
+    ? c.characters.map((ch) => `- ${clip(ch.name, 30)} (${clip(ch.role, 60) || 'character'}, ${ch.gender === 'female' ? 'female' : 'male'}): ${clip(ch.description, 400) || 'no fixed look yet'}${ch.voice ? `; established voice: ${clip(ch.voice, 120)}` : ''}`).join('\n')
     : '- (none recorded)';
   return `You are writing Part ${c.partNumber} of an ongoing cinematic series. Ensure narrative, character behavior, and environmental continuity directly follow the conclusion of the previous section provided here.
 
@@ -411,8 +411,11 @@ ${cast}
 
 CONTINUITY RULES FOR PART ${c.partNumber}:
 - Scene 1 starts immediately where Part ${c.partNumber - 1} stopped: same place and time of day, unless the user's idea says time has passed. No recap and no re-introduction of known characters.
-- Characters keep their personality, goals, injuries, relationships and speech style. Nothing that already happened may be undone or contradicted.
-- New characters are allowed only when the story needs them.
+- Characters keep their established personality, goals, relationships, age, face, hair, build, wardrobe and speech identity. Preserve each character's established voice, cadence, accent and vocabulary; do not randomly change how they sound or speak.
+- Track physical continuity precisely: injuries remain visible until the story shows them healing; wet, dirty or damaged clothing stays that way until a change is shown; props stay with the character who holds or carries them. Never reset a character to a clean, uninjured state between adjacent scenes.
+- Preserve location geography, time of day, weather, lighting direction and screen direction across consecutive scenes unless the story explicitly shows a transition. Keep important vehicles, objects and set details in the same positions.
+- Nothing that already happened may be undone or contradicted. Do not invent a new relationship, ability, possession or backstory for an established character.
+- New characters are allowed only when the story needs them; introduce them clearly and give them a stable visual identity.
 - This part has its own arc with a satisfying ending, and may leave one open thread for the next part.
 
 `;
