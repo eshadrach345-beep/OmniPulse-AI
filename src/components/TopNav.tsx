@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { AppUser } from '../types/auth';
-import { Zap, Video, Clapperboard, Calendar, TrendingUp, Split, BarChart3, Radio, Crown, LogOut, Settings, Activity, CreditCard } from 'lucide-react';
+import { Zap, Video, Clapperboard, Calendar, TrendingUp, Split, BarChart3, Radio, Crown, LogOut, Settings, Activity, CreditCard, ImagePlus } from 'lucide-react';
 
 export type TabId = 'dashboard' | 'video-studio' | 'series' | 'trends-hashtags' | 'scheduler' | 'ab-testing' | 'analytics';
 
@@ -8,6 +8,7 @@ interface TopNavProps {
   activeTab: TabId;
   setActiveTab: (tab: TabId) => void;
   onOpenCreateVideo: () => void;
+  onOpenAdMaker: () => void;
   onOpenSchedulePost: () => void;
   autoPilotActive: boolean;
   toggleAutoPilot: () => void;
@@ -29,7 +30,7 @@ const NAV: { id: TabId; label: string; short: string; icon: React.ElementType }[
 ];
 
 export const TopNav: React.FC<TopNavProps> = ({
-  activeTab, setActiveTab, onOpenCreateVideo, autoPilotActive, toggleAutoPilot, currentUser, onLogout, onOpenSettings, onOpenSystemCheck, onOpenPricing,
+  activeTab, setActiveTab, onOpenCreateVideo, onOpenAdMaker, autoPilotActive, toggleAutoPilot, currentUser, onLogout, onOpenSettings, onOpenSystemCheck, onOpenPricing,
 }) => {
   const [menuOpen, setMenuOpen] = useState(false);
   const initials = currentUser.name.split(' ').map((p) => p[0]).slice(0, 2).join('').toUpperCase();
@@ -72,6 +73,9 @@ export const TopNav: React.FC<TopNavProps> = ({
               <Video className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">Direct Video</span><span className="sm:hidden">Create</span>
             </button>
+            <button onClick={onOpenAdMaker} title="Open the dedicated brand advertising studio" className="flex items-center gap-1.5 px-2.5 py-2 text-xs font-semibold text-fuchsia-100 bg-fuchsia-950 border border-fuchsia-700/60 rounded-lg hover:bg-fuchsia-900 transition-colors whitespace-nowrap">
+              <ImagePlus className="w-3.5 h-3.5" /><span className="hidden sm:inline">Ad Maker</span><span className="sm:hidden">Ad</span>
+            </button>
 
             <button onClick={onOpenPricing} title="Plans & billing" className="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-amber-500/10 text-amber-300 border border-amber-500/30 hover:border-amber-400 transition-colors">
               <Crown className="w-3.5 h-3.5" /><span className="capitalize">{planLabel}</span>
@@ -108,7 +112,7 @@ export const TopNav: React.FC<TopNavProps> = ({
 
       {/* Phone navigation: a bottom tab bar is easier to reach than a scrolling strip */}
       <nav aria-label="Main" className="lg:hidden fixed bottom-0 inset-x-0 z-40 border-t border-slate-800 bg-slate-950/95 backdrop-blur-md pb-[env(safe-area-inset-bottom)]">
-        <div className="grid grid-cols-6 max-w-xl mx-auto">
+        <div className="grid grid-cols-7 max-w-xl mx-auto">
           {NAV.map(({ id, short, icon: Icon }) => (
             <button
               key={id} onClick={() => setActiveTab(id)} aria-current={activeTab === id ? 'page' : undefined}
