@@ -7,7 +7,7 @@ const require = createRequire(import.meta.url);
 let ts;
 try { ts = require('typescript'); } catch { ts = require(path.join(process.env.TS_PATH || '/home/claude/.npm-global/lib/node_modules/typescript')); }
 
-const order = ['lib/core.ts', 'lib/db.ts', 'lib/plans.ts', 'lib/services.ts', 'lib/prompts.ts', 'lib/merge.ts', 'lib/postpeer.ts', 'lib/social.ts', 'lib/zernio.ts', 'handler.ts'];
+const order = ['lib/core.ts', 'lib/db.ts', 'lib/plans.ts', 'lib/services.ts', 'lib/prompts.ts', 'lib/merge.ts', 'lib/social.ts', 'lib/zernio.ts', 'handler.ts'];
 const externals = new Map(); // module -> Set of names
 let body = '';
 const seen = new Map();
