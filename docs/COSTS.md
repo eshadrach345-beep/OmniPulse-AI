@@ -43,3 +43,20 @@ Change them in `server/lib/plans.ts` (`secondsPerMonth`) if the real per-second 
 | Agency (250 s, 1080p) | 79 | about 38 | about 38 |
 
 Top-up packs (30 s for 7, 100 s for 19, 250 s for 39) cost you roughly 2 to 4.5 per 30 seconds in the worst case, so they keep a margin. Replace these estimates with the real per-second cost once you have made a few renders.
+
+
+## Creator uploads and storage costs (November 2026)
+
+The Creator Upload Studio uses a private Vercel Blob store in Cape Town (`cpt1`). Uploads go directly from the browser to Blob, so the app function does not receive the full media file. The current per-file caps are 250 MB (Starter), 1 GB (Pro), and 2 GB (Agency). These are **per-file limits**, not monthly storage quotas; do not advertise a total storage allowance until cumulative usage metering and cleanup are implemented.
+
+Vercel's published pricing currently includes 1 GB of Blob storage and 10 GB of Blob data transfer on the applicable plan; additional storage is listed at $0.023/GB-month. Private data transfer is region-priced, with the published range around $0.15–$0.31/GB. Use short-lived, object-scoped signed GET URLs for browser playback so large media is not proxied through a Vercel Function. Keep signed URLs short-lived and only issue them after checking that the asset belongs to the signed-in user.
+
+## Payment processing assumptions
+
+For a Nigerian Flutterwave account, the published rates are 2.0% for local transactions and 4.8% for international card transactions. Flutterwave states that 7.5% VAT applies to transaction fees. For conservative planning, model international card collections at approximately 5.16% effective processing cost and local collections at approximately 2.15%, before currency conversion, refunds, disputes, and other taxes.
+
+## Subscription strategy for AI Director
+
+Keep core monthly video-generation seconds capped by tier. The creator-upload and AI Director workflow has separate variable costs: transcription, scene analysis, media search, licensed footage, AI effects, audio processing, and final rendering. Do not offer unlimited AI Director edits. Meter it with a separate monthly credit allowance and optional top-up packs, and price packs only after measuring the real provider cost per completed edit. Include storage, data transfer, payment fees, support, and failed-job retries in the margin calculation.
+
+The current product code has three price points: Starter $25 monthly / $19 annual-equivalent per month, Pro $49 / $39, and Agency $99 / $79. Only `FLW_PLAN_STARTER_MONTHLY` is currently configured in Vercel. Create and configure the other five Flutterwave plan IDs before advertising all monthly and annual checkout options as available.
