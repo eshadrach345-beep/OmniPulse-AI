@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import { handleUpload } from '@vercel/blob/client';
+import { del, issueSignedToken, presignUrl } from '@vercel/blob';
 import {
   Req, Res, HttpError, json, redirect, readRaw, appUrl, clientIp, parseCookies, setCookie, startSession, endSession,
   sessionUserId, signBlob, readBlob, hashPassword, verifyPassword, sha256, newId, randomCode, rateLimit, unlimitedUsers, EMAIL_RE, normEmail, str,
@@ -431,9 +432,10 @@ const exportData: Handler = async ({ req, res }) => {
   const dash = (await sql()`SELECT data FROM dashboards WHERE user_id=${row.id}`) as any[];
   const pay = (await sql()`SELECT tx_ref, tier, cycle, amount, currency, status, created_at FROM payments WHERE user_id=${row.id}`) as any[];
   const jobs = (await sql()`SELECT id, status, video_url, created_at FROM video_jobs WHERE user_id=${row.id}`) as any[];
+  const media = (await sql()`SELECT id, original_name, content_type, size_bytes, created_at FROM media_assets WHERE user_id=${row.id} ORDER BY created_at DESC`) as any[];
   const series = (await sql()`SELECT p.id, p.title, p.genre, p.character_db, p.created_at, (SELECT COALESCE(json_agg(json_build_object('partNumber', e.part_number, 'status', e.status, 'promptInput', e.prompt_input, 'storyboard', e.storyboard_json) ORDER BY e.part_number), '[]'::json) FROM episodes e WHERE e.project_id = p.id) AS episodes FROM projects p WHERE p.user_id=${row.id}`) as any[];
   res.setHeader('Content-Disposition', 'attachment; filename="omnipulse-data.json"');
-  json(res, 200, { exportedAt: new Date().toISOString(), profile: toUser(row), termsAcceptedAt: row.terms_accepted_at, dashboard: dash[0]?.data || null, payments: pay, videoJobs: jobs, series });
+  json(res, 200, { exportedAt: new Date().toISOString(), profile: toUser(row), termsAcceptedAt: row.terms_accepted_at, dashboard: dash[0]?.data || null, payments: pay, videoJobs: jobs, mediaAssets: media, series });
 };
 
 const deleteAccount: Handler = async ({ req, res, body }) => {
@@ -2022,6 +2024,17 @@ const mediaUpload: Handler = async ({ req, res, body }) => {
   json(res, 200, response);
 };
 
+const mediaSignedUrl: Handler = async ({ req, res, query }) => {
+  const { row } = await requireAccess(req);
+  const id = str(query.get('id'), 80);
+  if (!id) throw new HttpError(400, 'Media item is required.');
+  const rows = await sql()`SELECT pathname FROM media_assets WHERE id = ${id} AND user_id = ${row.id} LIMIT 1`;
+  if (!rows[0]) throw new HttpError(404, 'Media item not found.');
+  const token = await issueSignedToken({ operations: ['get'] });
+  const signed = await presignUrl(token, { pathname: rows[0].pathname, operation: 'get', validUntil: Date.now() + 60 * 60 * 1000 });
+  json(res, 200, { url: signed.presignedUrl, expiresIn: 3600 });
+};
+
 const mediaList: Handler = async ({ req, res }) => {
   const { row } = await requireAccess(req);
   const assets = await sql()`SELECT id, original_name AS "name", content_type AS "contentType", size_bytes AS "size", created_at AS "createdAt"
@@ -2039,7 +2052,7 @@ const routes: Record<string, Handler> = {
   'GET /account/usage': usage, 'PUT /account/profile': updateProfile, 'POST /account/password': changePassword,
   'GET /account/export': exportData, 'POST /account/delete': deleteAccount,
   'GET /dashboard': getDashboard, 'PUT /dashboard': putDashboard,
-  'POST /media/upload': mediaUpload, 'GET /media/list': mediaList,
+  'POST /media/upload': mediaUpload, 'GET /media/list': mediaList, 'GET /media/url': mediaSignedUrl,
   'POST /gemini/generate-script': genScript, 'POST /gemini/research-trends': researchTrends, 'POST /gemini/ad-concepts': adConcepts, 'POST /ad/brand-images': adBrandImages, 'POST /ad/render-image': adImageRender, 'POST /tts': tts,
   'POST /gemini/ab-variations': abVariations, 'POST /gemini/competitor-analysis': competitorAnalysis, 'POST /gemini/outrank': outrank,
   'POST /video/render': videoRender, 'GET /video/status': videoStatus,
