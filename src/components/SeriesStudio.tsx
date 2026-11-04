@@ -491,7 +491,7 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
               <input id="series-title" value={title} onChange={(e) => setTitle(e.target.value)} maxLength={100} placeholder={writer === 'ai' ? 'The name of your story' : 'We will name it from your script if you leave this empty'} className={selectCls} />
             </div>
             <div className="grid grid-cols-3 gap-2">
-              {FORMATS.map((f) => <button key={f.id} type="button" onClick={() => { setFormat(f.id); setLook(f.look); if (f.id === 'documentary') setPresentation('narrated'); else if (presentation === 'narrated') setPresentation('movie'); }} aria-pressed={format === f.id} className={chip(format === f.id)}><span className="block font-bold">{f.title}</span></button>)}
+              {FORMATS.map((f) => <button key={f.id} type="button" onClick={() => { setFormat(f.id); setLook(f.look); if (f.id === 'documentary' || f.id === 'commercial') setPresentation('narrated'); else if (presentation === 'narrated') setPresentation('movie'); }} aria-pressed={format === f.id} className={chip(format === f.id)}><span className="block font-bold">{f.title}</span></button>)}
             </div>
             <div className="flex gap-2">{RATIOS.map((r) => <button key={r} type="button" onClick={() => setRatio(r)} aria-pressed={ratio === r} className={chip(ratio === r)}>{r}</button>)}</div>
           </>
