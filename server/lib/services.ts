@@ -357,12 +357,12 @@ async function callBackup(b: LlmBackup, prompt: string, o: { json: boolean; time
  * Writes text with the best available AI: every Gemini key first (skipping any that are out of quota), then every backup service.
  * One person action therefore never fails just because one free quota ran out, and when everything fails the reason of each is reported.
  */
-export async function llmGenerate(prompt: string, o: { json?: boolean; timeoutMs?: number; deadlineMs?: number; maxTokens?: number } = {}): Promise<{ text: string; provider: 'gemini' | 'backup'; model: string }> {
+export async function llmGenerate(prompt: string, o: { json?: boolean; timeoutMs?: number; deadlineMs?: number; maxTokens?: number; preferBackup?: boolean } = {}): Promise<{ text: string; provider: 'gemini' | 'backup'; model: string }> {
   const json = o.json !== false;
   const start = Date.now();
   const deadline = start + (o.deadlineMs || 50_000);
   const backups = llmBackups();
-  const wantsBackupFirst = (process.env.LLM_PRIMARY || '').trim().toLowerCase() === 'backup' && backups.length > 0;
+  const wantsBackupFirst = (o.preferBackup || (process.env.LLM_PRIMARY || '').trim().toLowerCase() === 'backup') && backups.length > 0;
   const errs: { who: string; f: GeminiFail }[] = [];
   const tryGemini = async () => {
     const keys = geminiKeyList(); if (!keys.length) return null;
@@ -456,6 +456,46 @@ export async function geminiRaw(prompt: string, opts: { grounded?: boolean; time
 }
 
 /** Step 1 of research: a Google-Search-grounded pass. Kept under ~30s so no single request runs long. THROWS if search did not really run. */
+// Independent multi-query search for niche intelligence; does not require Gemini.
+export async function webTrendResearch(niche: string, customQuery: string): Promise<{ text: string; sources: { title: string; url: string }[]; provider: string }> {
+  const focus = customQuery ? ` ${customQuery}` : '';
+  const queries = [`"${niche}" trends launches news last 14 days${focus}`, `"${niche}" TikTok Instagram Reels YouTube Shorts creators formats${focus}`, `"${niche}" hashtags search keywords audience questions${focus}`, `"${niche}" market reports consumer behaviour product launches${focus}`];
+  const unique = new Map<string, any>();
+  const braveKey = (process.env.BRAVE_SEARCH_API_KEY || '').trim();
+  const tavilyKey = (process.env.TAVILY_API_KEY || '').trim();
+  if (braveKey) {
+    const groups = await Promise.all(queries.map(async (q, i) => {
+      const url = new URL('https://api.search.brave.com/res/v1/web/search');
+      url.searchParams.set('q', q); url.searchParams.set('count', '10'); url.searchParams.set('extra_snippets', 'true');
+      if (i < 2) url.searchParams.set('freshness', 'pm');
+      const r = await fetch(url, { headers: { 'X-Subscription-Token': braveKey, Accept: 'application/json' }, signal: AbortSignal.timeout(14000) });
+      if (!r.ok) throw new HttpError(424, `Brave Search returned ${r.status}. Check BRAVE_SEARCH_API_KEY and its plan.`, 'SEARCH');
+      const d: any = await r.json();
+      return (d?.web?.results || []).map((x: any) => ({ title: String(x.title || '').slice(0, 240), url: String(x.url || ''), content: String([x.description, ...(x.extra_snippets || [])].filter(Boolean).join(' ')).slice(0, 1600), date: String(x.page_age || x.age || ''), query: q }));
+    }));
+    for (const group of groups) for (const x of group) if (/^https?:\/\//i.test(x.url)) unique.set(x.url, x);
+    if (unique.size < 8) throw new HttpError(424, 'Live search returned too few independent sources. Try a more specific or broader niche.', 'SEARCH');
+    const items = [...unique.values()].slice(0, 32);
+    const sources = items.map(x => ({ title: x.title || x.url, url: x.url }));
+    const text = items.map((x, i) => `[SOURCE ${i + 1}] ${x.title}\nURL: ${x.url}\nPublished/updated: ${x.date || 'Not supplied'}\nSearch query: ${x.query}\nEvidence: ${x.content}`).join('\n\n');
+    return { text: `Search provider: Brave Search. Research date: ${new Date().toISOString()}. Sources: ${sources.length}.\n\n${text}`, sources, provider: 'brave-search' };
+  }
+  if (tavilyKey) {
+    const groups = await Promise.all(queries.slice(0, 3).map(async q => {
+      const r = await fetch('https://api.tavily.com/search', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ api_key: tavilyKey, query: q, topic: 'general', search_depth: 'advanced', max_results: 10, include_answer: false, include_raw_content: false }), signal: AbortSignal.timeout(18000) });
+      if (!r.ok) throw new HttpError(424, `Tavily Search returned ${r.status}. Check TAVILY_API_KEY.`, 'SEARCH');
+      const d: any = await r.json();
+      return (d?.results || []).map((x: any) => ({ title: String(x.title || '').slice(0, 240), url: String(x.url || ''), content: String(x.content || '').slice(0, 1800), date: String(x.published_date || ''), query: q }));
+    }));
+    for (const group of groups) for (const x of group) if (/^https?:\/\//i.test(x.url)) unique.set(x.url, x);
+    if (unique.size < 8) throw new HttpError(424, 'Live search returned too few independent sources. Try a more specific or broader niche.', 'SEARCH');
+    const items = [...unique.values()].slice(0, 30);
+    const sources = items.map(x => ({ title: x.title || x.url, url: x.url }));
+    const text = items.map((x, i) => `[SOURCE ${i + 1}] ${x.title}\nURL: ${x.url}\nPublished: ${x.date || 'Not supplied'}\nSearch query: ${x.query}\nEvidence: ${x.content}`).join('\n\n');
+    return { text: `Search provider: Tavily. Research date: ${new Date().toISOString()}. Sources: ${sources.length}.\n\n${text}`, sources, provider: 'tavily' };
+  }
+  throw new HttpError(424, 'Live niche research needs a search API key. Add BRAVE_SEARCH_API_KEY (recommended) or TAVILY_API_KEY in Vercel, then redeploy. This research step does not use Gemini.', 'SEARCH_SETUP');
+}
 export async function geminiSearch(researchPrompt: string): Promise<{ text: string; sources: { title: string; url: string }[]; model: string }> {
   const key = geminiKeyList().find((k) => keyBlockedMs(k) === 0) || need('GEMINI_API_KEY', 'GOOGLE_API_KEY');
   if (geminiBlockedMs() > 0) throw new HttpError(424, `Live search has reached Gemini's free limit. Please try again in about ${Math.ceil(geminiBlockedMs() / 1000)} seconds.`, 'GEMINI');
@@ -466,7 +506,7 @@ export async function geminiSearch(researchPrompt: string): Promise<{ text: stri
 
 /** Step 2 of research: turn the findings into the app's JSON (fast, no search). */
 export async function geminiFormat(prompt: string): Promise<{ data: any; model: string }> {
-  const g = await llmGenerate(prompt, { json: true, timeoutMs: 30_000, deadlineMs: 40_000 });
+  const g = await llmGenerate(prompt, { json: true, timeoutMs: 30_000, deadlineMs: 40_000, preferBackup: true });
   try { return { data: extractJson(g.text), model: `${g.provider}:${g.model}` }; } catch { throw new HttpError(424, 'The research came back in an unexpected format. Please try again.', 'GEMINI'); }
 }
 
