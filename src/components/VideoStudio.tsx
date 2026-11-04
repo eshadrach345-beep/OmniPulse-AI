@@ -255,7 +255,7 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
     // (for example, "Maya: Don't move"), which must never be read aloud by the voice-over engine.
     const spokenText = Array.isArray(scene.lines) && scene.lines.length
       ? scene.lines.map((line) => String(line.text || '').trim()).filter(Boolean).join(' ')
-      : String(scene.voiceoverText || scene.narration || '').replace(/(?:^|\\s)[A-Z][A-Za-z .'-]{0,24}:\\s/g, ' ').trim();
+      : String(scene.voiceoverText || scene.narration || '').replace(/(?:^|\s)[A-Z][A-Za-z .'-]{0,24}:\s/g, ' ').trim();
     if (spokenText) StudioAudioService.speak(spokenText, vId, momentum);
   };
 
@@ -475,7 +475,7 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
   const subtitleText = visibleSubtitleLines.length
     ? visibleSubtitleLines.map((line) => String(line.text || '').trim()).filter(Boolean).join(' ')
     : !subtitleLines.length
-      ? String(currentScene?.voiceoverText || currentScene?.narration || '').replace(/(?:^|\\s)[A-Z][A-Za-z .'-]{0,24}:\\s/g, ' ').trim()
+      : String(currentScene?.voiceoverText || currentScene?.narration || '').replace(/(?:^|\s)[A-Z][A-Za-z .'-]{0,24}:\s/g, ' ').trim();
       : '';
 
   return (
