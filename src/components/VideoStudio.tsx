@@ -251,7 +251,12 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
     const vId = activeVideo.voiceId || selectedVoiceId;
     if (!vId || vId === 'none') return;
     const momentum = activeVideo.voiceMomentum || voiceMomentum || 1.10;
-    StudioAudioService.speak(scene.narration, vId, momentum);
+    // Speak only the approved dialogue text. "scene.narration" contains character labels for display
+    // (for example, "Maya: Don't move"), which must never be read aloud by the voice-over engine.
+    const spokenText = Array.isArray(scene.lines) && scene.lines.length
+      ? scene.lines.map((line) => String(line.text || '').trim()).filter(Boolean).join(' ')
+      : String(scene.voiceoverText || scene.narration || '').replace(/(?:^|\\s)[A-Z][A-Za-z .'-]{0,24}:\\s/g, ' ').trim();
+    if (spokenText) StudioAudioService.speak(spokenText, vId, momentum);
   };
 
   const handlePlayToggle = () => {
@@ -462,9 +467,16 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
   const activeVoiceProfile = StudioAudioService.getVoice(activeVideo.voiceId || selectedVoiceId);
   const currentScene = activeVideo.scenes[currentSceneIdx] || activeVideo.scenes[0];
   // The subtitle layer must display only approved spoken words, never character labels or AI-added filler.
-  const subtitleText = currentScene?.lines?.length
-    ? currentScene.lines.map((line) => String(line.text || '').trim()).filter(Boolean).join(' ')
-    : String(currentScene?.voiceoverText || currentScene?.narration || '').replace(/(?:^|\\s)[A-Z][A-Za-z .'-]{0,24}:\\s/g, ' ').trim();
+  const subtitleLines = Array.isArray(currentScene?.lines) ? currentScene.lines : [];
+  const subtitleHalf = currentScene?.duration >= 20 ? (sceneProgress < 50 ? 1 : 2) : 0;
+  const visibleSubtitleLines = subtitleHalf
+    ? subtitleLines.filter((line) => line.half == null || Number(line.half) === subtitleHalf)
+    : subtitleLines;
+  const subtitleText = visibleSubtitleLines.length
+    ? visibleSubtitleLines.map((line) => String(line.text || '').trim()).filter(Boolean).join(' ')
+    : !subtitleLines.length
+      ? String(currentScene?.voiceoverText || currentScene?.narration || '').replace(/(?:^|\\s)[A-Z][A-Za-z .'-]{0,24}:\\s/g, ' ').trim()
+      : '';
 
   return (
     <div className="space-y-6">
