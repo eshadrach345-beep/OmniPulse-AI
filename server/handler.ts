@@ -5,8 +5,8 @@ import {
 } from './lib/core.js';
 import { sql, ensureSchema } from './lib/db.js';
 import { PLANS, TIERS, Tier, Cycle, planId, tierFromPlanId, priceFor, BILLING_CURRENCY, TRIAL, TOPUPS, trialPrice } from './lib/plans.js';
-import { mail, flw, verifyFlwSignature, lookupEnv, geminiJson, geminiRaw, geminiSearch, geminiFormat, aiWriterStatus, testAiWriters, falSubmit, falStatus, deapiSubmit, deapiStatus, deapiAnimate, RateLimited, synthesize } from './lib/services.js';
-import { trendsResearchPrompt, trendsFormatPrompt, scriptPrompt, abPrompt, competitorPrompt, outrankPrompt, parseStoryBrief, type SeriesContinuity, type StoryBriefInput, storyBeats, STORY_MOODS, CAMERA_PROFILES, GENRES, INTENSITIES, ENDINGS, PRESENTATIONS, CASTS, TROPES, styleBlock, STORY_LIMITS, planScenes, castMinimum, storyboardPrompt, outlinePrompt, chunkPrompt, adaptPrompt, PART_SECONDS, SCENES_PER_WRITER_CALL, MAX_WORDS_PER_CLIP } from './lib/prompts.js';
+import { mail, flw, verifyFlwSignature, lookupEnv, geminiJson, geminiRaw, geminiSearch, geminiFormat, aiWriterStatus, testAiWriters, falSubmit, falStatus, falImageVideoSubmit, falGenerateBrandImages, deapiSubmit, deapiStatus, deapiAnimate, RateLimited, synthesize } from './lib/services.js';
+import { trendsResearchPrompt, trendsFormatPrompt, scriptPrompt, adConceptPrompt, abPrompt, competitorPrompt, outrankPrompt, parseStoryBrief, type SeriesContinuity, type StoryBriefInput, storyBeats, STORY_MOODS, CAMERA_PROFILES, GENRES, INTENSITIES, ENDINGS, PRESENTATIONS, CASTS, TROPES, styleBlock, STORY_LIMITS, planScenes, castMinimum, storyboardPrompt, outlinePrompt, chunkPrompt, adaptPrompt, PART_SECONDS, SCENES_PER_WRITER_CALL, MAX_WORDS_PER_CLIP } from './lib/prompts.js';
 import { assembleParts } from './lib/assemble.js';
 import { refineScene, shownInstruction, proseToUnits, thoughtToVisual, type SpokenLine } from './lib/screenplay.js';
 import { ppConfigured, ppConnectUrl, ppSync, ppForget, ppPublish, ppHealth } from './lib/postpeer.js';
@@ -480,6 +480,53 @@ const genScript: Handler = async ({ req, res, body }) => {
   }));
   if (!Array.isArray(data.scenes) || !data.scenes.length) throw new HttpError(424, 'The AI returned an incomplete script. Please try again.', 'GEMINI');
   json(res, 200, { success: true, ...data });
+};
+
+const adConcepts: Handler = async ({ req, res, body }) => {
+  const { row } = await requireAccess(req);
+  await rateLimit(`ad-ideas:${row.id}`, 20, 3600);
+  const brand = str(body.brand || '', 100), product = str(body.product || '', 500);
+  if (product.length < 5) throw new HttpError(400, 'Describe the product or service first.');
+  const data = await geminiJson(adConceptPrompt({
+    brand, product, audience: str(body.audience || 'general audience', 160),
+    brief: str(body.brief || '', 1200), aspect: ['9:16', '16:9', '1:1'].includes(String(body.aspect)) ? String(body.aspect) : '9:16',
+  }));
+  if (!Array.isArray(data?.concepts) || !data.concepts.length) throw new HttpError(424, 'The creative director returned no ad concepts. Please try again.', 'GEMINI');
+  json(res, 200, { success: true, ...data });
+};
+
+const adBrandImages: Handler = async ({ req, res, body }) => {
+  const { row } = await requireAccess(req);
+  await rateLimit(`ad-images:${row.id}`, 6, 3600);
+  const prompt = str(body.prompt || '', 1800);
+  if (prompt.length < 20) throw new HttpError(400, 'Choose or write a detailed brand image direction first.');
+  const aspect = ['9:16', '16:9', '1:1'].includes(String(body.aspect)) ? String(body.aspect) as '9:16' | '16:9' | '1:1' : '9:16';
+  const images = await falGenerateBrandImages(prompt, aspect);
+  json(res, 200, { success: true, images });
+};
+
+const adImageRender: Handler = async ({ req, res, body }) => {
+  const { row, user } = await requireAccess(req);
+  await rateLimit(`ad-render:${row.id}`, 20, 3600);
+  const imageUrl = String(body.imageUrl || '');
+  const dataImage = /^data:image\/(?:jpeg|jpg|png|webp);base64,[A-Za-z0-9+/=]+$/i.test(imageUrl);
+  const remoteImage = /^https:\/\//i.test(imageUrl);
+  if ((!dataImage && !remoteImage) || imageUrl.length > 3_200_000) throw new HttpError(400, 'Upload a JPG, PNG or WebP image under 2 MB, or select a generated brand image.');
+  const prompt = str(body.prompt || '', 2400);
+  if (prompt.length < 10) throw new HttpError(400, 'Describe the movement and look you want for the ad.');
+  const seconds: 5 | 10 = Number(body.seconds) === 10 ? 10 : 5;
+  const aspect = ['9:16', '16:9', '1:1'].includes(String(body.aspect)) ? String(body.aspect) as '9:16' | '16:9' | '1:1' : '9:16';
+  const used = (await sql()`SELECT COALESCE(sum(seconds), 0)::int AS secs FROM video_jobs WHERE user_id=${row.id} AND source = 'plan' AND status <> 'failed' AND created_at >= date_trunc('month', now())`) as any[];
+  const planLeft = Math.max(0, user.secondsLimit - used[0].secs), bonus = await topupBalance(row.id);
+  let source = 'plan';
+  if (seconds > planLeft) {
+    if (seconds <= bonus) source = 'topup';
+    else throw new HttpError(403, planLeft + bonus > 0 ? `You have ${planLeft + bonus} video seconds left, which is not enough for this ad. Buy extra seconds or upgrade your plan.` : 'You have used all your video seconds. Buy extra seconds or upgrade your plan.', 'LIMIT');
+  }
+  const job = await falImageVideoSubmit(imageUrl, prompt, seconds, aspect, PLANS[user.tier]?.resolution || '480P');
+  const id = newId('job');
+  await sql()`INSERT INTO video_jobs (id, user_id, status_url, response_url, seconds, source) VALUES (${id}, ${row.id}, ${job.statusUrl}, ${job.responseUrl}, ${seconds}, ${source})`;
+  json(res, 200, { jobId: id });
 };
 
 const researchTrends: Handler = async ({ req, res, body }) => {
@@ -1870,7 +1917,7 @@ const routes: Record<string, Handler> = {
   'GET /account/usage': usage, 'PUT /account/profile': updateProfile, 'POST /account/password': changePassword,
   'GET /account/export': exportData, 'POST /account/delete': deleteAccount,
   'GET /dashboard': getDashboard, 'PUT /dashboard': putDashboard,
-  'POST /gemini/generate-script': genScript, 'POST /gemini/research-trends': researchTrends, 'POST /tts': tts,
+  'POST /gemini/generate-script': genScript, 'POST /gemini/research-trends': researchTrends, 'POST /gemini/ad-concepts': adConcepts, 'POST /ad/brand-images': adBrandImages, 'POST /ad/render-image': adImageRender, 'POST /tts': tts,
   'POST /gemini/ab-variations': abVariations, 'POST /gemini/competitor-analysis': competitorAnalysis, 'POST /gemini/outrank': outrank,
   'POST /video/render': videoRender, 'GET /video/status': videoStatus,
   'GET /social/accounts': socialAccounts, 'POST /social/sync': socialSync, 'GET /video/download': videoDownload, 'GET /video/merge': videoMerge, 'GET /social/connect': socialConnect, 'GET /social/callback': socialCallback,
