@@ -440,9 +440,11 @@ export async function testAiWriters(): Promise<{ name: string; ok: boolean; mess
 }
 
 /** Plain JSON generation (scripts, A/B ideas). Optionally grounded with Google Search. */
-export async function geminiRaw(prompt: string, opts: { grounded?: boolean; timeoutMs?: number; deadlineMs?: number; maxTokens?: number } = {}): Promise<GeminiResult> {
+export async function geminiRaw(prompt: string, opts: { grounded?: boolean; timeoutMs?: number; deadlineMs?: number; maxTokens?: number; preferBackup?: boolean } = {}): Promise<GeminiResult> {
   if (!opts.grounded) {
-    const g = await llmGenerate(prompt, { json: true, timeoutMs: opts.timeoutMs, deadlineMs: opts.deadlineMs, maxTokens: opts.maxTokens });
+    // The configured non-Gemini writer (Groq in this deployment) is the default for scripts and creative generation.
+    // Gemini is a fallback, not a hard dependency; callers may explicitly opt into Gemini-first when needed.
+    const g = await llmGenerate(prompt, { json: true, timeoutMs: opts.timeoutMs, deadlineMs: opts.deadlineMs, maxTokens: opts.maxTokens, preferBackup: opts.preferBackup !== false });
     try { return { data: extractJson(g.text), model: `${g.provider}:${g.model}`, grounded: false, sources: [] }; }
     catch { throw new HttpError(424, 'The AI answered in an unexpected format. Retrying.', 'GEMINI'); }
   }
