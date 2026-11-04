@@ -6,7 +6,7 @@ const TO_Z: Record<string,string> = { x:'twitter', youtube:'youtube', tiktok:'ti
 const FROM_Z: Record<string,string> = Object.fromEntries(Object.entries(TO_Z).map(([a,b])=>[b,a]));
 export const zernioConfigured = () => !!(process.env.ZERNIO_API_KEY || '').trim();
 
-async function request(path:string, init:RequestInit = {}):Promise<any> {
+async function zernioRequest(path:string, init:RequestInit = {}):Promise<any> {
   const key=(process.env.ZERNIO_API_KEY||'').trim();
   if(!key) throw new HttpError(424,'Social publishing is not configured. Add ZERNIO_API_KEY in Vercel Environment Variables, then redeploy.','ZERNIO_CONFIG');
   let response:Response;
@@ -35,7 +35,7 @@ export async function zernioEnsureProfile(userId:string):Promise<string>{
   if(rows[0]?.profile_id) return String(rows[0].profile_id);
   const name=`omnipulse-${userId}`.slice(0,80);
   let d:any;
-  try { d=await request('/profiles',{method:'POST',body:JSON.stringify({name,description:'OmniPulse customer profile'})}); }
+  try { d=await zernioRequest('/profiles',{method:'POST',body:JSON.stringify({name,description:'OmniPulse customer profile'})}); }
   catch(e:any) {
     // A retry after a network timeout can encounter a profile created by the first request.
     if(!String(e?.message||'').includes('409')) throw e;
@@ -54,7 +54,7 @@ export async function zernioConnectUrl(userId:string,platform:string,redirectUrl
   const profileId=await zernioEnsureProfile(userId);
   const state=(await import('node:crypto')).randomBytes(24).toString('hex');
   const qs=new URLSearchParams({profileId,redirect_url:`${redirectUrl}?state=${state}`});
-  const d=await request(`/connect/${encodeURIComponent(zPlatform)}?${qs.toString()}`);
+  const d=await zernioRequest(`/connect/${encodeURIComponent(zPlatform)}?${qs.toString()}`);
   const url=String(d?.authUrl||'');
   if(!/^https:\/\//i.test(url)) throw new HttpError(424,'Zernio did not return a valid authorization link.','ZERNIO');
   return {url,profileId,state};
@@ -62,7 +62,7 @@ export async function zernioConnectUrl(userId:string,platform:string,redirectUrl
 
 export async function zernioSyncAccounts(userId:string,limit:number):Promise<number>{
   const profileId=await zernioEnsureProfile(userId);
-  const d=await request(`/accounts?profileId=${encodeURIComponent(profileId)}`);
+  const d=await zernioRequest(`/accounts?profileId=${encodeURIComponent(profileId)}`);
   const accounts:any[]=Array.isArray(d?.accounts)?d.accounts:[];
   let added=0;
   const supported=accounts.filter(a=>FROM_Z[String(a?.platform||'')] && (a?.isActive!==false));
@@ -95,7 +95,7 @@ export async function zernioListAccounts(userId:string,limit:number){
 export async function zernioDisconnect(userId:string,platform:string):Promise<void>{
   const rows:any[]=await sql()`SELECT account_id FROM zernio_connections WHERE user_id=${userId} AND platform=${platform}`;
   if(!rows[0]) return;
-  await request(`/accounts/${encodeURIComponent(String(rows[0].account_id))}`,{method:'DELETE'});
+  await zernioRequest(`/accounts/${encodeURIComponent(String(rows[0].account_id))}`,{method:'DELETE'});
   await sql()`DELETE FROM zernio_connections WHERE user_id=${userId} AND platform=${platform}`;
 }
 
@@ -108,7 +108,7 @@ export async function zernioPublish(userId:string,platform:string,post:{text:str
   if(post.videoUrl) body.mediaItems=[{type:'video',url:post.videoUrl}];
   if(scheduledAt){body.scheduledFor=scheduledAt.toISOString();body.timezone='UTC';}
   else body.publishNow=true;
-  const d=await request('/posts',{method:'POST',body:JSON.stringify(body)});
+  const d=await zernioRequest('/posts',{method:'POST',body:JSON.stringify(body)});
   const result=d?.post||d;
   const platformResult=Array.isArray(result?.platforms)?result.platforms[0]:null;
   if(platformResult && ['failed','error'].includes(String(platformResult.status||'').toLowerCase())){
