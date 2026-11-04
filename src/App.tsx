@@ -285,6 +285,25 @@ function Workspace({ user: currentUser, initialDashboard, onLogout, onUserChange
     showToast(`AI Video "${video.title}" generated successfully!`);
   };
 
+  const handlePublishVideoDirect = async (video: GeneratedVideo, caption: string, platforms: PlatformId[]) => {
+    if (!video.videoUrl) throw new Error('This video has no finished MP4 file to publish.');
+    const post: ScheduledPost = {
+      id: `post-publish-${Date.now()}`,
+      title: video.title,
+      caption,
+      hashtags: video.hashtags || [],
+      platforms,
+      mediaType: 'video',
+      videoRefId: video.id,
+      mediaUrl: video.thumbnailUrl,
+      scheduledTime: new Date().toISOString(),
+      status: 'draft',
+      autoPeakOptimized: false,
+    };
+    setPosts((prev) => [post, ...prev]);
+    await dispatchPost(post, 'now');
+  };
+
   const handleScheduleVideoDirect = (video: GeneratedVideo) => {
     const newPost: ScheduledPost = {
       id: `post-${Date.now()}`,
@@ -553,6 +572,9 @@ function Workspace({ user: currentUser, initialDashboard, onLogout, onUserChange
             secondsLeft={usage ? Math.max(0, usage.secondsLimit - usage.secondsUsed) + (usage.topupSeconds || 0) : null}
             onSaveNewVideo={handleSaveNewVideo}
             onScheduleVideoDirect={handleScheduleVideoDirect}
+            onPublishVideoDirect={handlePublishVideoDirect}
+            accounts={accounts}
+            onRequestConnect={handleRequestOAuth}
             initialCreateRequested={createRequest.open}
             initialAdMakerRequested={adMakerRequest}
             onResetAdMakerRequest={() => setAdMakerRequest(false)}
