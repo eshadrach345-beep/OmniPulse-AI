@@ -28,6 +28,7 @@ const FORMATS: { id: StoryFormat; title: string; look: string }[] = [
   { id: 'drama', title: 'Drama', look: 'Cinematic live-action look' },
   { id: 'documentary', title: 'Documentary', look: 'Documentary footage look' },
   { id: 'animation', title: 'Animation', look: '3D animated movie look' },
+  { id: 'commercial', title: 'Brand Ad', look: 'Premium product commercial, polished studio lighting, elegant brand cinematography' },
 ];
 const RATIOS: AspectRatioType[] = ['9:16', '16:9', '1:1'];
 const POLL_MS = 4000;
