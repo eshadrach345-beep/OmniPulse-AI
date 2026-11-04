@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { SeriesStudio } from './SeriesStudio';
+import { AdMakerStudio } from './AdMakerStudio';
 import { StoryPlayer } from './StoryPlayer';
 import { 
   GeneratedVideo, 
@@ -49,6 +50,7 @@ import {
   Check,
   Maximize2,
   Camera,
+  ImagePlus,
   Lock
 } from 'lucide-react';
 
@@ -103,6 +105,7 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
 
   // Creation Modal State
   const [isCreating, setIsCreating] = useState(false);
+  const [isAdMakerOpen, setIsAdMakerOpen] = useState(false);
   const createMode: 'story' | 'voiceover' = 'story'; // the single voice-over form is no longer offered
   const [isGenerating, setIsGenerating] = useState(false);
   const [statusMessage, setStatusMessage] = useState('');
@@ -466,6 +469,13 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
             <span>Voice & Audio Studio</span>
           </button>
 
+          <button
+            onClick={() => setIsAdMakerOpen(true)}
+            className="flex items-center gap-2 px-3 py-2 bg-fuchsia-950 hover:bg-fuchsia-900 text-fuchsia-100 border border-fuchsia-700/70 rounded-lg text-xs font-semibold transition-all"
+          >
+            <ImagePlus className="w-4 h-4" />
+            <span>Ad Maker</span>
+          </button>
           <button
             onClick={() => setIsCreating(true)}
             className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-semibold shadow-md shadow-indigo-600/30 transition-all"
@@ -1231,6 +1241,7 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
           </div>
         </div>
       )}
+      {isAdMakerOpen && <AdMakerStudio nicheName={activeNiche.name} onClose={() => setIsAdMakerOpen(false)} onSaveNewVideo={onSaveNewVideo} />}
     </div>
   );
 };
