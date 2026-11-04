@@ -43,20 +43,35 @@ export interface NicheCategory {
   researchGrounded?: boolean;
 }
 
+export interface TrendingCreatorVideo {
+  title: string;
+  url: string;
+  thumbnailUrl?: string;
+  platform: string;
+  publishedAt?: string;
+  /** Public view count only; never private impressions. */
+  views?: number | null;
+  metricLabel?: string;
+}
 export interface TrendingCreator {
+  rank?: number;
   name: string;
   handle: string;
   platform: string;
   /** Link to the profile or to the content the research found. */
   url?: string;
+  avatarUrl?: string;
+  rankingBasis?: string;
   /** Why this creator is trending right now. */
   whyTrending: string;
   /** The format / style of content that is working for them. */
   contentStyle: string;
-  /** Concrete idea a user can borrow (not copy) for their own content. */
+  /** Concrete idea a user can adapt, not copy verbatim. */
   takeaway: string;
-  /** Example hook or post idea inspired by them. */
+  /** Example hook or post idea inspired by their approach. */
   exampleHook?: string;
+  /** Directly sourced recent videos with public metrics when available. */
+  recentVideos?: TrendingCreatorVideo[];
 }
 
 export interface TrendingTopic {
