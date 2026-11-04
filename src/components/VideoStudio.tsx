@@ -455,7 +455,7 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
             </span>
           </div>
           <p className="text-xs text-slate-400 max-w-2xl">
-            Make dramas, documentaries and animations with several characters and voices, or a single voice-over video, then schedule them to your channels.
+            Create cinematic stories, episodic films, documentaries, animations and polished product advertisements — then prepare them for your channels.
           </p>
         </div>
 
@@ -474,7 +474,7 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
             className="flex items-center gap-2 px-3 py-2 bg-fuchsia-950 hover:bg-fuchsia-900 text-fuchsia-100 border border-fuchsia-700/70 rounded-lg text-xs font-semibold transition-all"
           >
             <ImagePlus className="w-4 h-4" />
-            <span>Ad Maker</span>
+            <span>Create Ad Video</span>
           </button>
           <button
             onClick={() => setIsCreating(true)}
@@ -491,9 +491,10 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
           <Video className="w-10 h-10 text-indigo-400 mx-auto" />
           <h2 className="text-base font-bold text-white">Create your first video</h2>
           <p className="text-sm text-slate-400 max-w-md mx-auto">Describe a story. OmniPulse writes the script with characters and dialogue, tells you how long it will be, then renders each scene and plays it with every character's voice.</p>
-          <button onClick={() => setIsCreating(true)} className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-sm font-semibold">
-            <Wand2 className="w-4 h-4" /> Direct a new video
-          </button>
+          <div className="flex flex-wrap items-center justify-center gap-2">
+            <button onClick={() => setIsCreating(true)} className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-sm font-semibold"><Wand2 className="w-4 h-4" /> Direct a new film</button>
+            <button onClick={() => setIsAdMakerOpen(true)} className="inline-flex items-center gap-2 px-4 py-2 bg-fuchsia-700 hover:bg-fuchsia-600 text-white rounded-lg text-sm font-semibold"><ImagePlus className="w-4 h-4" /> Create a brand ad</button>
+          </div>
         </div>
       ) : (
       <>
@@ -851,7 +852,7 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
               <div className="flex items-center gap-2">
                 <Wand2 className="w-5 h-5 text-indigo-400" />
                 <h3 className="text-base font-bold text-white">
-                  Direct High-Converting Video
+                  Film & Series Studio
                 </h3>
               </div>
               <button
