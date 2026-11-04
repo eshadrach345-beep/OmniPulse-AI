@@ -122,7 +122,7 @@ export const StoryPlayer: React.FC<{ video: GeneratedVideo }> = ({ video }) => {
 
       <div className="relative mx-auto bg-black rounded-xl overflow-hidden border border-slate-800" style={{ aspectRatio: ratio, width: '100%', maxWidth: maxW, maxHeight: 520 }}>
         {[0, 1].map((n) => (
-          <video key={n} ref={refs[n]} playsInline preload="auto" className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-150 ${front === n ? 'opacity-100' : 'opacity-0 pointer-events-none'}`} />
+          <video key={n} ref={refs[n]} playsInline preload="auto" className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-500 ${front === n ? 'opacity-100' : 'opacity-0 pointer-events-none'}`} />
         ))}
         {caption && (
           <div className="absolute inset-x-0 bottom-0 p-3 bg-linear-to-t from-black/85 to-transparent text-center pointer-events-none">
@@ -135,7 +135,7 @@ export const StoryPlayer: React.FC<{ video: GeneratedVideo }> = ({ video }) => {
           </button>
         )}
         {scenes[idx]?.onScreenText && (
-          <div className="pointer-events-none absolute left-1/2 top-1/2 z-10 w-[88%] -translate-x-1/2 -translate-y-1/2 text-center">
+          <div className={`pointer-events-none absolute left-1/2 z-10 w-[88%] -translate-x-1/2 text-center ${scenes[idx].overlayPosition === 'top' ? 'top-8' : scenes[idx].overlayPosition === 'bottom' ? 'bottom-16' : 'top-1/2 -translate-y-1/2'}`}>
             <span className="inline-block rounded-lg border border-white/20 bg-black/65 px-4 py-2 text-base font-extrabold tracking-wide text-white shadow-2xl">{scenes[idx].onScreenText}</span>
           </div>
         )}
