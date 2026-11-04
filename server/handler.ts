@@ -537,7 +537,7 @@ function parseStoryInput(body: any): Omit<StoryInput, 'continuity' | 'script'> {
   if (idea.length < 10) throw new HttpError(400, 'Please describe your story in a little more detail.');
   return {
     idea,
-    format: ['drama', 'documentary', 'animation'].includes(String(body.format)) ? String(body.format) : 'drama',
+    format: ['drama', 'documentary', 'animation', 'commercial'].includes(String(body.format)) ? String(body.format) : 'drama',
     look: str(body.look, 80) || 'cinematic',
     aspect: ['9:16', '16:9', '1:1'].includes(String(body.aspectRatio)) ? String(body.aspectRatio) : '9:16',
     niche: str(body.niche || 'general audience', 80),
