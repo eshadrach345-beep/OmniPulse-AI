@@ -23,7 +23,7 @@ They are *not* needed in Google AI Studio. This app runs on Vercel, not in the A
 | `VIDEO_PROVIDER` | Optional. `fal` (default), `deapi`, or `auto` (fal first, deAPI if fal fails) |
 | `DEAPI_API_KEY` | Optional second video provider (deapi.ai, free starter credit) |
 | `VOICE_PROVIDER` | Optional. `auto` (default: deAPI voices when `DEAPI_API_KEY` exists, else fal.ai), `deapi`, or `fal` |
-| `POSTPEER_API_KEY` | Social publishing through PostPeer (postpeer.dev). When set, customers connect accounts through PostPeer and no per-network developer apps are needed |
+| `ZERNIO_API_KEY` | Social publishing through Zernio. OmniPulse creates one isolated Zernio profile per customer; the first two connected accounts are free across the OmniPulse Zernio team, not two per customer. |
 | `FAL_KEY` | Video rendering and voice-over (fal.ai) |
 | `FAL_VIDEO_MODEL` | Optional. Default `minimax/h3-max-turbo/text-to-video` |
 | `FAL_VIDEO_INPUT` | Optional JSON merged into the video request, e.g. `{"aspect_ratio":"9:16"}` |
