@@ -11,7 +11,7 @@ import { assembleParts } from './lib/assemble.js';
 import { refineScene, shownInstruction, proseToUnits, thoughtToVisual, type SpokenLine } from './lib/screenplay.js';
 import { mergeClips, lastFrameJpeg } from './lib/merge.js';
 import { PROVIDERS, PLATFORM_IDS, Platform, isPlatform, isConfigured, redirectUri, socialPkce, socialAuthorizeUrl, exchangeSocialCode, saveSocialConnection, listSocialAccounts, removeSocialConnection, publishToPlatform, socialMetrics } from './lib/social.js';
-import { zernioConfigured, zernioConnectUrl, zernioSyncAccounts, zernioListAccounts, zernioDisconnect, zernioPublish, zernioHealth } from './lib/zernio.js';
+import { zernioConfigured, zernioConnectUrl, zernioSyncAccounts, zernioListAccounts, zernioDisconnect, zernioPublish, zernioHealth, zernioDeleteCustomer } from './lib/zernio.js';
 
 // We parse bodies ourselves (webhooks need the raw bytes).
 export const config = { api: { bodyParser: false }, maxDuration: 60 };
@@ -441,6 +441,9 @@ const deleteAccount: Handler = async ({ req, res, body }) => {
   if (!(await verifyPassword(String(body.password || ''), row.password_hash))) throw new HttpError(400, 'Password is incorrect.');
   await cancelSubscriptions(row.email).catch((e) => console.error('cancel on delete', e));
   const id = row.id;
+  if (zernioConfigured()) await zernioDeleteCustomer(id).catch((e) => console.error('Zernio account cleanup on delete', e));
+  await sql()`DELETE FROM zernio_connections WHERE user_id=${id}`;
+  await sql()`DELETE FROM zernio_profiles WHERE user_id=${id}`;
   await sql()`DELETE FROM dashboards WHERE user_id=${id}`;
   await sql()`DELETE FROM social_connections WHERE user_id=${id}`;
   await sql()`DELETE FROM scheduled_posts WHERE user_id=${id}`;
