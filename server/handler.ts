@@ -209,7 +209,7 @@ const plans: Handler = async ({ res }) => {
     const m = mId ? await livePlan(mId) : null, a = aId ? await livePlan(aId) : null;
     if (m) { monthly = m.amount; currency = m.currency; }
     if (a) { annual = Math.round((a.amount / 12) * 100) / 100; currency = a.currency; }
-    out.push({ id: t, name: PLANS[t].name, monthly, annual, currency, channels: PLANS[t].channels, videosPerMonth: PLANS[t].videosPerMonth, secondsPerMonth: PLANS[t].secondsPerMonth, quality: PLANS[t].quality, available: !!(mId || aId) });
+    out.push({ id: t, name: PLANS[t].name, monthly, annual, currency, channels: PLANS[t].channels, videosPerMonth: PLANS[t].videosPerMonth, secondsPerMonth: PLANS[t].secondsPerMonth, quality: PLANS[t].quality, available: !!(mId || aId), monthlyAvailable: !!mId, annualAvailable: !!aId });
   }
   json(res, 200, { plans: out });
 };
