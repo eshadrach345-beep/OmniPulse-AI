@@ -42,7 +42,7 @@ Change them in `server/lib/plans.ts` (`secondsPerMonth`) if the real per-second 
 | Pro (150 s, 768p) | 39 | about 11 | about 26 |
 | Agency (250 s, 1080p) | 79 | about 38 | about 38 |
 
-Top-up packs (30 s for 7, 100 s for 19, 250 s for 39) cost you roughly 2 to 4.5 per 30 seconds in the worst case, so they keep a margin. Replace these estimates with the real per-second cost once you have made a few renders.
+Top-up packs are now 30 s for $9, 100 s for $29, and 250 s for $69. This is a more conservative price floor for Agency-tier rendering; replace the estimates with measured provider costs after real renders.
 
 
 ## Creator uploads and storage costs (November 2026)
@@ -59,4 +59,4 @@ For a Nigerian Flutterwave account, the published rates are 2.0% for local trans
 
 Keep core monthly video-generation seconds capped by tier. The creator-upload and AI Director workflow has separate variable costs: transcription, scene analysis, media search, licensed footage, AI effects, audio processing, and final rendering. Do not offer unlimited AI Director edits. Meter it with a separate monthly credit allowance and optional top-up packs, and price packs only after measuring the real provider cost per completed edit. Include storage, data transfer, payment fees, support, and failed-job retries in the margin calculation.
 
-The current product code has three price points: Starter $25 monthly / $19 annual-equivalent per month, Pro $49 / $39, and Agency $99 / $79. Only `FLW_PLAN_STARTER_MONTHLY` is currently configured in Vercel. Create and configure the other five Flutterwave plan IDs before advertising all monthly and annual checkout options as available.
+The current product code has three price points: Starter $25 monthly / $19 annual-equivalent per month, Pro $49 / $39, and Agency $99 / $79. Video top-ups are $9 / $29 / $69 for 30 / 100 / 250 seconds. Only `FLW_PLAN_STARTER_MONTHLY` is currently configured in Vercel. Create and configure the other five Flutterwave plan IDs before advertising all monthly and annual checkout options as available.
