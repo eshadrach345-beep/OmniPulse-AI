@@ -400,7 +400,7 @@ export async function analyzeNicheTrends(nicheName: string, customQuery?: string
 // ---------------------------------------------------------------------------
 // Multi-character productions (drama, documentary, animation)
 // ---------------------------------------------------------------------------
-export type StoryFormat = 'drama' | 'documentary' | 'animation';
+export type StoryFormat = 'drama' | 'documentary' | 'animation' | 'commercial';
 
 /** Exactly what the render endpoint (POST /video/render) takes. The server builds it, the browser sends it unchanged. */
 export interface SceneRenderPayload { prompt: string; seconds: 5 | 10; aspect: AspectRatioType }
