@@ -19,7 +19,7 @@ export function trendsFormatPrompt(niche: string, notes: string): string {
 
 RESEARCH NOTES:
 """
-${notes.slice(0, 14000)}
+${notes.slice(0, 18000)}
 """
 
 Rules:
@@ -31,7 +31,7 @@ Rules:
 - "url" for a creator must be a URL that appears in the notes, otherwise "".
 - Each topic needs a "whyNow" sentence. "velocity" is a short qualitative phrase (e.g. "Rising quickly"), "volume" is "Large", "Medium" or "Small", and "estimatedReachMultiplier" is a qualitative phrase. Never invent percentages.
 - Hashtags must be real, relevant hashtags that start with #.
-- 3 to 5 trendingTopics, 4 to 6 trendingCreators (as many as the notes support), 3 to 5 hashtags in each group, 4 to 8 suggestedKeywords, 3 to 5 bestPractices.
+- 3 to 5 trendingTopics, 4 to 6 trendingCreators (as many as the notes support), 3 to 5 hashtags in each group, using "Not measured" volume and "Unknown" competition whenever sources provide no measurement, 4 to 8 suggestedKeywords, 3 to 5 bestPractices.
 
 Return ONLY valid JSON in exactly this shape:
 {
