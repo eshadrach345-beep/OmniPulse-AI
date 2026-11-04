@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { handleUpload } from '@vercel/blob/client';
 import {
   Req, Res, HttpError, json, redirect, readRaw, appUrl, clientIp, parseCookies, setCookie, startSession, endSession,
   sessionUserId, signBlob, readBlob, hashPassword, verifyPassword, sha256, newId, randomCode, rateLimit, unlimitedUsers, EMAIL_RE, normEmail, str,
@@ -1984,6 +1985,50 @@ const episodeEdit: Handler = async ({ req, res, body }) => {
   json(res, 200, { ok: true, started: start });
 };
 
+
+// ---------------------------------------------------------------- private creator media uploads
+const mediaUpload: Handler = async ({ req, res, body }) => {
+  if (!process.env.BLOB_READ_WRITE_TOKEN) throw new HttpError(503, 'Private media storage is not configured yet.', 'STORAGE_UNAVAILABLE');
+  const response = await handleUpload({
+    body,
+    request: req,
+    onBeforeGenerateToken: async (_pathname: string, clientPayload?: string) => {
+      const { row, user } = await requireAccess(req);
+      let meta: any = {};
+      try { meta = JSON.parse(clientPayload || '{}'); } catch { throw new HttpError(400, 'Invalid upload details.'); }
+      const name = str(meta.name, 180);
+      const contentType = str(meta.type, 100).toLowerCase();
+      const size = Number(meta.size);
+      const allowed = ['video/mp4', 'video/quicktime', 'video/webm', 'video/x-matroska', 'audio/mpeg', 'audio/mp4', 'audio/wav', 'audio/x-wav', 'image/jpeg', 'image/png', 'image/webp'];
+      if (!name || !allowed.includes(contentType)) throw new HttpError(415, 'Upload an MP4, MOV, WebM, MKV, MP3, WAV, JPG, PNG or WebP file.');
+      if (!Number.isFinite(size) || size <= 0) throw new HttpError(400, 'The selected file is empty or its size could not be read.');
+      const maxBytes = user.tier === 'agency' ? 2 * 1024 ** 3 : user.tier === 'pro' ? 1024 ** 3 : 250 * 1024 ** 2;
+      if (size > maxBytes) throw new HttpError(413, `This plan allows files up to ${Math.round(maxBytes / 1024 ** 2)} MB each.`, 'UPLOAD_TOO_LARGE');
+      return {
+        allowedContentTypes: allowed,
+        maximumSizeInBytes: maxBytes,
+        addRandomSuffix: true,
+        tokenPayload: JSON.stringify({ userId: row.id, originalName: name, contentType, declaredSize: size }),
+      };
+    },
+    onUploadCompleted: async ({ blob, tokenPayload }: any) => {
+      const meta = JSON.parse(tokenPayload || '{}');
+      if (!meta.userId || !blob?.url || !blob?.pathname) throw new Error('Upload metadata could not be verified.');
+      await sql()`INSERT INTO media_assets (id, user_id, pathname, blob_url, original_name, content_type, size_bytes)
+        VALUES (${newId('med')}, ${meta.userId}, ${blob.pathname}, ${blob.url}, ${meta.originalName}, ${blob.contentType || meta.contentType}, ${Number(blob.size || meta.declaredSize)})`
+        .catch((e: any) => { if (!String(e?.message || '').includes('duplicate')) throw e; });
+    },
+  });
+  json(res, 200, response);
+};
+
+const mediaList: Handler = async ({ req, res }) => {
+  const { row } = await requireAccess(req);
+  const assets = await sql()`SELECT id, original_name AS "name", content_type AS "contentType", size_bytes AS "size", created_at AS "createdAt"
+    FROM media_assets WHERE user_id = ${row.id} ORDER BY created_at DESC LIMIT 100`;
+  json(res, 200, { assets });
+};
+
 // ---------------------------------------------------------------- router
 const routes: Record<string, Handler> = {
   'POST /auth/register': register, 'POST /auth/verify': verifyEmail, 'POST /auth/resend': resend, 'POST /auth/login': login,
@@ -1994,6 +2039,7 @@ const routes: Record<string, Handler> = {
   'GET /account/usage': usage, 'PUT /account/profile': updateProfile, 'POST /account/password': changePassword,
   'GET /account/export': exportData, 'POST /account/delete': deleteAccount,
   'GET /dashboard': getDashboard, 'PUT /dashboard': putDashboard,
+  'POST /media/upload': mediaUpload, 'GET /media/list': mediaList,
   'POST /gemini/generate-script': genScript, 'POST /gemini/research-trends': researchTrends, 'POST /gemini/ad-concepts': adConcepts, 'POST /ad/brand-images': adBrandImages, 'POST /ad/render-image': adImageRender, 'POST /tts': tts,
   'POST /gemini/ab-variations': abVariations, 'POST /gemini/competitor-analysis': competitorAnalysis, 'POST /gemini/outrank': outrank,
   'POST /video/render': videoRender, 'GET /video/status': videoStatus,
