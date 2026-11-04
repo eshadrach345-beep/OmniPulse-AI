@@ -24,7 +24,7 @@ export const emptyDashboard = (): UserDashboardState => ({
   research: {},
 });
 
-export interface PlanInfo { id: SubscriptionTier; name: string; monthly: number; annual: number; currency: string; channels: number; videosPerMonth: number; secondsPerMonth?: number; quality?: string; available: boolean }
+export interface PlanInfo { id: SubscriptionTier; name: string; monthly: number; annual: number; currency: string; channels: number; videosPerMonth: number; secondsPerMonth?: number; quality?: string; available: boolean; monthlyAvailable?: boolean; annualAvailable?: boolean }
 
 export const Auth = {
   async me(): Promise<AppUser | null> {
