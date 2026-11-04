@@ -5,7 +5,7 @@ import {
 } from './lib/core.js';
 import { sql, ensureSchema } from './lib/db.js';
 import { PLANS, TIERS, Tier, Cycle, planId, tierFromPlanId, priceFor, BILLING_CURRENCY, TRIAL, TOPUPS, trialPrice } from './lib/plans.js';
-import { mail, flw, verifyFlwSignature, lookupEnv, geminiJson, geminiRaw, geminiSearch, geminiFormat, aiWriterStatus, testAiWriters, falSubmit, falStatus, falImageVideoSubmit, falGenerateBrandImages, deapiSubmit, deapiStatus, deapiAnimate, RateLimited, synthesize } from './lib/services.js';
+import { mail, flw, verifyFlwSignature, lookupEnv, geminiJson, geminiRaw, geminiSearch, geminiFormat, webTrendResearch, aiWriterStatus, testAiWriters, falSubmit, falStatus, falImageVideoSubmit, falGenerateBrandImages, deapiSubmit, deapiStatus, deapiAnimate, RateLimited, synthesize } from './lib/services.js';
 import { trendsResearchPrompt, trendsFormatPrompt, scriptPrompt, adConceptPrompt, abPrompt, competitorPrompt, outrankPrompt, parseStoryBrief, type SeriesContinuity, type StoryBriefInput, storyBeats, STORY_MOODS, CAMERA_PROFILES, GENRES, INTENSITIES, ENDINGS, PRESENTATIONS, CASTS, TROPES, styleBlock, STORY_LIMITS, planScenes, castMinimum, storyboardPrompt, outlinePrompt, chunkPrompt, adaptPrompt, PART_SECONDS, SCENES_PER_WRITER_CALL, MAX_WORDS_PER_CLIP } from './lib/prompts.js';
 import { assembleParts } from './lib/assemble.js';
 import { refineScene, shownInstruction, proseToUnits, thoughtToVisual, type SpokenLine } from './lib/screenplay.js';
@@ -539,8 +539,8 @@ const researchTrends: Handler = async ({ req, res, body }) => {
     const r = await geminiFormat(trendsFormatPrompt(niche, notes));
     return json(res, 200, { success: true, ...r.data, model: r.model });
   }
-  const r = await geminiSearch(trendsResearchPrompt(niche, custom));
-  json(res, 200, { success: true, notes: r.text, sources: r.sources, grounded: true, model: r.model });
+  const r = await webTrendResearch(niche, custom);
+  json(res, 200, { success: true, notes: r.text, sources: r.sources, grounded: true, model: r.provider });
 };
 
 
