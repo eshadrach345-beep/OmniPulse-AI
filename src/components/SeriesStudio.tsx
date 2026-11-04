@@ -524,9 +524,9 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
           <div>
             <label className="block text-xs font-semibold text-slate-300 mb-1.5" htmlFor="series-script">{continuing ? 'Paste the next scenes or script' : 'Paste your script'}</label>
             <textarea id="series-script" value={script} onChange={(e) => setScript(e.target.value)} rows={9} maxLength={20000}
-              placeholder={'Scene 1: A rainy pier at night.\nMARA: You were supposed to wait for me.\nJONAH: I waited. For three years.\n...'}
+              placeholder={'INT. HOTEL LOBBY - NIGHT\nRain lashes the glass. Mara rushes in, soaked, clutching a torn photograph. (ACTION: show her searching the room)\nMARA: You said you would come alone.\nJONAH: I had no choice.\nNARRATOR (V.O.): By midnight, everything had changed.\n...'}
               className={`${areaCls} font-mono text-xs`} />
-            <p className="text-[11px] text-slate-500 mt-1">{script.length.toLocaleString()} / 20,000 characters. Any format works: scenes with dialogue, a screenplay or plain story text. Your names, plot and wording are kept.{continuing && recap?.hasRemainingScript ? ' Leave it empty to carry on with the saved rest of your script.' : ''}</p>
+            <p className="text-[11px] text-slate-500 mt-1">{script.length.toLocaleString()} / 20,000 characters. The AI automatically separates visible action, each character's dialogue, narrator / voice-over, thoughts and sound cues. It keeps your plot, names and dialogue wording, then builds a scene-by-scene film storyboard.{continuing && recap?.hasRemainingScript ? ' Leave it empty to carry on with the saved rest of your script.' : ''}</p>
           </div>
         )}
 
