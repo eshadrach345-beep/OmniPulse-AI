@@ -1,10 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Play, Pause, ChevronLeft, ChevronRight, Volume2, VolumeX, Download, Loader2, AlertTriangle } from 'lucide-react';
-import { GeneratedVideo, SceneLine } from '../types';
+import { GeneratedVideo } from '../types';
 
 const wait = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 /** How long a line takes to say, so captions follow the speech. */
-const lineMs = (text: string) => Math.max(900, (text.trim().split(/\s+/).length / 2.3 + 0.5) * 1000);
+const phraseMs = (text: string) => Math.max(850, Math.min(2400, (text.trim().split(/\s+/).length / 2.6 + 0.25) * 1000));
+const captionPhrases = (text: string) => { const words = text.trim().split(/\s+/).filter(Boolean); const out: string[] = []; for (let i = 0; i < words.length; i += 5) out.push(words.slice(i, i + 5).join(' ')); return out; };
 const saveBlob = (blob: Blob, name: string) => {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
