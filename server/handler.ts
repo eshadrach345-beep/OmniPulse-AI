@@ -937,6 +937,7 @@ function packLines(lines: PackLine[], halves: number): (PackLine & { half: 1 | 2
   let half: 1 | 2 = 1;
   const inHalf = (h: number) => out.filter((l) => l.half === h);
   const queue: PackLine[] = lines.map((l) => ({ ...l, text: fitText(l.text, MAX_WORDS_PER_CLIP * halves) }));
+  let droppedLines = 0;
   while (queue.length) {
     const l = queue.shift()!;
     const room = () => speechCap - speechSeconds(inHalf(half));
@@ -951,8 +952,9 @@ function packLines(lines: PackLine[], halves: number): (PackLine & { half: 1 | 2
     }
     const fitWords = Math.max(0, Math.floor((room() - 0.5) * 2.3));
     if (fitWords >= 3 && !inHalf(half).length) out.push({ ...l, text: fitText(l.text, Math.min(MAX_WORDS_PER_CLIP, fitWords)), half });
-    // otherwise this line does not fit in what is left of the scene and is dropped, rather than cutting someone off
+    else droppedLines++;
   }
+  if (droppedLines) throw new HttpError(424, `The dialogue did not fit cleanly into the ${halves * PART_SECONDS}-second scene. Retrying with shorter, complete lines instead of silently removing dialogue.`, 'GEMINI');
   if (halves === 2 && !inHalf(2).length && inHalf(1).length >= 2) out[out.length - 1].half = 2;
   return out;
 }
