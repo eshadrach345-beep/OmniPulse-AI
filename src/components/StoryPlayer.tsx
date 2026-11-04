@@ -134,13 +134,12 @@ export const StoryPlayer: React.FC<{ video: GeneratedVideo }> = ({ video }) => {
             <span className="w-14 h-14 rounded-full bg-indigo-600 flex items-center justify-center shadow-lg"><Play className="w-6 h-6 text-white ml-0.5" /></span>
           </button>
         )}
+        {scenes[idx]?.onScreenText && (
+          <div className="pointer-events-none absolute left-1/2 top-1/2 z-10 w-[88%] -translate-x-1/2 -translate-y-1/2 text-center">
+            <span className="inline-block rounded-lg border border-white/20 bg-black/65 px-4 py-2 text-base font-extrabold tracking-wide text-white shadow-2xl">{scenes[idx].onScreenText}</span>
+          </div>
+        )}
       </div>
-
-      {scenes[idx]?.onScreenText && (
-        <div className="pointer-events-none absolute left-1/2 top-1/2 z-10 w-[88%] -translate-x-1/2 -translate-y-1/2 text-center">
-          <span className="inline-block rounded-lg border border-white/20 bg-black/65 px-4 py-2 text-base font-extrabold tracking-wide text-white shadow-2xl">{scenes[idx].onScreenText}</span>
-        </div>
-      )}
 
       <div className="flex items-center justify-center gap-3">
         <button onClick={() => jump(Math.max(0, idx - 1))} disabled={idx === 0} aria-label="Previous scene" className="p-2 rounded-lg bg-slate-800 border border-slate-700 text-slate-200 disabled:opacity-40"><ChevronLeft className="w-4 h-4" /></button>
