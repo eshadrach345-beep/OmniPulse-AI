@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { SeriesStudio } from './SeriesStudio';
 import { AdMakerStudio } from './AdMakerStudio';
 import { StoryPlayer } from './StoryPlayer';
+import { VideoEditor } from './VideoEditor';
 import { 
   GeneratedVideo, 
   VideoType, 
@@ -554,6 +555,7 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
         </div>
       ) : null}
       {activeVideo.characters?.length ? <StoryPlayer key={activeVideo.id} video={activeVideo} /> : null}
+      {activeVideo.scenes.length > 0 && <VideoEditor key={activeVideo.id} video={activeVideo} onSave={(updated) => { setActiveVideo(updated); onSaveNewVideo(updated); }} />}
       {/* Main Studio Viewport: Left Player + Right Storyboard */}
       <div className={`grid grid-cols-1 lg:grid-cols-12 gap-6 items-start ${activeVideo.characters?.length ? 'hidden' : ''}`}>
         {/* Left Column: Interactive Real Video Player (5 Cols) */}
