@@ -22,6 +22,17 @@ const buildSrt = (items: GeneratedVideo['scenes']) => {
   let cueNumber = 1;
   const cues: string[] = [];
   for (const scene of items) {
+    // Prefer real speech timestamps when available; fall back to estimated screenplay timing.
+    const timedCaptions = (scene.captions || []).filter((cue) => String(cue.text || '').trim() && Number.isFinite(Number(cue.start)) && Number.isFinite(Number(cue.end)));
+    if (timedCaptions.length) {
+      timedCaptions.forEach((cue) => {
+        const start = offset + Math.max(0, Number(cue.start) || 0);
+        const end = offset + Math.max(Number(cue.start) + 0.12, Number(cue.end) || 0);
+        cues.push(`${cueNumber++}\n${subtitleTimestamp(start)} --> ${subtitleTimestamp(end)}\n${String(cue.text).trim()}`);
+      });
+      offset += duration;
+      continue;
+    }
     const duration = Math.max(0.5, Number(scene.duration) || 4);
     const lines = (scene.lines || []).filter((line) => String(line.text || '').trim());
     // Respect explicit first/second-half dialogue timing when present. Older scenes
@@ -215,10 +226,10 @@ export const StoryPlayer: React.FC<{ video: GeneratedVideo }> = ({ video }) => {
         <button onClick={downloadAll} disabled={join.state === 'working' || !ids.length} className="w-full py-3 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-60 text-white text-xs font-semibold flex items-center justify-center gap-2">
           {join.state === 'working' ? <><Loader2 className="w-4 h-4 animate-spin" />Joining scenes...</> : <><Download className="w-4 h-4" />Download full video (one MP4)</>}
         </button>
-        <button onClick={downloadSubtitles} disabled={!scenes.some((scene) => scene.lines?.some((line) => line.text?.trim()))} className="w-full py-2.5 rounded-lg border border-slate-700 bg-slate-900 hover:bg-slate-800 disabled:opacity-40 text-slate-200 text-xs font-semibold flex items-center justify-center gap-2">
+        <button onClick={downloadSubtitles} disabled={!scenes.some((scene) => scene.captions?.some((cue) => cue.text?.trim()) || scene.lines?.some((line) => line.text?.trim()))} className="w-full py-2.5 rounded-lg border border-slate-700 bg-slate-900 hover:bg-slate-800 disabled:opacity-40 text-slate-200 text-xs font-semibold flex items-center justify-center gap-2">
           <FileText className="w-4 h-4" />Download subtitles (.SRT)
         </button>
-        <p className="text-[10px] text-slate-500">Subtitle timing is estimated from the approved dialogue and scene lengths. This downloads a separate subtitle file; it does not burn captions into the MP4.</p>
+        <p className="text-[10px] text-slate-500">Uses real speech timestamps when available, otherwise estimates timing from the screenplay. Downloads a separate subtitle file; captions are not burned into the MP4.</p>
         {join.msg && (
           <p role={join.state === 'error' ? 'alert' : 'status'} className={`text-[11px] flex items-start gap-1.5 ${join.state === 'error' ? 'text-rose-300' : 'text-slate-400'}`}>
             {join.state === 'error' && <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />}{join.msg}
