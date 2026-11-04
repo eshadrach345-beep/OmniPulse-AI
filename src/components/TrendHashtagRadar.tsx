@@ -66,6 +66,7 @@ export const TrendHashtagRadar: React.FC<TrendHashtagRadarProps> = ({
   const [copiedTag, setCopiedTag] = useState<string | null>(null);
   const [copiedBatch, setCopiedBatch] = useState(false);
   const [activeTab, setActiveTab] = useState<'topics' | 'creators' | 'hashtags' | 'competitors' | 'best-practices'>('topics');
+  const [showAllCreators, setShowAllCreators] = useState(false);
 
   // Handle custom niche search or refresh analysis
   const handleRunAnalysis = async (e?: React.FormEvent) => {
@@ -94,6 +95,7 @@ export const TrendHashtagRadar: React.FC<TrendHashtagRadarProps> = ({
       };
 
       onSelectNiche(updatedNiche);
+      setShowAllCreators(false);
     } catch (err) {
       console.error('Error analyzing niche trends:', err);
       setAnalysisError(err instanceof Error ? err.message : 'Research failed. Please try again.');
@@ -141,7 +143,7 @@ export const TrendHashtagRadar: React.FC<TrendHashtagRadarProps> = ({
               <span className="text-xs text-emerald-400 font-mono">Live Algorithmic Feed</span>
             </div>
             <p className="text-xs text-slate-400 max-w-2xl">
-              Monitors real-time trends, high-velocity hooks, categorized hashtags, and competitor growth rates to outrank rivals in the {activeNiche.name} niche.
+              Researches live niche trends, creators and recent high-performing public videos across YouTube, TikTok, Instagram and the wider web. Metrics are labelled by source; private impressions are never guessed.
             </p>
           </div>
 
@@ -274,39 +276,79 @@ export const TrendHashtagRadar: React.FC<TrendHashtagRadarProps> = ({
         </div>
       )}
 
-      {/* Tab: Trending creators to learn from */}
+      {/* Tab: Trending creators and evidence-backed video inspiration */}
       {activeTab === 'creators' && (
         <div className="space-y-4">
+          <div className="rounded-xl border border-indigo-500/20 bg-indigo-500/5 p-3 text-xs text-slate-300">
+            <p className="font-semibold text-indigo-200">Creator discovery · ranked by available public evidence</p>
+            <p className="mt-1 text-slate-400">YouTube view counts are public views, not impressions. TikTok and Instagram metrics appear only when a source makes them public. Use the examples to study structure and adapt the approach in your own voice.</p>
+          </div>
           {(activeNiche.trendingCreators?.length || 0) === 0 ? (
             <div className="bg-slate-900/60 border border-dashed border-slate-700 rounded-xl p-6 text-center text-sm text-slate-300">
-              {isAnalyzing ? 'Finding who is trending in this niche...' : 'Run the research to see who is trending in this niche.'}
+              {isAnalyzing ? 'Finding creators and their recent high-performing videos...' : 'Run live research to discover creators in this niche.'}
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {activeNiche.trendingCreators!.map((c, i) => (
-                <div key={`${c.handle}-${i}`} className="bg-slate-900/70 border border-slate-800 rounded-xl p-4 sm:p-5 space-y-3">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <h3 className="text-sm font-bold text-white truncate">{c.name}</h3>
-                      <p className="text-xs text-indigo-300 font-mono truncate">{c.handle} · {c.platform}</p>
+            <>
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-xs text-slate-400">Showing {Math.min(showAllCreators ? 50 : 10, activeNiche.trendingCreators!.length)} of {activeNiche.trendingCreators!.length} researched creators</p>
+                {activeNiche.trendingCreators!.length > 10 && (
+                  <button onClick={() => setShowAllCreators(v => !v)} className="text-xs font-semibold text-indigo-300 hover:text-white">
+                    {showAllCreators ? 'Show top 10' : 'Show all up to 50'}
+                  </button>
+                )}
+              </div>
+              <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                {activeNiche.trendingCreators!.slice(0, showAllCreators ? 50 : 10).map((c, i) => (
+                  <article key={c.url || c.handle || c.name + i} className="bg-slate-900/75 border border-slate-800 rounded-xl p-4 sm:p-5 space-y-3 hover:border-indigo-500/40 transition-colors">
+                    <div className="flex items-start gap-3">
+                      {c.avatarUrl ? <img src={c.avatarUrl} alt="" loading="lazy" className="w-12 h-12 rounded-full object-cover border border-slate-700 bg-slate-950" /> : (
+                        <div className="w-12 h-12 rounded-full bg-indigo-950 border border-indigo-800 flex items-center justify-center text-sm font-bold text-indigo-200">{(c.name || '?').slice(0,1).toUpperCase()}</div>
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center flex-wrap gap-2">
+                          <span className="text-[10px] font-mono rounded bg-slate-800 px-2 py-0.5 text-amber-200">#{c.rank || i + 1}</span>
+                          <h3 className="text-sm font-bold text-white">{c.name}</h3>
+                        </div>
+                        <p className="text-xs text-indigo-300 font-mono truncate mt-0.5">{c.handle} · {c.platform}</p>
+                        {c.url && <a href={c.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-[11px] text-indigo-300 hover:text-white mt-1"><ExternalLink className="w-3 h-3" /> Open creator profile</a>}
+                      </div>
                     </div>
-                    {c.url && (
-                      <a href={c.url} target="_blank" rel="noopener noreferrer" className="shrink-0 inline-flex items-center gap-1 text-[11px] text-indigo-300 hover:text-indigo-200">
-                        <ExternalLink className="w-3.5 h-3.5" /> View
-                      </a>
+                    {c.rankingBasis && <p className="text-[11px] text-emerald-200 bg-emerald-500/5 border border-emerald-500/15 rounded-lg p-2">{c.rankingBasis}</p>}
+                    <p className="text-xs text-amber-200/90"><span className="font-semibold">Why featured:</span> {c.whyTrending}</p>
+                    <div className="rounded-lg bg-slate-950/60 border border-slate-800 p-3 space-y-1">
+                      <p className="text-[10px] uppercase tracking-wide text-slate-500 font-bold">Content pattern to study</p>
+                      <p className="text-xs text-slate-300">{c.contentStyle}</p>
+                      <p className="text-xs text-slate-300 pt-1"><span className="text-slate-500 font-semibold">Adapt this idea:</span> {c.takeaway}</p>
+                      {c.exampleHook && <p className="text-xs text-indigo-100 italic pt-1">“{c.exampleHook}”</p>}
+                    </div>
+                    {!!c.recentVideos?.length && (
+                      <div className="space-y-2">
+                        <p className="text-[10px] uppercase tracking-wide text-slate-500 font-bold">Recent video examples</p>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          {c.recentVideos.slice(0, 3).map((v, vi) => (
+                            <a key={v.url + vi} href={v.url} target="_blank" rel="noopener noreferrer" className="group overflow-hidden rounded-lg border border-slate-800 bg-slate-950 hover:border-indigo-500/60">
+                              {v.thumbnailUrl ? <img src={v.thumbnailUrl} alt={v.title} loading="lazy" className="w-full aspect-video object-cover bg-black" /> : <div className="w-full aspect-video flex items-center justify-center bg-slate-900 text-slate-500"><Video className="w-7 h-7" /></div>}
+                              <div className="p-2">
+                                <p className="text-[11px] text-slate-200 font-semibold leading-snug line-clamp-2 group-hover:text-indigo-200">{v.title}</p>
+                                <div className="flex flex-wrap items-center justify-between gap-1 mt-1 text-[10px] text-slate-500">
+                                  <span>{v.publishedAt || v.platform}</span>
+                                  <span>{v.views != null ? v.views.toLocaleString() + ' ' + (v.metricLabel || 'public views') : (v.metricLabel || 'Metric unavailable')}</span>
+                                </div>
+                                <span className="inline-flex items-center gap-1 mt-1 text-[10px] text-indigo-300">Watch video <ExternalLink className="w-3 h-3" /></span>
+                              </div>
+                            </a>
+                          ))}
+                        </div>
+                      </div>
                     )}
-                  </div>
-                  <p className="text-xs text-amber-200/90"><span className="font-semibold">Why trending:</span> {c.whyTrending}</p>
-                  <p className="text-xs text-slate-400 bg-slate-950/50 p-2 rounded-lg border border-slate-850"><span className="text-slate-500 font-semibold block mb-0.5">What's working for them:</span>{c.contentStyle}</p>
-                  <p className="text-xs text-slate-300"><span className="text-slate-500 font-semibold">Idea to borrow:</span> {c.takeaway}</p>
-                  {c.exampleHook && <p className="text-xs text-slate-300 italic bg-slate-950/80 p-2 rounded border border-slate-850">"{c.exampleHook}"</p>}
-                  <div className="flex gap-2 pt-1">
-                    <button onClick={() => onSendOutrankToVideoStudio(c.exampleHook || c.takeaway)} className="flex-1 flex items-center justify-center gap-1.5 px-2.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-semibold"><Video className="w-3.5 h-3.5" /> Make a video from this</button>
-                    <button onClick={() => navigator.clipboard.writeText(c.exampleHook || c.takeaway)} className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-lg text-xs font-medium"><Copy className="w-3.5 h-3.5" /></button>
-                  </div>
-                </div>
-              ))}
-            </div>
+                    <div className="flex gap-2 pt-1">
+                      <button onClick={() => onSendOutrankToVideoStudio(c.exampleHook || c.takeaway)} className="flex-1 flex items-center justify-center gap-1.5 px-2.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-semibold"><Video className="w-3.5 h-3.5" /> Create an original video</button>
+                      <button onClick={() => navigator.clipboard.writeText(c.exampleHook || c.takeaway)} className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-lg text-xs font-medium" aria-label="Copy creator inspiration"><Copy className="w-3.5 h-3.5" /></button>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            </>
           )}
         </div>
       )}
