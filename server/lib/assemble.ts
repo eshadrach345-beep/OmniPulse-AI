@@ -41,7 +41,7 @@ export function assembleParts(o: AssembleInput) {
     narrated: 'Cinematic film footage of the story with natural movement: nobody speaks on camera and no lips move.',
     shortdrama: 'Cinematic vertical short-drama scene with emotionally intense, believable acting: people confront each other in the place, with tight reaction close-ups, strong body language and movement, never looking into the camera.',
   } as const;
-  const fixed = `${openers[presentation]} Camera: ${cameraMotion}. Mood and grade: ${mood.render}.${genreLook ? ` Genre look: ${genreLook}.` : ''}${energy ? ` Energy: ${energy}.` : ''} Visual look: ${look}. ${aspectHint} No text, captions or subtitles in the picture.`;
+  const fixed = `${openers[presentation]} Camera: ${cameraMotion}. Mood and grade: ${mood.render}.${genreLook ? ` Genre look: ${genreLook}.` : ''}${energy ? ` Energy: ${energy}.` : ''} Visual look: ${look}. ${aspectHint} One coherent live-action take, believable human anatomy and real-world physics. Preserve the action axis and screen direction. No montage, jump cuts, reverse motion, teleporting, duplicated people or reset actions. No generated text, letters, captions, subtitles, logos or watermarks in the picture; subtitles are added separately from the approved script.`;
   const parts = [];
   for (let h = 1; h <= halves; h++) {
     const mine = lines.filter((l) => l.half === h);
@@ -52,7 +52,7 @@ export function assembleParts(o: AssembleInput) {
       narrated: mine.length ? `Audio: a calm off-screen narrator reads the line below as a voice-over, over natural ambient sound. No music. Nobody on screen speaks. ${spokenFor(mine)}` : 'Audio: natural ambient sound, no music, no speech.',
     } as const;
     const tail = `${tails[presentation]}${soundText && h === 1 ? ` Sounds in this scene: ${soundText}.` : ''}`;
-    const lead = h === 1 ? '' : `Continuing seamlessly from the previous moment, with no cut, in the same place and with the same characters: ${(second || 'the action carries on naturally and the moment develops').replace(/[.\s]+$/, '')}. `;
+    const lead = h === 1 ? '' : `IMAGE-TO-VIDEO CONTINUATION: the opening frame is the exact final frame of the previous clip. Continue one beat forward from that precise body position, pose, prop placement, camera angle, lens, lighting and background. Preserve each person's identity, facing and screen direction; never reverse direction, teleport, reset the action, change clothes or move an object to another hand. No cut and no new location. Next physical beat: ${(second || 'the action carries on naturally from the last frame').replace(/[.\s]+$/, '')}. `;
     // The second half starts from the first half's last picture, so it only describes the next beat. Repeating the opening description makes the video jump back.
     const visual = h === 1 ? cut(visualBase, Math.max(200, RENDER_PROMPT_MAX - fixed.length - tail.length - lead.length - 4)) : 'The same people, place and light as in the picture it starts from.';
     parts.push({ seconds: PART_SECONDS, kind: h === 1 ? 'text' : 'continue', prompt: `${lead}${visual} ${fixed} ${tail}`.slice(0, RENDER_PROMPT_MAX), lines: mine.map((l) => ({ speaker: l.speaker, text: l.text })) });
