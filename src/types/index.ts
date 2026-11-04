@@ -177,7 +177,7 @@ export interface VideoCharacter {
   voiceId?: string;
 }
 
-export interface SceneLine { speaker: string; text: string }
+export interface SceneLine { speaker: string; text: string; half?: 1 | 2; emotion?: string; doing?: string }
 
 export interface VideoScene {
   id: string;
