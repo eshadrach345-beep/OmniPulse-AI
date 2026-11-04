@@ -12,6 +12,7 @@ const captionPhrases = (text: string) => { const words = text.trim().split(/\s+/
  */
 export const StoryPlayer: React.FC<{ video: GeneratedVideo }> = ({ video }) => {
   const scenes = video.scenes;
+  const sceneSignature = scenes.map((scene) => scene.id).join('|');
   const characters = video.characters || [];
   const [idx, setIdx] = useState(0);
   const [front, setFront] = useState<0 | 1>(0);
@@ -34,7 +35,7 @@ export const StoryPlayer: React.FC<{ video: GeneratedVideo }> = ({ video }) => {
     load(refs[0].current, scenes[0]?.clipUrl);
     load(refs[1].current, scenes[1]?.clipUrl);
     return () => { run.current++; refs.forEach((r) => r.current?.pause()); };
-  }, [video.id]);
+  }, [video.id, sceneSignature]);
 
   useEffect(() => { mutedRef.current = muted; refs.forEach((r, i) => { if (r.current && i === front) r.current.muted = muted; }); }, [muted, front]);
 
