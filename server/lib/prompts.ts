@@ -19,7 +19,7 @@ export function trendsFormatPrompt(niche: string, notes: string): string {
 
 RESEARCH NOTES:
 """
-${notes.slice(0, 18000)}
+${notes.slice(0, 28000)}
 """
 
 Rules:
