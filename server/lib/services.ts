@@ -767,22 +767,17 @@ export async function falTts(text: string, voiceId: string, gender?: string): Pr
 }
 
 
-/** Starts an image-conditioned brand-ad clip. The image may be a short-lived data URI or a public HTTPS URL. */
-export async function falImageVideoSubmit(imageUrl: string, prompt: string, seconds: 5 | 10, aspect: '9:16' | '16:9' | '1:1', resolution: '480P' | '768P' | '1080P' = '480P') {
-  const model = 'fal-ai/wan/v2.2-a14b/image-to-video';
+/** Starts an image-conditioned brand-ad clip on H3 Max Turbo. Optional TTS audio is pinned as the exact ad voice-over. */
+export async function falImageVideoSubmit(imageUrl: string, prompt: string, seconds: 5 | 10, aspect: '9:16' | '16:9' | '1:1', resolution: '480P' | '768P' | '1080P' = '480P', targetAudioUrl?: string) {
+  const model = 'minimax/h3-max-turbo/image-to-video';
   const body = {
     image_url: imageUrl,
     prompt,
-    num_frames: seconds === 10 ? 161 : 81,
-    frames_per_second: 16,
-    resolution: resolution === '1080P' ? '720p' : resolution === '768P' ? '580p' : '480p',
+    duration: seconds,
+    resolution,
     aspect_ratio: aspect,
-    enable_safety_checker: true,
-    enable_output_safety_checker: true,
-    enable_prompt_expansion: true,
-    acceleration: 'regular',
-    video_quality: 'high',
-    video_write_mode: 'balanced',
+    prompt_expansion_mode: process.env.FAL_PROMPT_EXPANSION || 'balanced',
+    ...(targetAudioUrl ? { target_audio_url: targetAudioUrl } : {}),
   };
   let r: Response;
   try {
