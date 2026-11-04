@@ -199,6 +199,8 @@ export interface VideoScene {
   visualCue: string;
   narration: string;
   onScreenText: string;
+  /** Editor-controlled placement for the on-screen title overlay. */
+  overlayPosition?: 'top' | 'center' | 'bottom';
   soundEffectCue: string;
   motionStyle: 'Dynamic Zoom' | 'Hand Sketch Draw' | 'Kinetic Kinetic Typography' | 'Isometric Pan';
   bgGradient: string;
