@@ -68,22 +68,6 @@ type CaptionCue = { start: number; end: number; text: string };
 /** Captions come only from approved spoken dialogue, split into natural reading phrases. Never add speaker labels or invented copy. */
 function episodeCaptionTracks(scenes: Episode['scenes']): CaptionCue[][] {
   const tracks: CaptionCue[][] = [];
-  const phrases = (text: string) => {
-    const tokens = text.trim().split(/\\s+/).filter(Boolean);
-    const out: string[] = [];
-    let at = 0;
-    while (at < tokens.length) {
-      let stop = Math.min(tokens.length, at + 6);
-      if (stop < tokens.length) {
-        for (let j = stop; j >= at + 3; j--) {
-          if (/[,.!?;:]$/.test(tokens[j - 1])) { stop = j; break; }
-        }
-      }
-      out.push(tokens.slice(at, stop).join(' '));
-      at = stop;
-    }
-    return out;
-  };
   for (const scene of scenes) {
     const halves = Math.max(1, Math.ceil(scene.clipSeconds / 10));
     for (let half = 1; half <= halves; half++) {
@@ -91,12 +75,14 @@ function episodeCaptionTracks(scenes: Episode['scenes']): CaptionCue[][] {
       let cursor = 0.25;
       const cues: CaptionCue[] = [];
       for (const line of lines) {
-        for (const phrase of phrases(line.text)) {
-          const count = phrase.trim().split(/\\s+/).filter(Boolean).length;
-          const start = Math.min(cursor, 9.25);
-          const end = Math.min(9.7, start + Math.max(1.0, count / 2.55 + 0.3));
-          if (end <= start) continue;
-          cues.push({ start, end, text: phrase });
+        const words = line.text.trim().split(/\\s+/).filter(Boolean);
+        for (let i = 0; i < words.length; i += 5) {
+          if (cursor >= 9.65) break;
+          const phrase = words.slice(i, i + 5).join(' ');
+          const count = phrase.split(/\\s+/).filter(Boolean).length;
+          const duration = Math.max(0.85, Math.min(2.35, count / 2.65 + 0.28));
+          const end = Math.min(9.85, cursor + duration);
+          cues.push({ start: cursor, end, text: phrase });
           cursor = end + 0.12;
         }
       }
