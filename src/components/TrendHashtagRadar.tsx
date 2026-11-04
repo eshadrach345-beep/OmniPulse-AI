@@ -11,6 +11,12 @@ import {
   SocialAccount
 } from '../types';
 import { analyzeNicheTrends } from '../services/aiService';
+
+/** YouTube exposes a stable public thumbnail URL for videos with a verified video ID. */
+const youtubeThumbnail = (url: string) => {
+  const match = url.match(/(?:youtube\\.com\\/(?:watch\\?.*v=|shorts\\/|embed\\/)|youtu\\.be\\/)([A-Za-z0-9_-]{11})/i);
+  return match ? `https://img.youtube.com/vi/${match[1]}/hqdefault.jpg` : undefined;
+};
 import { 
   TrendingUp, 
   Hash, 
@@ -350,7 +356,7 @@ export const TrendHashtagRadar: React.FC<TrendHashtagRadarProps> = ({
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                           {c.recentVideos.slice(0, 3).map((v, vi) => (
                             <a key={v.url + vi} href={v.url} target="_blank" rel="noopener noreferrer" className="group overflow-hidden rounded-lg border border-slate-800 bg-slate-950 hover:border-indigo-500/60">
-                              {v.thumbnailUrl ? <img src={v.thumbnailUrl} alt={v.title} loading="lazy" className="w-full aspect-video object-cover bg-black" /> : <div className="w-full aspect-video flex items-center justify-center bg-slate-900 text-slate-500"><Video className="w-7 h-7" /></div>}
+                              {(v.thumbnailUrl || youtubeThumbnail(v.url)) ? <img src={v.thumbnailUrl || youtubeThumbnail(v.url)} alt={v.title} loading="lazy" className="w-full aspect-video object-cover bg-black" /> : <div className="w-full aspect-video flex items-center justify-center bg-slate-900 text-slate-500"><Video className="w-7 h-7" /></div>}
                               <div className="p-2">
                                 <p className="text-[11px] text-slate-200 font-semibold leading-snug line-clamp-2 group-hover:text-indigo-200">{v.title}</p>
                                 <div className="flex flex-wrap items-center justify-between gap-1 mt-1 text-[10px] text-slate-500">
