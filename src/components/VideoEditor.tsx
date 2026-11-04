@@ -95,7 +95,7 @@ export const VideoEditor: React.FC<Props> = ({ video, onSave }) => {
           <div className="flex gap-2 overflow-x-auto pb-2">
             {scenes.map((scene, index) => <button type="button" key={scene.id} onClick={() => setSelected(index)} className={`min-w-[126px] max-w-[160px] flex-1 rounded-xl border p-2 text-left ${selected === index ? 'border-indigo-400 bg-indigo-950/60 ring-1 ring-indigo-400/40' : 'border-slate-800 bg-slate-900 hover:border-slate-600'}`}>
               <div className="flex justify-between gap-1"><span className="text-[10px] font-bold text-indigo-300">CLIP {index + 1}</span><span className="text-[10px] text-slate-500">{scene.duration}s</span></div>
-              <div className="mt-2 h-12 rounded-md bg-gradient-to-br from-slate-700 to-slate-950 border border-white/5 flex items-center justify-center"><Film className="w-5 h-5 text-slate-500" /></div>
+              <div className="mt-2 h-12 rounded-md bg-gradient-to-br from-slate-700 to-slate-950 border border-white/5 overflow-hidden flex items-center justify-center">{scene.clipUrl ? <video src={scene.clipUrl} muted playsInline preload="metadata" className="h-full w-full object-cover" aria-label={`Preview of clip ${index + 1}`} /> : <Film className="w-5 h-5 text-slate-500" />}</div>
               <p className="mt-2 text-[11px] text-slate-200 line-clamp-2">{scene.beat || scene.visualCue || 'Untitled scene'}</p>
               <div className="mt-2 h-1.5 rounded-full bg-slate-800 overflow-hidden"><div className="h-full rounded-full bg-indigo-500" style={{ width: `${Math.max(8, Math.min(100, (Number(scene.duration) || 1) * 5))}%` }} /></div>
             </button>)}
@@ -109,6 +109,7 @@ export const VideoEditor: React.FC<Props> = ({ video, onSave }) => {
         </div>
         <div className="rounded-xl border border-slate-800 bg-slate-900 p-4 space-y-3">
           <div className="flex items-center gap-2"><Layers3 className="w-4 h-4 text-fuchsia-300" /><h3 className="text-sm font-semibold text-white">Clip & overlay inspector</h3></div>
+          {current?.clipUrl && <div className="overflow-hidden rounded-lg border border-slate-700 bg-black"><video src={current.clipUrl} controls playsInline preload="metadata" className="max-h-56 w-full object-contain" aria-label="Selected scene preview" /></div>}
           {current && <>
             <label className="block space-y-1"><span className="text-[11px] font-medium text-slate-400">Scene name / beat</span><input value={current.beat || ''} onChange={(e) => patchCurrent({ beat: e.target.value })} placeholder="Opening, reveal, climax..." className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-white outline-none focus:border-indigo-400" /></label>
             <label className="block space-y-1"><span className="text-[11px] font-medium text-slate-400">Text overlay</span><textarea value={current.onScreenText || ''} onChange={(e) => patchCurrent({ onScreenText: e.target.value })} rows={3} maxLength={180} placeholder="Add a title, lower-third or callout..." className="w-full resize-y rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-white outline-none focus:border-indigo-400" /></label>
