@@ -1,7 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { GeneratedVideo, VideoScene } from '../types';
-import { ArrowDown, ArrowUp, Clapperboard, Copy, Film, Layers3, Scissors, Undo2, Redo2, Plus, Trash2 } from 'lucide-react';
+import { api } from '../services/api';
+import { ArrowDown, ArrowUp, Clapperboard, Copy, Film, Layers3, Scissors, Undo2, Redo2, Plus, Trash2, Sparkles, Wand2, Loader2, Check } from 'lucide-react';
 
+interface DirectorEdit { scene: number; reason: string; visualDirection: string; overlayText: string; soundEffect: string; transition: string }
+interface DirectorPlan { summary: string; edits: DirectorEdit[] }
 interface Props { video: GeneratedVideo; onSave: (video: GeneratedVideo) => void }
 
 /** Non-destructive scene timeline: the source render jobs remain intact while the edit list controls the final join order. */
@@ -11,6 +14,10 @@ export const VideoEditor: React.FC<Props> = ({ video, onSave }) => {
   const [undoStack, setUndoStack] = useState<VideoScene[][]>([]);
   const [redoStack, setRedoStack] = useState<VideoScene[][]>([]);
   const [saved, setSaved] = useState(false);
+  const [directorInstruction, setDirectorInstruction] = useState('');
+  const [directorPlan, setDirectorPlan] = useState<DirectorPlan | null>(null);
+  const [directorBusy, setDirectorBusy] = useState(false);
+  const [directorError, setDirectorError] = useState('');
 
   useEffect(() => { setScenes(video.scenes || []); setSelected(0); setUndoStack([]); setRedoStack([]); }, [video.id]);
   const totalSeconds = useMemo(() => scenes.reduce((sum, scene) => sum + Math.max(0, Number(scene.duration) || 0), 0), [scenes]);
@@ -24,6 +31,23 @@ export const VideoEditor: React.FC<Props> = ({ video, onSave }) => {
     setScenes(ordered);
     onSave({ ...video, scenes: ordered, estimatedDuration: Math.round(ordered.reduce((sum, scene) => sum + (Number(scene.duration) || 0), 0)) });
     setSaved(true);
+  };
+  const requestDirectorPlan = async () => {
+    setDirectorBusy(true); setDirectorError(''); setDirectorPlan(null);
+    try {
+      const result = await api.post<DirectorPlan>('/video/director/plan', { instruction: directorInstruction, scenes: scenes.map(({ beat, visualCue, narration, lines, duration, onScreenText, soundEffectCue }) => ({ beat, visualCue, narration, lines, duration, onScreenText, soundEffectCue })) });
+      setDirectorPlan(result);
+    } catch (error) { setDirectorError(error instanceof Error ? error.message : 'The AI Director could not prepare this edit.'); }
+    finally { setDirectorBusy(false); }
+  };
+  const applyDirectorPlan = () => {
+    if (!directorPlan) return;
+    const next = scenes.map((scene, index) => {
+      const edit = directorPlan.edits.find((item) => item.scene === index + 1);
+      if (!edit) return scene;
+      return { ...scene, visualCue: edit.visualDirection ? [scene.visualCue, edit.visualDirection].filter(Boolean).join('\\n• ') : scene.visualCue, onScreenText: edit.overlayText || scene.onScreenText, soundEffectCue: edit.soundEffect || scene.soundEffectCue, beat: scene.beat || edit.reason };
+    });
+    commit(next); setDirectorPlan(null); setDirectorInstruction('');
   };
   const patchCurrent = (patch: Partial<VideoScene>) => {
     if (current) commit(scenes.map((scene, index) => index === selected ? { ...scene, ...patch } : scene));
@@ -88,6 +112,13 @@ export const VideoEditor: React.FC<Props> = ({ video, onSave }) => {
           <span className="rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5"><Film className="inline w-3.5 h-3.5 mr-1 text-indigo-300" />{scenes.length} clips</span>
           <span className="rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 tabular-nums">{Math.floor(totalSeconds / 60)}:{String(Math.round(totalSeconds % 60)).padStart(2, '0')}</span>
         </div>
+      </div>
+      <div className="rounded-xl border border-fuchsia-500/25 bg-gradient-to-br from-fuchsia-950/35 to-slate-900 p-4 space-y-3">
+        <div className="flex items-center gap-2"><Sparkles className="h-4 w-4 text-fuchsia-300" /><div><h3 className="text-sm font-semibold text-white">AI Director · Edit by instruction</h3><p className="text-[11px] text-slate-400">Describe the feeling, effects or pacing you want. Review the scene-by-scene proposal before applying it.</p></div></div>
+        <textarea value={directorInstruction} onChange={(event) => setDirectorInstruction(event.target.value)} rows={2} maxLength={2400} placeholder="Example: Make the opening punchier, add a dramatic thunder cue at the reveal, and use a clean lower-third when the speaker introduces the topic..." className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-xs text-white outline-none focus:border-fuchsia-400" />
+        <div className="flex flex-wrap items-center gap-2"><button type="button" onClick={() => void requestDirectorPlan()} disabled={directorBusy || directorInstruction.trim().length < 8} className="inline-flex items-center gap-2 rounded-lg bg-fuchsia-700 px-3 py-2 text-xs font-semibold text-white hover:bg-fuchsia-600 disabled:opacity-40">{directorBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />}{directorBusy ? 'Planning edits…' : 'Create edit plan'}</button><span className="text-[10px] text-slate-500">AI suggestions are proposals, not rendered effects or sourced footage.</span></div>
+        {directorError && <p role="alert" className="text-xs text-rose-300">{directorError}</p>}
+        {directorPlan && <div className="space-y-3 rounded-lg border border-fuchsia-500/20 bg-slate-950/70 p-3"><p className="text-xs text-slate-200">{directorPlan.summary}</p>{directorPlan.edits.map((edit, index) => <div key={index} className="border-l-2 border-fuchsia-500/50 pl-3 space-y-1"><p className="text-[11px] font-semibold text-fuchsia-200">Scene {edit.scene} · {edit.reason}</p>{edit.visualDirection && <p className="text-[11px] text-slate-300">Visual: {edit.visualDirection}</p>}{edit.overlayText && <p className="text-[11px] text-slate-300">Overlay: {edit.overlayText}</p>}{edit.soundEffect && <p className="text-[11px] text-slate-300">Sound: {edit.soundEffect}</p>}{edit.transition && <p className="text-[11px] text-slate-400">Transition idea: {edit.transition}</p>}</div>)}<div className="flex flex-wrap gap-2"><button type="button" onClick={applyDirectorPlan} className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-700 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-600"><Check className="h-3.5 w-3.5" />Apply to timeline</button><button type="button" onClick={() => setDirectorPlan(null)} className="rounded-lg border border-slate-700 px-3 py-2 text-xs text-slate-300">Discard proposal</button></div></div>}
       </div>
       <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_300px] gap-4">
         <div className="space-y-3 min-w-0">
