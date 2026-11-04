@@ -395,8 +395,8 @@ export async function analyzeNicheTrends(nicheName: string, customQuery?: string
       name: String(c.name), handle: String(c.handle || ''), platform: String(c.platform || ''), url: c.url ? String(c.url) : undefined,
       avatarUrl: c.avatarUrl ? String(c.avatarUrl) : undefined, rankingBasis: String(c.rankingBasis || ''),
       whyTrending: String(c.whyTrending || ''), contentStyle: String(c.contentStyle || ''), takeaway: String(c.takeaway || ''), exampleHook: c.exampleHook ? String(c.exampleHook) : undefined,
-      recentVideos: Array.isArray(c.recentVideos) ? c.recentVideos.filter((v: any) => v && v.url && /^https?:\\/\\//i.test(String(v.url))).slice(0, 3).map((v: any) => ({
-        title: String(v.title || 'Recent video'), url: String(v.url), thumbnailUrl: v.thumbnailUrl && /^https?:\\/\\//i.test(String(v.thumbnailUrl)) ? String(v.thumbnailUrl) : undefined,
+      recentVideos: Array.isArray(c.recentVideos) ? c.recentVideos.filter((v: any) => v && v.url && /^https?:\/\//i.test(String(v.url))).slice(0, 3).map((v: any) => ({
+        title: String(v.title || 'Recent video'), url: String(v.url), thumbnailUrl: v.thumbnailUrl && /^https?:\/\//i.test(String(v.thumbnailUrl)) ? String(v.thumbnailUrl) : undefined,
         platform: String(v.platform || c.platform || ''), publishedAt: String(v.publishedAt || ''),
         views: Number.isFinite(Number(v.views)) ? Number(v.views) : null, metricLabel: String(v.metricLabel || 'Not publicly available'),
       })) : [],
