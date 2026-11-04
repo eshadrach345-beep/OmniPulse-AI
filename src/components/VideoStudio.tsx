@@ -97,6 +97,8 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
   selectedVideoId,
   secondsLeft,
   initialCreateRequested,
+  initialAdMakerRequested,
+  onResetAdMakerRequest,
   prefillPrompt,
   onResetCreateRequested,
 }) => {
