@@ -45,7 +45,7 @@ export const VideoEditor: React.FC<Props> = ({ video, onSave }) => {
     const next = scenes.map((scene, index) => {
       const edit = directorPlan.edits.find((item) => item.scene === index + 1);
       if (!edit) return scene;
-      return { ...scene, visualCue: edit.visualDirection ? [scene.visualCue, edit.visualDirection].filter(Boolean).join('\\n• ') : scene.visualCue, onScreenText: edit.overlayText || scene.onScreenText, soundEffectCue: edit.soundEffect || scene.soundEffectCue, beat: scene.beat || edit.reason };
+      return { ...scene, visualCue: edit.visualDirection ? [scene.visualCue, edit.visualDirection].filter(Boolean).join('\n• ') : scene.visualCue, onScreenText: edit.overlayText || scene.onScreenText, soundEffectCue: edit.soundEffect || scene.soundEffectCue, beat: scene.beat || edit.reason };
     });
     commit(next); setDirectorPlan(null); setDirectorInstruction('');
   };
