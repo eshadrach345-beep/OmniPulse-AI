@@ -584,7 +584,7 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
             <div>
               <label className="block text-[11px] text-slate-400 mb-1" htmlFor="series-parts">{deliver === 'all' ? 'Number of parts' : 'Planned number of parts (you can add more later)'}</label>
               <select id="series-parts" value={parts} onChange={(e) => setParts(Number(e.target.value))} className={selectCls}>{[2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => <option key={n} value={n}>{n} parts</option>)}</select>
-              <p className="mt-1.5 text-[10px] leading-relaxed text-slate-500">Feature-film mode: up to 10 continuous parts. At the selected length, this project can run for approximately {formatSeconds(wholeSeries)} in total, with the same story world and cast carried forward.</p>
+              <p className="mt-1.5 text-[10px] leading-relaxed text-slate-500">Feature-film mode: up to 10 continuous parts. At the selected length, this project can run for approximately {formatSeconds(perPart * parts)} in total, with the same story world and cast carried forward.</p>
             </div>
           </fieldset>
         )}
