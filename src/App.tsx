@@ -280,9 +280,14 @@ function Workspace({ user: currentUser, initialDashboard, onLogout, onUserChange
 
   // Video studio handlers
   const handleSaveNewVideo = (video: GeneratedVideo) => {
-    setVideos(prev => [video, ...prev]);
+    // Editing an existing project must update its library entry, not create a duplicate
+    // every time the editor autosaves a field change.
+    const alreadyExists = videos.some((item) => item.id === video.id);
+    setVideos((prev) => alreadyExists
+      ? prev.map((item) => item.id === video.id ? video : item)
+      : [video, ...prev]);
     setSelectedVideoId(video.id);
-    showToast(`AI Video "${video.title}" generated successfully!`);
+    if (!alreadyExists) showToast(`AI Video "${video.title}" generated successfully!`);
   };
 
   const handlePublishVideoDirect = async (video: GeneratedVideo, caption: string, platforms: PlatformId[]) => {
