@@ -69,7 +69,7 @@ Return ONLY valid JSON in exactly this shape:
 
 export function scriptPrompt(a: {
   idea: string; niche: string; videoType: string; aspectRatio: string;
-  targetPlatforms: string[] | string; directorStyle: string; hookFormula: string; voiceName: string; seconds?: number;
+  targetPlatforms: string[] | string; directorStyle: string; hookFormula: string; voiceName: string; seconds?: number; variationSeed?: string;
 }): string {
   const { idea, niche, videoType, aspectRatio, targetPlatforms, directorStyle, hookFormula, voiceName } = a;
   const seconds = a.seconds === 10 ? 10 : 5;
@@ -86,7 +86,7 @@ Hook formula: ${hookFormula}
 Voice persona: ${voiceName}
 
 Rules:
-- Everything must be about the idea above. Do not mention OmniPulse or any product the user did not mention.
+- Everything must be about the idea above. Do not mention OmniPulse or any product the user did not mention. Make this script meaningfully distinct from other scripts generated with the same format: vary the opening, setting, example, sequence, visual motif and payoff. Avoid stock hooks and repeated phrasing.
 - Do not invent statistics, testimonials or claims. Keep it truthful.
 ${seconds <= 5 ? '- The whole video is 5 seconds long: write exactly 2 scenes of about 2 to 3 seconds each. Scene 1 is the hook, scene 2 the payoff. Total narration must be under 12 words.' : '- The whole video is 10 seconds long: write 3 or 4 scenes of about 2 to 4 seconds each, adding up to about 10 seconds, with a strong hook first and a clear call to action last. Total narration must be under 25 words.'}
 - Narration is natural spoken language, short enough to be spoken within each scene.
