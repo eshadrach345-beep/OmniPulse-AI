@@ -194,7 +194,11 @@ export const StoryPlayer: React.FC<{ video: GeneratedVideo }> = ({ video }) => {
         )}
         {scenes[idx]?.onScreenText && (
           <div className={`pointer-events-none absolute left-1/2 z-10 w-[88%] -translate-x-1/2 text-center ${scenes[idx].overlayPosition === 'top' ? 'top-8' : scenes[idx].overlayPosition === 'bottom' ? 'bottom-16' : 'top-1/2 -translate-y-1/2'}`}>
-            <span className="inline-block rounded-lg border border-white/20 bg-black/65 px-4 py-2 text-base font-extrabold tracking-wide text-white shadow-2xl">{scenes[idx].onScreenText}</span>
+            <span className={scenes[idx].overlayStyle === 'minimal'
+              ? 'inline-block bg-transparent px-2 py-1 text-base font-bold tracking-wide text-white [text-shadow:0_2px_8px_rgba(0,0,0,0.95)]'
+              : scenes[idx].overlayStyle === 'lower_third'
+                ? 'inline-block max-w-full border-l-4 border-indigo-400 bg-slate-950/85 px-4 py-2 text-left text-sm font-semibold text-white shadow-2xl'
+                : 'inline-block rounded-lg border border-white/20 bg-black/65 px-4 py-2 text-base font-extrabold tracking-wide text-white shadow-2xl'}>{scenes[idx].onScreenText}</span>
           </div>
         )}
       </div>
