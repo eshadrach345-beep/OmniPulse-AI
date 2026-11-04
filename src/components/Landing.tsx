@@ -29,6 +29,10 @@ const STEPS = [
 ];
 
 const FAQ = [
+  ['Can I connect more than one social platform?', 'Yes. Connect the platforms available in your account from the Social Accounts area. Your plan and each platform\'s permissions determine which channels and publishing actions are available.'],
+  ['Can I publish a generated video directly?', 'After a video is ready, choose the connected channels you want to publish to or add it to your schedule. Review the video, caption and platform requirements before confirming.'],
+  ['Are video views the same as impressions?', 'No. Views and impressions are different measurements. OmniPulse labels metrics according to the source and does not present public view counts as private impression data.'],
+  ['Do I need to review AI-generated content?', 'Yes. AI scripts, subtitles, captions and media can contain mistakes. Review and edit everything before publishing. You are responsible for the content you share.'],
   ['How do I connect my accounts?', 'Click Connect next to a network, sign in on that network\'s own page and approve access. OmniPulse never sees your password. You can disconnect at any time.'],
   ['What quality are the videos?', 'Quality depends on your plan: Standard (480p), HD (768p) or Full HD (1080p, AI-enhanced). Productions are made scene by scene, and you can download the finished video as one MP4.'],
   ['Is there a free trial?', 'You can try OmniPulse for 7 days for a small one-time card check. It includes trend research, the scheduler and a short AI video. A card is required so each person gets one trial, and it never renews by itself.'],
@@ -86,7 +90,7 @@ export const Landing: React.FC<{ onGetStarted: (mode: 'signup' | 'signin') => vo
           <button onClick={() => onGetStarted('signup')} className="bg-indigo-600 hover:bg-indigo-500 text-white font-semibold rounded-xl px-6 py-3.5 transition-colors">Create your account</button>
           <a href="#pricing" className="border border-slate-600 hover:border-slate-400 text-slate-100 rounded-xl px-6 py-3.5 transition-colors">See plans and prices</a>
         </div>
-        <p className="mt-4 text-sm text-slate-400">7-day trial available. A card is required, and it never renews by itself.</p>
+        <p className="mt-4 text-sm text-slate-400">7-day trial available. A card is required, and it never renews by itself.</p>\n        <div className="mt-7 flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-slate-400"><span className="inline-flex items-center gap-2"><Check className="w-3.5 h-3.5 text-emerald-400" /> One workspace for your content</span><span className="inline-flex items-center gap-2"><Check className="w-3.5 h-3.5 text-emerald-400" /> Connect channels you control</span><span className="inline-flex items-center gap-2"><Check className="w-3.5 h-3.5 text-emerald-400" /> Review before you publish</span></div>
         <div className="relative mt-14 sm:mt-20">
           <PulseLine />
         </div>
