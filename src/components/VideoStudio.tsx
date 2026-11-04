@@ -442,6 +442,10 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
 
   const activeVoiceProfile = StudioAudioService.getVoice(activeVideo.voiceId || selectedVoiceId);
   const currentScene = activeVideo.scenes[currentSceneIdx] || activeVideo.scenes[0];
+  // The subtitle layer must display only approved spoken words, never character labels or AI-added filler.
+  const subtitleText = currentScene?.lines?.length
+    ? currentScene.lines.map((line) => String(line.text || '').trim()).filter(Boolean).join(' ')
+    : String(currentScene?.voiceoverText || currentScene?.narration || '').replace(/(?:^|\\s)[A-Z][A-Za-z .'-]{0,24}:\\s/g, ' ').trim();
 
   return (
     <div className="space-y-6">
@@ -635,9 +639,9 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
 
                   {/* Bottom Spoken Subtitles & Voice Badge */}
                   <div className="space-y-1">
-                    <div className="bg-black/85 backdrop-blur-xs rounded-lg p-2 border border-white/10 text-[11px] text-slate-100 font-medium leading-snug shadow-lg">
-                      "{currentScene.narration}"
-                    </div>
+                    {subtitleText && <div aria-label="Subtitles from the approved script" className="bg-black/85 backdrop-blur-xs rounded-lg p-2 border border-white/10 text-[11px] text-slate-100 font-medium leading-snug shadow-lg">
+                      {subtitleText}
+                    </div>}
 
                     <div className="flex items-center justify-between text-[9px] text-slate-400 px-1">
                       <span className="flex items-center gap-1 text-indigo-300">
