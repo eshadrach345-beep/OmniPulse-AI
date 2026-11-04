@@ -1208,6 +1208,11 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
               <button onClick={() => setIsPublishOpen(false)} className="rounded-lg px-2 py-1 text-slate-400 hover:bg-slate-800 hover:text-white" aria-label="Close publish dialog">✕</button>
             </div>
 
+            {!accounts.some(a => a.configured && a.publishable !== false) && (
+              <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-3 text-xs leading-relaxed text-amber-100/90">
+                Social publishing is not fully enabled on this Vercel project yet. Add <span className="font-mono font-bold">POSTPEER_API_KEY</span> for unified channel connections, or configure the individual platform OAuth keys. Do not paste secret keys into this chat.
+              </div>
+            )}
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <label className="text-xs font-semibold text-slate-200">Your connected channels</label>
