@@ -49,7 +49,7 @@ export const trialPrice = () => Number(process.env.TRIAL_PRICE) > 0 ? Number(pro
 
 /** Extra video seconds customers can buy on top of their plan. Prices are in the billing currency. */
 export const TOPUPS = [
-  { id: 's30', seconds: 30, price: 7 },
-  { id: 's100', seconds: 100, price: 19 },
-  { id: 's250', seconds: 250, price: 39 },
+  { id: 's30', seconds: 30, price: 9 },
+  { id: 's100', seconds: 100, price: 29 },
+  { id: 's250', seconds: 250, price: 69 },
 ];
