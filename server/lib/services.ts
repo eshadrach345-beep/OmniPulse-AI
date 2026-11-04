@@ -595,7 +595,7 @@ export async function geminiSearch(researchPrompt: string): Promise<{ text: stri
 
 /** Step 2 of research: turn the findings into the app's JSON (fast, no search). */
 export async function geminiFormat(prompt: string): Promise<{ data: any; model: string }> {
-  const g = await llmGenerate(prompt, { json: true, timeoutMs: 30_000, deadlineMs: 40_000, preferBackup: true });
+  const g = await llmGenerate(prompt, { json: true, timeoutMs: 38_000, deadlineMs: 46_000, maxTokens: 12_000, preferBackup: true });
   try { return { data: extractJson(g.text), model: `${g.provider}:${g.model}` }; } catch { throw new HttpError(424, 'The research came back in an unexpected format. Please try again.', 'GEMINI'); }
 }
 
