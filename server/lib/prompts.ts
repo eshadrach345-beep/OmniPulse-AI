@@ -447,7 +447,10 @@ Rules:
 - Play it like a MOVIE: physical conflict, danger and escalation in every scene, varied shot types, no talking-head shots and no narrator over the pictures (documentary excepted).
 - "voiceoverText": the spoken words of the scene as one string (narration and dialogue, without speaker names). It must match "lines".
 - Scene 1 must hook the viewer immediately${a.continuity ? ' by continuing straight from the previous part\'s ending' : ''}. The last scene must resolve the story and may end with a short call to action.
-- Keep continuity: the same characters, wardrobe, places and time of day carry from scene to scene unless the story changes them.
+- Keep continuity: the same characters, wardrobe, places and time of day carry from scene to scene unless the story changes them. Repeat each character's visual description exactly, word for word.
+- Track body position, facing, screen direction, momentum, injuries, clothing, held objects and which hand holds each prop. A person moving screen-left must not suddenly move screen-right unless the turn is shown physically.
+- Every action must have a cause and visible result. Never teleport, reverse movement, reset a chase, change the hand holding an object or undo an action between adjacent shots.
+- Keep the camera on a consistent action axis. Use motivated shot changes and match-on-action; never add arbitrary montage cuts.
 - Everything must be about the idea above. Do not invent statistics or claims. Keep it safe: no real people, no sexual content, no graphic violence, no hate.
 - Write all dialogue in English.
 
@@ -562,9 +565,11 @@ const sceneJsonShape = `{ "sceneNumber": 1, "visualPrompt": "<what the camera se
 
 const sceneRules = (cam: { label: string }) => `SCENE RULES:
 - "visualPrompt": describe only what the camera sees, in 60 to 100 words. START with the shot type and the physical action in progress (for example: Low tracking shot behind a man sprinting through a market as crates explode behind him), then name who is in frame and REPEAT each visible character's full visual description word for word, then the physics (how fabric, hair, smoke, water, dust, debris and light move), the setting and lighting. The characters must be doing something physical with their whole body or with objects, never just standing and speaking to the camera. No dialogue, no subtitles, no captions, no logos, no readable text.
-- "secondHalfAction": for 20 second scenes, a bigger physical beat that follows straight on from the first half in the same place (the chase turns a corner, the door breaks, the floor gives way, the enemy appears, a crash), so the full 20 seconds escalates and is never repetition or just more talking.
+- "secondHalfAction": for 20 second scenes, a bigger physical beat that follows straight on from the first half in the same place (the chase turns a corner, the door breaks, the floor gives way, the enemy appears, a crash), so the full 20 seconds escalates and is never repetition or just more talking. State exactly where each character and important prop ends the first half, then continue from that physical state without reversing direction.
 - "cameraMotion": one sentence in film language applying the ${cam.label} profile to this shot.
 - "lines": 0 to 3 SHORT lines per scene (usually 3 to 8 words each), spoken in the middle of the action, from different characters whenever the scene allows. A scene with a single line, or an empty list, is fine when the action carries it. Every "speaker" must exactly match a character name. "half" is 1 or 2 (always 1 for 10 second scenes): the half of the scene in which the line is spoken. Respect each scene's word limits exactly; a line must be a complete thought that fits its half.
+- Preserve geography and screen direction across every scene. Keep the 180-degree action axis unless a visible camera move motivates crossing it. Running, driving, falling, throwing and reaching must continue in the same direction and with believable physics.
+- Avoid unnecessary cuts. Prefer one motivated continuous shot per 10-second clip; use a cut only when the story changes viewpoint or location.
 - Everything must follow from the idea. Do not invent statistics or claims. Safe: no real people, no sexual content, no graphic violence, no hate. Write all dialogue in English.`;
 
 interface WriterBase {
@@ -572,6 +577,8 @@ interface WriterBase {
   scenes: (10 | 20)[]; mood: StoryMoodKey; cameraProfile: CameraProfileKey; pacing: string;
   characterLock?: { name: string; descriptor: string };
   continuity?: SeriesContinuity;
+  /** Unique random seed for this production's original plot and character choices. */
+  variationSeed?: string;
   /** Ready style block from styleBlock(). */
   style?: string;
   /** When true the cast does not all have to speak (narrated stories and dialogue-free action). */
@@ -596,6 +603,7 @@ ${a.continuity ? `What happens next in Part ${a.continuity.partNumber}, from the
 Niche or audience: ${a.niche}
 Visual look: ${a.look}
 Frame: ${a.aspectRatio}
+PRODUCTION-SPECIFIC ORIGINALITY SEED: ${a.variationSeed || 'fresh-original-production'}. Treat this as a private creative randomizer, not story content. Use it to make distinct choices for the cast names, location, opening incident, central obstacle, key prop or visual motif, and dialogue rhythms. Do not reuse a generic template just because the genre and mood match another production.
 GLOBAL MOOD: ${mood.label}. ${mood.write}
 Every "visualPrompt" must show this mood through lighting, colour, weather, texture and physical detail. Visual treatment to build on: ${mood.render}.
 CAMERA PROFILE: ${cam.label}. Base instruction: ${cam.direct}.
