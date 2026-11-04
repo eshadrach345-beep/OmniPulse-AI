@@ -16,9 +16,11 @@ export const VideoEditor: React.FC<Props> = ({ video, onSave }) => {
   const current = scenes[selected];
 
   const commit = (next: VideoScene[]) => {
+    // Keep scene numbering aligned with the actual edited join order after every operation.
+    const ordered = next.map((scene, index) => ({ ...scene, sceneNumber: index + 1 }));
     setUndoStack((stack) => [...stack.slice(-19), scenes]);
-    setScenes(next);
-    onSave({ ...video, scenes: next, estimatedDuration: Math.round(next.reduce((sum, scene) => sum + (Number(scene.duration) || 0), 0)) });
+    setScenes(ordered);
+    onSave({ ...video, scenes: ordered, estimatedDuration: Math.round(ordered.reduce((sum, scene) => sum + (Number(scene.duration) || 0), 0)) });
     setSaved(true);
   };
   const patchCurrent = (patch: Partial<VideoScene>) => {
@@ -46,8 +48,10 @@ export const VideoEditor: React.FC<Props> = ({ video, onSave }) => {
   };
   const undo = () => {
     const previous = undoStack[undoStack.length - 1]; if (!previous) return;
-    setUndoStack((stack) => stack.slice(0, -1)); setScenes(previous);
-    onSave({ ...video, scenes: previous, estimatedDuration: Math.round(previous.reduce((sum, scene) => sum + (Number(scene.duration) || 0), 0)) });
+    const ordered = previous.map((scene, index) => ({ ...scene, sceneNumber: index + 1 }));
+    setUndoStack((stack) => stack.slice(0, -1)); setScenes(ordered);
+    onSave({ ...video, scenes: ordered, estimatedDuration: Math.round(ordered.reduce((sum, scene) => sum + (Number(scene.duration) || 0), 0)) });
+    setSaved(true);
   };
 
   if (!scenes.length) return null;
@@ -56,7 +60,7 @@ export const VideoEditor: React.FC<Props> = ({ video, onSave }) => {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <div className="rounded-xl bg-indigo-500/15 p-2.5 text-indigo-300"><Clapperboard className="w-5 h-5" /></div>
-          <div><h2 className="text-base font-bold text-white">OmniPulse Timeline Editor</h2><p className="text-xs text-slate-400">Arrange clips, cut scenes, duplicate shots and create text overlays</p></div>
+          <div><h2 className="text-base font-bold text-white">OmniPulse Timeline Editor</h2><p className="text-xs text-slate-400">Reorder clips, remove shots, duplicate scenes and create text overlays</p></div>
         </div>
         <div className="flex gap-2 text-xs text-slate-300">
           <span className="rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5"><Film className="inline w-3.5 h-3.5 mr-1 text-indigo-300" />{scenes.length} clips</span>
@@ -78,7 +82,7 @@ export const VideoEditor: React.FC<Props> = ({ video, onSave }) => {
             <button type="button" onClick={() => move(selected - 1)} disabled={selected === 0} title="Move earlier" className="rounded-lg border border-slate-700 p-2 text-slate-300 disabled:opacity-30"><ArrowUp className="w-4 h-4" /></button>
             <button type="button" onClick={() => move(selected + 1)} disabled={selected === scenes.length - 1} title="Move later" className="rounded-lg border border-slate-700 p-2 text-slate-300 disabled:opacity-30"><ArrowDown className="w-4 h-4" /></button>
             <button type="button" onClick={duplicate} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 px-3 py-2 text-xs text-slate-200"><Copy className="w-3.5 h-3.5" />Duplicate</button>
-            <button type="button" onClick={remove} disabled={scenes.length <= 1} className="inline-flex items-center gap-1.5 rounded-lg border border-rose-900/70 px-3 py-2 text-xs text-rose-300 disabled:opacity-30"><Scissors className="w-3.5 h-3.5" />Cut scene</button>
+            <button type="button" onClick={remove} disabled={scenes.length <= 1} className="inline-flex items-center gap-1.5 rounded-lg border border-rose-900/70 px-3 py-2 text-xs text-rose-300 disabled:opacity-30"><Scissors className="w-3.5 h-3.5" />Remove clip</button>
           </div>
         </div>
         <div className="rounded-xl border border-slate-800 bg-slate-900 p-4 space-y-3">
@@ -91,7 +95,7 @@ export const VideoEditor: React.FC<Props> = ({ video, onSave }) => {
             <label className="block space-y-1"><span className="text-[11px] font-medium text-slate-400">Scene dialogue / narration</span><textarea value={current.narration || ''} onChange={(e) => patchCurrent({ narration: e.target.value })} rows={3} maxLength={1600} className="w-full resize-y rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-white outline-none focus:border-indigo-400" /></label>
             {!!current.lines?.length && <div className="space-y-2 border-t border-slate-800 pt-3"><p className="text-[11px] font-semibold text-slate-300">Subtitle / dialogue track</p>{current.lines.map((line, lineIndex) => <div key={lineIndex} className="rounded-lg border border-slate-800 bg-slate-950 p-2 space-y-1.5"><input value={line.speaker} onChange={(e) => patchLine(lineIndex, { speaker: e.target.value })} aria-label="Dialogue speaker" className="w-full rounded border border-slate-700 bg-slate-900 px-2 py-1.5 text-[11px] font-semibold text-indigo-200" /><textarea value={line.text} onChange={(e) => patchLine(lineIndex, { text: e.target.value })} rows={2} maxLength={500} aria-label="Dialogue subtitle" className="w-full resize-y rounded border border-slate-700 bg-slate-900 px-2 py-1.5 text-xs text-white" /></div>)}</div>}
           </>}
-          <p className="text-[10px] leading-relaxed text-slate-500">Reordering and cutting scenes changes the scene sequence used by the film joiner. Text overlays and subtitle edits are saved and previewed in the studio; they do not alter the original generated audio or burn into the exported MP4 yet.</p>
+          <p className="text-[10px] leading-relaxed text-slate-500">Reordering and removing clips changes the scene sequence used by the film joiner. Text overlays and subtitle edits are saved and previewed in the studio; they do not alter the original generated audio or burn into the exported MP4 yet.</p>
         </div>
       </div>
       {saved && <p className="text-[10px] text-emerald-400" role="status">Edits saved to your video library.</p>}
