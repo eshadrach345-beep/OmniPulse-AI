@@ -444,6 +444,9 @@ const deleteAccount: Handler = async ({ req, res, body }) => {
   if (!(await verifyPassword(String(body.password || ''), row.password_hash))) throw new HttpError(400, 'Password is incorrect.');
   await cancelSubscriptions(row.email).catch((e) => console.error('cancel on delete', e));
   const id = row.id;
+  const mediaRows = (await sql()`SELECT blob_url FROM media_assets WHERE user_id=${id}`) as any[];
+  await Promise.all(mediaRows.map((asset: any) => del(asset.blob_url, { access: 'private' }).catch((e: any) => console.error('media cleanup on delete', e?.message))));
+  await sql()`DELETE FROM media_assets WHERE user_id=${id}`;
   if (zernioConfigured()) await zernioDeleteCustomer(id).catch((e) => console.error('Zernio account cleanup on delete', e));
   await sql()`DELETE FROM zernio_connections WHERE user_id=${id}`;
   await sql()`DELETE FROM zernio_profiles WHERE user_id=${id}`;
