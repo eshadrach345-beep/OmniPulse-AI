@@ -386,7 +386,6 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
     setPublishPlatforms(preferred.length ? preferred : connected.map((a) => a.id));
     setPublishCaption([
       activeVideo.callToAction || activeVideo.userPrompt || activeVideo.title,
-      ...(activeVideo.hashtags || []).slice(0, 8),
     ].filter(Boolean).join(' ').trim());
     setPublishError(null);
     setIsPublishOpen(true);
