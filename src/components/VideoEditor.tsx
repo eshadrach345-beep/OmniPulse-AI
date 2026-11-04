@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { GeneratedVideo, VideoScene } from '../types';
-import { ArrowDown, ArrowUp, Clapperboard, Copy, Film, Layers3, Scissors, Undo2 } from 'lucide-react';
+import { ArrowDown, ArrowUp, Clapperboard, Copy, Film, Layers3, Scissors, Undo2, Redo2 } from 'lucide-react';
 
 interface Props { video: GeneratedVideo; onSave: (video: GeneratedVideo) => void }
 
@@ -9,9 +9,10 @@ export const VideoEditor: React.FC<Props> = ({ video, onSave }) => {
   const [scenes, setScenes] = useState<VideoScene[]>(video.scenes || []);
   const [selected, setSelected] = useState(0);
   const [undoStack, setUndoStack] = useState<VideoScene[][]>([]);
+  const [redoStack, setRedoStack] = useState<VideoScene[][]>([]);
   const [saved, setSaved] = useState(false);
 
-  useEffect(() => { setScenes(video.scenes || []); setSelected(0); setUndoStack([]); }, [video.id]);
+  useEffect(() => { setScenes(video.scenes || []); setSelected(0); setUndoStack([]); setRedoStack([]); }, [video.id]);
   const totalSeconds = useMemo(() => scenes.reduce((sum, scene) => sum + Math.max(0, Number(scene.duration) || 0), 0), [scenes]);
   const current = scenes[selected];
 
@@ -19,6 +20,7 @@ export const VideoEditor: React.FC<Props> = ({ video, onSave }) => {
     // Keep scene numbering aligned with the actual edited join order after every operation.
     const ordered = next.map((scene, index) => ({ ...scene, sceneNumber: index + 1 }));
     setUndoStack((stack) => [...stack.slice(-19), scenes]);
+    setRedoStack([]);
     setScenes(ordered);
     onSave({ ...video, scenes: ordered, estimatedDuration: Math.round(ordered.reduce((sum, scene) => sum + (Number(scene.duration) || 0), 0)) });
     setSaved(true);
@@ -49,7 +51,18 @@ export const VideoEditor: React.FC<Props> = ({ video, onSave }) => {
   const undo = () => {
     const previous = undoStack[undoStack.length - 1]; if (!previous) return;
     const ordered = previous.map((scene, index) => ({ ...scene, sceneNumber: index + 1 }));
-    setUndoStack((stack) => stack.slice(0, -1)); setScenes(ordered);
+    setUndoStack((stack) => stack.slice(0, -1));
+    setRedoStack((stack) => [...stack.slice(-19), scenes]);
+    setScenes(ordered);
+    onSave({ ...video, scenes: ordered, estimatedDuration: Math.round(ordered.reduce((sum, scene) => sum + (Number(scene.duration) || 0), 0)) });
+    setSaved(true);
+  };
+  const redo = () => {
+    const next = redoStack[redoStack.length - 1]; if (!next) return;
+    const ordered = next.map((scene, index) => ({ ...scene, sceneNumber: index + 1 }));
+    setRedoStack((stack) => stack.slice(0, -1));
+    setUndoStack((stack) => [...stack.slice(-19), scenes]);
+    setScenes(ordered);
     onSave({ ...video, scenes: ordered, estimatedDuration: Math.round(ordered.reduce((sum, scene) => sum + (Number(scene.duration) || 0), 0)) });
     setSaved(true);
   };
@@ -69,7 +82,7 @@ export const VideoEditor: React.FC<Props> = ({ video, onSave }) => {
       </div>
       <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_300px] gap-4">
         <div className="space-y-3 min-w-0">
-          <div className="flex items-center justify-between"><p className="text-xs font-semibold uppercase tracking-wider text-slate-400">Main video track</p><button type="button" onClick={undo} disabled={!undoStack.length} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 px-2.5 py-1.5 text-xs text-slate-300 disabled:opacity-40"><Undo2 className="w-3.5 h-3.5" />Undo</button></div>
+          <div className="flex items-center justify-between"><p className="text-xs font-semibold uppercase tracking-wider text-slate-400">Main video track</p><button type="button" onClick={undo} disabled={!undoStack.length} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 px-2.5 py-1.5 text-xs text-slate-300 disabled:opacity-40"><Undo2 className="w-3.5 h-3.5" />Undo</button><button type="button" onClick={redo} disabled={!redoStack.length} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 px-2.5 py-1.5 text-xs text-slate-300 disabled:opacity-40"><Redo2 className="w-3.5 h-3.5" />Redo</button></div>
           <div className="flex gap-2 overflow-x-auto pb-2">
             {scenes.map((scene, index) => <button type="button" key={scene.id} onClick={() => setSelected(index)} className={`min-w-[126px] max-w-[160px] flex-1 rounded-xl border p-2 text-left ${selected === index ? 'border-indigo-400 bg-indigo-950/60 ring-1 ring-indigo-400/40' : 'border-slate-800 bg-slate-900 hover:border-slate-600'}`}>
               <div className="flex justify-between gap-1"><span className="text-[10px] font-bold text-indigo-300">CLIP {index + 1}</span><span className="text-[10px] text-slate-500">{scene.duration}s</span></div>
