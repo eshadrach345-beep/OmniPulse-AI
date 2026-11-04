@@ -399,8 +399,8 @@ export async function analyzeNicheTrends(nicheName: string, customQuery?: string
       recentVideos: Array.isArray(c.recentVideos) ? c.recentVideos.filter((v: any) => v && v.url && /^https?:\/\//i.test(String(v.url))).slice(0, 3).map((v: any) => ({
         title: String(v.title || 'Recent video'), url: String(v.url), thumbnailUrl: v.thumbnailUrl && /^https?:\/\//i.test(String(v.thumbnailUrl)) ? String(v.thumbnailUrl) : undefined,
         platform: String(v.platform || c.platform || ''), publishedAt: String(v.publishedAt || ''),
-        views: Number.isFinite(Number(v.views)) ? Number(v.views) : null,
-        viewsPerHour: Number.isFinite(Number(v.viewsPerHour)) ? Number(v.viewsPerHour) : null,
+        views: v.views == null || v.views === '' ? null : (Number.isFinite(Number(v.views)) ? Number(v.views) : null),
+        viewsPerHour: v.viewsPerHour == null || v.viewsPerHour === '' ? null : (Number.isFinite(Number(v.viewsPerHour)) ? Number(v.viewsPerHour) : null),
         metricLabel: String(v.metricLabel || 'Not publicly available'),
       })) : [],
     })) : [],
