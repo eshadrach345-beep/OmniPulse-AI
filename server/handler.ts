@@ -678,7 +678,9 @@ async function writeStoryboard(row: any, user: { secondsLimit: number }, input: 
   if (!draft?.outline) {
     const o: any = (await geminiRaw(outlinePrompt({ ...base, castMin }), { timeoutMs: 40_000, deadlineMs: 50_000, maxTokens: 7_000 })).data || {};
     const outline = (Array.isArray(o.outline) ? o.outline : []).map((x: any, i: number) => ({ sceneNumber: Number(x?.sceneNumber) || i + 1, summary: str(x?.summary, 300) })).filter((x: any) => x.summary);
-    if (outline.length < Math.ceil(plan.scenes.length * 0.6) || !Array.isArray(o.characters) || !o.characters.length) throw new HttpError(424, 'The story plan came back incomplete. Retrying.', 'GEMINI');
+    if (outline.length !== plan.scenes.length || !Array.isArray(o.characters) || !o.characters.length) throw new HttpError(424, `The story plan returned ${outline.length} of ${plan.scenes.length} scene beats. Retrying so the requested duration is preserved.`, 'GEMINI');
+    // Keep the outline in exact scene order; a missing or duplicated beat would break continuity in later chunks.
+    outline.forEach((beat: any, i: number) => { beat.sceneNumber = i + 1; });
     return { done: false, draft: { ...o, outline, scenes: [] } };
   }
   // then the scenes, two chunks per step
@@ -692,8 +694,8 @@ async function writeStoryboard(row: any, user: { secondsLimit: number }, input: 
   outs.forEach((o, i) => {
     const got: any[] = Array.isArray((o.data as any)?.scenes) ? (o.data as any).scenes : [];
     const want = ranges[i][1] - ranges[i][0] + 1;
-    if (!got.length) throw new HttpError(424, 'A part of the script came back empty. Retrying.', 'GEMINI');
-    scenes.push(...got.slice(0, want));
+    if (got.length !== want) throw new HttpError(424, `Scenes ${ranges[i][0]}–${ranges[i][1]} returned ${got.length} of ${want} requested scenes. Retrying this chunk instead of silently shortening the video.`, 'GEMINI');
+    scenes.push(...got);
   });
   const next = { ...draft, scenes };
   return scenes.length >= total ? { done: true, sb: finishStory(ctx, next, input) } : { done: false, draft: next };
@@ -1019,9 +1021,10 @@ function finishStory(ctx: StoryCtx, d: any, input: StoryInput) {
       lines: lines.map((l) => ({ speaker: l.speaker, text: l.text, emotion: l.emotion || '', doing: l.doing || '', half: l.half })), clipSeconds: len, parts,
     });
   }
-  const need = Math.max(1, Math.ceil(plan.scenes.length * (script ? 0.34 : 0.67)));
+  const need = Math.max(1, Math.ceil(plan.scenes.length * (script ? 0.34 : 1)));
   if (scenes.length < Math.min(need, plan.scenes.length)) throw new HttpError(424, `The script came back with ${scenes.length} usable scenes instead of ${plan.scenes.length}. Retrying.`, 'GEMINI');
-  if (scenes.length < plan.scenes.length && !script) notes.push(`The writer returned ${scenes.length} of ${plan.scenes.length} planned scenes, so this part is shorter than requested.`);
+  // AI-written productions must match the requested scene plan exactly. Pasted scripts may intentionally continue in remainingScript.
+  if (!script && scenes.length !== plan.scenes.length) throw new HttpError(424, `The writer produced ${scenes.length} of ${plan.scenes.length} scenes. Retrying to preserve the full requested duration.`, 'GEMINI');
   const total = sumSeconds(scenes.map((s) => s.clipSeconds));
 
   const used = new Set(scenes.flatMap((s) => s.lines.map((l: any) => l.speaker.toLowerCase())));
