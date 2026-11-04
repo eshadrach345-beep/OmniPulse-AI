@@ -64,22 +64,52 @@ const saveBlob = (blob: Blob, name: string) => {
   setTimeout(() => URL.revokeObjectURL(url), 15000);
 };
 
+type CaptionCue = { start: number; end: number; text: string };
+/** Build captions only from the approved screenplay, never from text hallucinated inside generated footage. */
+function episodeCaptionTracks(scenes: Episode['scenes']): CaptionCue[][] {
+  const tracks: CaptionCue[][] = [];
+  for (const scene of scenes) {
+    const halves = Math.max(1, Math.ceil(scene.clipSeconds / 10));
+    for (let half = 1; half <= halves; half++) {
+      const lines = scene.lines.filter((line) => (line.half || 1) === half);
+      let cursor = 0.35;
+      const cues: CaptionCue[] = [];
+      for (const line of lines) {
+        const count = line.text.trim().split(/\\s+/).filter(Boolean).length;
+        const duration = Math.max(1.25, Math.min(4.8, count / 2.25 + 0.45));
+        const start = Math.min(cursor, 9.1);
+        const end = Math.min(9.8, start + duration);
+        cues.push({ start, end, text: line.speaker.toLowerCase() === 'narrator' ? line.text : `${line.speaker}: ${line.text}` });
+        cursor = end + 0.18;
+      }
+      tracks.push(cues);
+    }
+  }
+  return tracks;
+}
+const vttTime = (seconds: number) => {
+  const ms = Math.max(0, Math.round(seconds * 1000));
+  const h = Math.floor(ms / 3_600_000), m = Math.floor((ms % 3_600_000) / 60_000), sec = Math.floor((ms % 60_000) / 1000), milli = ms % 1000;
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}.${String(milli).padStart(3, '0')}`;
+};
+
 /**
  * Plays the finished clips one after another. Two video elements take turns: while one plays, the other is already loading the next clip,
  * so there is no blank wait between clips. A clip always plays to its very end, and a spinner shows whenever the connection is slow.
  */
-const ClipSequence: React.FC<{ clips: string[] }> = ({ clips }) => {
+const ClipSequence: React.FC<{ clips: string[]; captions?: CaptionCue[][] }> = ({ clips, captions = [] }) => {
   const [i, setI] = useState(0);
   const [buffering, setBuffering] = useState(true);
+  const [playhead, setPlayhead] = useState(0);
   const refs = [useRef<HTMLVideoElement | null>(null), useRef<HTMLVideoElement | null>(null)];
-  const clipKey = clips.join('|'); // the list is only reset when the clips really change, never just because the page re-rendered
+  const clipKey = clips.join('|');
   const attach = (el: HTMLVideoElement | null, url?: string) => {
     if (!el || !url || el.dataset.src === url) return;
     el.dataset.src = url; el.src = url; el.preload = 'auto'; el.load();
   };
   useEffect(() => {
     refs.forEach((r) => { if (r.current) { delete r.current.dataset.src; r.current.pause(); } });
-    setI(0); setBuffering(true);
+    setI(0); setPlayhead(0); setBuffering(true);
     attach(refs[0].current, clips[0]);
     attach(refs[1].current, clips[1]);
   }, [clipKey]);
@@ -89,8 +119,10 @@ const ClipSequence: React.FC<{ clips: string[] }> = ({ clips }) => {
     if (i > 0 && cur) { try { cur.currentTime = 0; } catch { /* not ready yet */ } cur.play().catch(() => undefined); }
     other?.pause();
     attach(other, clips[i + 1]);
+    setPlayhead(0);
   }, [i, clipKey]);
   if (!clips.length) return null;
+  const caption = (captions[i] || []).find((cue) => playhead >= cue.start && playhead <= cue.end);
   return (
     <div className="space-y-1.5">
       <div className="relative w-full max-h-[60vh] rounded-xl bg-black overflow-hidden" style={{ minHeight: 200 }}>
@@ -100,13 +132,15 @@ const ClipSequence: React.FC<{ clips: string[] }> = ({ clips }) => {
             onWaiting={() => { if (n === i % 2) setBuffering(true); }}
             onCanPlay={() => { if (n === i % 2) setBuffering(false); }}
             onPlaying={() => { if (n === i % 2) setBuffering(false); }}
-            onEnded={() => { if (n === i % 2) { setBuffering(true); setI((k) => (k + 1 < clips.length ? k + 1 : k)); } }}
+            onTimeUpdate={(e) => { if (n === i % 2) setPlayhead(e.currentTarget.currentTime); }}
+            onEnded={() => { if (n === i % 2) { setBuffering(true); setPlayhead(0); setI((k) => (k + 1 < clips.length ? k + 1 : k)); } }}
             className={`${n === i % 2 ? 'relative' : 'absolute inset-0 opacity-0 pointer-events-none'} w-full max-h-[60vh] bg-black`}
           />
         ))}
+        {caption && <div aria-live="polite" className="absolute bottom-14 left-3 right-3 flex justify-center pointer-events-none"><span className="max-w-[92%] rounded-md bg-black/85 px-3 py-2 text-center text-sm sm:text-base font-semibold leading-snug text-white shadow-lg">{caption.text}</span></div>}
         {buffering && <div className="absolute inset-0 flex items-center justify-center pointer-events-none"><span className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-black/70 text-[11px] text-slate-200"><Loader2 className="w-3.5 h-3.5 animate-spin" />Loading video...</span></div>}
       </div>
-      <p className="text-[11px] text-slate-500 text-center">Clip {i + 1} of {clips.length}. Each clip plays to its end, then the next one starts by itself.</p>
+      <p className="text-[11px] text-slate-500 text-center">Clip {i + 1} of {clips.length}. Captions use the approved screenplay dialogue, not AI-generated text in the picture.</p>
     </div>
   );
 };
@@ -141,7 +175,7 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
   const [cast, setCast] = useState<CastId>('people');
   const [animalsTalk, setAnimalsTalk] = useState(false);
   const [trope, setTrope] = useState<TropeId>('none');
-  const [reviewFirst, setReviewFirst] = useState(false);
+  const [reviewFirst, setReviewFirst] = useState(true);
   const [notice, setNotice] = useState('');
   const applyPreset = (id: string) => {
     const p = PRESETS.find((x) => x.id === id); if (!p) return;
@@ -168,7 +202,7 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
   const partNumber = detail ? detail.nextPartNumber : 1;
   const effective = clampSeconds(seconds, secondsLeft);
   const perPart = effective; // a pasted script is made at the full length chosen, in one part
-  const sliderMax = secondsLeft != null ? Math.max(MIN_PART_SECONDS, Math.min(MAX_PART_SECONDS, Math.floor(secondsLeft / 10) * 10)) : MAX_PART_SECONDS;
+  const sliderMax = MAX_PART_SECONDS;
   const wholeSeries = !continuing && kind === 'series' && deliver === 'all' ? perPart * parts : perPart;
 
   const loadList = useCallback(async () => {
@@ -387,13 +421,19 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
           {episode?.status === 'COMPLETED' && (
             <div className="space-y-3">
               <p className="text-xs text-slate-300">{episode.logline}</p>
-              <ClipSequence clips={episode.clips} />
+              <ClipSequence clips={episode.clips} captions={episodeCaptionTracks(episode.scenes)} />
               <div className="flex flex-wrap gap-2">
                 {episode.finalVideoUrl && (
                   <button type="button" onClick={() => downloadFull(episode)} disabled={dl.busy} className="px-3 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-60 text-xs font-semibold text-white flex items-center gap-1.5">
                     {dl.busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}Download full video (one MP4)
                   </button>
                 )}
+                <button type="button" onClick={() => {
+                  const tracks = episodeCaptionTracks(episode.scenes); let offset = 0; const cues: string[] = [];
+                  tracks.forEach((track) => { track.forEach((cue) => { cues.push(`${cues.length + 1}\\n${vttTime(offset + cue.start)} --> ${vttTime(offset + cue.end)}\\n${cue.text}`); }); offset += 10; });
+                  const base = (episode.title || 'omnipulse-subtitles').replace(/[^\\w\\- ]+/g, '').trim().slice(0, 60) || 'omnipulse-subtitles';
+                  saveBlob(new Blob([`WEBVTT\\n\\n${cues.join('\\n\\n')}`], { type: 'text/vtt' }), `${base}.vtt`);
+                }} className="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-white flex items-center gap-1.5"><FileText className="w-3.5 h-3.5" />Download accurate subtitles (.vtt)</button>
                 {single
                   ? <><button type="button" onClick={backToList} className="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-white flex items-center gap-1.5"><Plus className="w-3.5 h-3.5" />Make another video</button>
                   <button type="button" onClick={() => { backToList(); const pool = startersFor(); setIdea(pool[Math.floor(Math.random() * pool.length)]); }} className="px-3 py-2 rounded-lg bg-linear-to-r from-indigo-600 to-fuchsia-600 hover:opacity-90 text-xs font-semibold text-white flex items-center gap-1.5"><Sparkles className="w-3.5 h-3.5" />Remix: new idea, same style</button></>
@@ -565,7 +605,7 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
             
           </p>
           {showSeriesChoice && kind === 'series' && deliver === 'all' && <p className="text-[11px] text-slate-400">The whole series of {parts} parts needs about {formatSeconds(wholeSeries)} of video.</p>}
-          {lengthWarn && <p className="text-[11px] text-amber-300">That is more than the {secondsLeft} seconds you have left. It will be made until your seconds run out; you can buy extra seconds at any time and continue.</p>}
+          {lengthWarn && <p className="text-[11px] text-amber-300">Your selected length is above the {secondsLeft} seconds remaining on your plan. Purchased extra seconds may cover the difference. OmniPulse will not silently shorten the film; if the combined balance is too low, it will explain what is needed.</p>}
         </fieldset>
 
         {!continuing && (
@@ -645,7 +685,7 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
 
         <label className="flex items-start gap-2 text-xs text-slate-300 cursor-pointer">
           <input type="checkbox" checked={reviewFirst} onChange={(e) => setReviewFirst(e.target.checked)} className="mt-0.5 accent-indigo-500" />
-          <span><span className="font-semibold">Let me review and edit the script first.</span> The script is written, then waits for you. No video seconds are used until you approve it.</span>
+          <span><span className="font-semibold">Review and edit the screenplay first (recommended).</span> The script is written, then waits for you. Check every scene and line before any video seconds are spent. No video seconds are used until you approve it.</span>
         </label>
         {errorBox}
         <button type="button" onClick={submit} disabled={busy} className="w-full py-3 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-xs font-semibold flex items-center justify-center gap-2">
