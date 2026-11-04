@@ -490,6 +490,7 @@ const adConcepts: Handler = async ({ req, res, body }) => {
   const data = await geminiJson(adConceptPrompt({
     brand, product, audience: str(body.audience || 'general audience', 160),
     brief: str(body.brief || '', 1200), aspect: ['9:16', '16:9', '1:1'].includes(String(body.aspect)) ? String(body.aspect) : '9:16',
+    seconds: Number(body.seconds) === 10 ? 10 : 5,
   }));
   if (!Array.isArray(data?.concepts) || !data.concepts.length) throw new HttpError(424, 'The creative director returned no ad concepts. Please try again.', 'GEMINI');
   json(res, 200, { success: true, ...data });
@@ -523,7 +524,17 @@ const adImageRender: Handler = async ({ req, res, body }) => {
     if (seconds <= bonus) source = 'topup';
     else throw new HttpError(403, planLeft + bonus > 0 ? `You have ${planLeft + bonus} video seconds left, which is not enough for this ad. Buy extra seconds or upgrade your plan.` : 'You have used all your video seconds. Buy extra seconds or upgrade your plan.', 'LIMIT');
   }
-  const job = await falImageVideoSubmit(imageUrl, prompt, seconds, aspect, PLANS[user.tier]?.resolution || '480P');
+  const voiceover = str(body.voiceover || '', 300);
+  const voiceGender = body.voiceGender === 'male' ? 'male' : 'female';
+  const wordCount = voiceover.trim() ? voiceover.trim().split(/\\s+/).length : 0;
+  const wordLimit = seconds === 5 ? 10 : 22;
+  if (wordCount > wordLimit) throw new HttpError(400, `The voice-over is too long for a ${seconds}-second ad. Keep it to ${wordLimit} words or fewer.`);
+  let targetAudioUrl: string | undefined;
+  if (voiceover.trim()) {
+    const audio = await synthesize(voiceover, voiceGender === 'male' ? 'am_adam' : 'af_heart', voiceGender);
+    targetAudioUrl = `data:${audio.type};base64,${audio.audio.toString('base64')}`;
+  }
+  const job = await falImageVideoSubmit(imageUrl, prompt, seconds, aspect, PLANS[user.tier]?.resolution || '480P', targetAudioUrl);
   const id = newId('job');
   await sql()`INSERT INTO video_jobs (id, user_id, status_url, response_url, seconds, source) VALUES (${id}, ${row.id}, ${job.statusUrl}, ${job.responseUrl}, ${seconds}, ${source})`;
   json(res, 200, { jobId: id });
