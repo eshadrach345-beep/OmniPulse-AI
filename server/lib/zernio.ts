@@ -37,9 +37,16 @@ export async function zernioEnsureProfile(userId:string):Promise<string>{
   let d:any;
   try { d=await zernioRequest('/profiles',{method:'POST',body:JSON.stringify({name,description:'OmniPulse customer profile'})}); }
   catch(e:any) {
-    // A retry after a network timeout can encounter a profile created by the first request.
-    if(!String(e?.message||'').includes('409')) throw e;
-    throw new HttpError(424,'A Zernio profile with this customer ID already exists. Contact support so it can be safely linked.','ZERNIO_PROFILE');
+    // Recover safely if an earlier timed-out request created the profile before the local ID was saved.
+    if(!String(e?.message||'').includes('(409)')) throw e;
+    const listed=await zernioRequest('/profiles');
+    const profiles:any[]=Array.isArray(listed?.profiles)?listed.profiles:Array.isArray(listed?.data?.profiles)?listed.data.profiles:[];
+    const match=profiles.find(p=>String(p?.name||'')===name);
+    const existingId=String(match?._id||match?.id||'');
+    if(!existingId) throw new HttpError(424,'A Zernio profile with this customer ID already exists but could not be safely recovered.','ZERNIO_PROFILE');
+    await sql()`INSERT INTO zernio_profiles (user_id,profile_id) VALUES (${userId},${existingId}) ON CONFLICT (user_id) DO NOTHING`;
+    const saved:any[]=await sql()`SELECT profile_id FROM zernio_profiles WHERE user_id=${userId}`;
+    return String(saved[0]?.profile_id||existingId);
   }
   const id=String(d?.profile?._id||d?.profile?.id||'');
   if(!id) throw new HttpError(424,'Zernio did not return a customer profile ID.','ZERNIO_PROFILE');
