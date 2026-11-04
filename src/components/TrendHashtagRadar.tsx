@@ -14,7 +14,7 @@ import { analyzeNicheTrends } from '../services/aiService';
 
 /** YouTube exposes a stable public thumbnail URL for videos with a verified video ID. */
 const youtubeThumbnail = (url: string) => {
-  const match = url.match(/(?:youtube\\.com\\/(?:watch\\?.*v=|shorts\\/|embed\\/)|youtu\\.be\\/)([A-Za-z0-9_-]{11})/i);
+  const match = url.match(/(?:youtube\.com\/(?:watch\?.*v=|shorts\/|embed\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/i);
   return match ? `https://img.youtube.com/vi/${match[1]}/hqdefault.jpg` : undefined;
 };
 import { 
