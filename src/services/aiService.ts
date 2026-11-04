@@ -470,16 +470,34 @@ export async function generateStoryDraft(p: StoryDraftRequest): Promise<StoryDra
     durationMode: p.brief.durationMode, requestedSeconds: p.brief.requestedSeconds,
     mood: p.brief.mood, cameraProfile: p.brief.cameraProfile, characterLock: p.brief.characterLock,
     presentation: p.brief.presentation, genre: p.brief.genre, intensity: p.brief.intensity, dialogue: p.brief.dialogue, ending: p.brief.ending, cast: p.brief.cast, animalsTalk: p.brief.animalsTalk, trope: p.brief.trope,
+    variationSeed: typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : 'production-' + Date.now() + '-' + Math.random().toString(36).slice(2),
   };
-  const transient = (e: unknown) => e instanceof ApiError && ([0, 502, 503, 504].includes(e.status) || (e.status === 424 && e.code === 'GEMINI'));
-  let draft: StoryDraft;
-  try { draft = await api.post<StoryDraft>('/gemini/generate-story', body); }
-  catch (e) {
-    if (!transient(e)) throw e;
-    await sleep(1500);
-    draft = await api.post<StoryDraft>('/gemini/generate-story', body);
+  const requestStep = async (draft?: any) => {
+    const payload = draft ? { ...body, draft } : body;
+    try { return await api.post<any>('/gemini/generate-story-step', payload); }
+    catch (e) {
+      const transient = e instanceof ApiError && ([0, 502, 503, 504].includes(e.status) || (e.status === 424 && e.code === 'GEMINI'));
+      if (!transient) throw e;
+      await sleep(1400);
+      return await api.post<any>('/gemini/generate-story-step', payload);
+    }
+  };
+  let step = await requestStep();
+  let attempts = 0;
+  while (!step?.done && attempts < 10) {
+    if (!step?.draft) throw new Error('The story plan could not be continued. Please try again.');
+    step = await requestStep(step.draft);
+    attempts++;
   }
-  if (!draft || !Array.isArray(draft.scenes) || !draft.scenes.length) throw new Error('The script came back without any scenes. Please try again.');
+  const draft: StoryDraft | undefined = step?.sb;
+  if (!step?.done || !draft || !Array.isArray(draft.scenes) || !draft.scenes.length) {
+    throw new Error('The full script could not be completed. No shortened video was created. Please try again.');
+  }
+  const expected = Number(p.brief.requestedSeconds);
+  const actual = Number(draft.totalSeconds || draft.estimatedDuration || 0);
+  if (expected >= 60 && actual && actual < expected) {
+    throw new Error('The storyboard is shorter than the duration you selected (' + actual + 's of ' + expected + 's). It was not silently accepted. Please regenerate.');
+  }
   return draft;
 }
 
