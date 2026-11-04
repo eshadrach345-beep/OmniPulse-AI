@@ -67,6 +67,8 @@ export const TrendHashtagRadar: React.FC<TrendHashtagRadarProps> = ({
   const [copiedBatch, setCopiedBatch] = useState(false);
   const [activeTab, setActiveTab] = useState<'topics' | 'creators' | 'hashtags' | 'competitors' | 'best-practices'>('topics');
   const [showAllCreators, setShowAllCreators] = useState(false);
+  const [creatorPlatformFilter, setCreatorPlatformFilter] = useState('All');
+  const [creatorSort, setCreatorSort] = useState<'rank' | 'views' | 'recent'>('rank');
 
   // Handle custom niche search or refresh analysis
   const handleRunAnalysis = async (e?: React.FormEvent) => {
@@ -127,6 +129,15 @@ export const TrendHashtagRadar: React.FC<TrendHashtagRadarProps> = ({
       ...activeNiche.viralHashtags.nicheSpecific.map(h => h.tag),
     ];
   };
+
+  const creatorResults = (activeNiche.trendingCreators || [])
+    .filter((c) => creatorPlatformFilter === 'All' || c.platform.toLowerCase().includes(creatorPlatformFilter.toLowerCase()))
+    .slice()
+    .sort((a, b) => {
+      if (creatorSort === 'views') return Math.max(0, ...(b.recentVideos || []).map(v => v.views || 0)) - Math.max(0, ...(a.recentVideos || []).map(v => v.views || 0));
+      if (creatorSort === 'recent') return Math.max(0, ...(b.recentVideos || []).map(v => Date.parse(v.publishedAt || '') || 0)) - Math.max(0, ...(a.recentVideos || []).map(v => Date.parse(v.publishedAt || '') || 0));
+      return (a.rank || 999) - (b.rank || 999);
+    });
 
   return (
     <div className="space-y-6">
@@ -281,7 +292,7 @@ export const TrendHashtagRadar: React.FC<TrendHashtagRadarProps> = ({
         <div className="space-y-4">
           <div className="rounded-xl border border-indigo-500/20 bg-indigo-500/5 p-3 text-xs text-slate-300">
             <p className="font-semibold text-indigo-200">Creator discovery · ranked by available public evidence</p>
-            <p className="mt-1 text-slate-400">YouTube view counts are public views, not impressions. TikTok and Instagram metrics appear only when a source makes them public. Use the examples to study structure and adapt the approach in your own voice.</p>
+            <p className="mt-1 text-slate-400">YouTube view counts are public views, not impressions. Where official YouTube data is connected, you can also sort by calculated views/hour. TikTok and Instagram metrics appear only when a source makes them public. Use the examples to study structure and adapt the approach in your own voice.</p>
           </div>
           {(activeNiche.trendingCreators?.length || 0) === 0 ? (
             <div className="bg-slate-900/60 border border-dashed border-slate-700 rounded-xl p-6 text-center text-sm text-slate-300">
@@ -289,16 +300,24 @@ export const TrendHashtagRadar: React.FC<TrendHashtagRadarProps> = ({
             </div>
           ) : (
             <>
-              <div className="flex items-center justify-between gap-3">
-                <p className="text-xs text-slate-400">Showing {Math.min(showAllCreators ? 50 : 10, activeNiche.trendingCreators!.length)} of {activeNiche.trendingCreators!.length} researched creators</p>
-                {activeNiche.trendingCreators!.length > 10 && (
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <p className="text-xs text-slate-400">Showing {Math.min(showAllCreators ? 50 : 10, creatorResults.length)} of {creatorResults.length} matching creators</p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <select aria-label="Filter creators by platform" value={creatorPlatformFilter} onChange={(e) => { setCreatorPlatformFilter(e.target.value); setShowAllCreators(false); }} className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-200">
+                    <option value="All">All platforms</option><option value="YouTube">YouTube</option><option value="TikTok">TikTok</option><option value="Instagram">Instagram</option><option value="Facebook">Facebook</option><option value="X">X</option><option value="LinkedIn">LinkedIn</option>
+                  </select>
+                  <select aria-label="Sort creators" value={creatorSort} onChange={(e) => setCreatorSort(e.target.value as 'rank' | 'views' | 'recent')} className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-200">
+                    <option value="rank">Sort: evidence rank</option><option value="views">Sort: public views</option><option value="recent">Sort: newest content</option>
+                  </select>
+                </div>
+                {creatorResults.length > 10 && (
                   <button onClick={() => setShowAllCreators(v => !v)} className="text-xs font-semibold text-indigo-300 hover:text-white">
                     {showAllCreators ? 'Show top 10' : 'Show all up to 50'}
                   </button>
                 )}
               </div>
               <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-                {activeNiche.trendingCreators!.slice(0, showAllCreators ? 50 : 10).map((c, i) => (
+                {creatorResults.slice(0, showAllCreators ? 50 : 10).map((c, i) => (
                   <article key={c.url || c.handle || c.name + i} className="bg-slate-900/75 border border-slate-800 rounded-xl p-4 sm:p-5 space-y-3 hover:border-indigo-500/40 transition-colors">
                     <div className="flex items-start gap-3">
                       {c.avatarUrl ? <img src={c.avatarUrl} alt="" loading="lazy" className="w-12 h-12 rounded-full object-cover border border-slate-700 bg-slate-950" /> : (
@@ -332,7 +351,7 @@ export const TrendHashtagRadar: React.FC<TrendHashtagRadarProps> = ({
                                 <p className="text-[11px] text-slate-200 font-semibold leading-snug line-clamp-2 group-hover:text-indigo-200">{v.title}</p>
                                 <div className="flex flex-wrap items-center justify-between gap-1 mt-1 text-[10px] text-slate-500">
                                   <span>{v.publishedAt || v.platform}</span>
-                                  <span>{v.views != null ? v.views.toLocaleString() + ' ' + (v.metricLabel || 'public views') : (v.metricLabel || 'Metric unavailable')}</span>
+                                  <span>{v.views != null ? v.views.toLocaleString() + ' ' + (v.metricLabel || 'public views') : (v.metricLabel || 'Metric unavailable')}{v.viewsPerHour != null ? ' · ' + v.viewsPerHour.toLocaleString() + '/hr' : ''}</span>
                                 </div>
                                 <span className="inline-flex items-center gap-1 mt-1 text-[10px] text-indigo-300">Watch video <ExternalLink className="w-3 h-3" /></span>
                               </div>
