@@ -56,6 +56,8 @@ export const AdMakerStudio: React.FC<Props> = ({ nicheName, onClose, onSaveNewVi
   const [brandImages, setBrandImages] = useState<string[]>([]);
   const [imagePrompt, setImagePrompt] = useState('');
   const [motion, setMotion] = useState('');
+  const [voiceover, setVoiceover] = useState('');
+  const [voiceGender, setVoiceGender] = useState<'female' | 'male'>('female');
   const [busy, setBusy] = useState<'ideas' | 'images' | 'render' | null>(null);
   const [status, setStatus] = useState('');
   const [error, setError] = useState('');
@@ -75,8 +77,8 @@ export const AdMakerStudio: React.FC<Props> = ({ nicheName, onClose, onSaveNewVi
     if (product.trim().length < 5) { setError('Describe your product or service first.'); return; }
     setBusy('ideas'); setError(''); setStatus('Creative director is developing campaign ideas...');
     try {
-      const r = await api.post<{ concepts: Concept[]; brandImagePrompts?: string[] }>('/gemini/ad-concepts', { brand, product, audience, brief, aspect });
-      setConcepts(r.concepts); setSelectedConcept(0);
+      const r = await api.post<{ concepts: Concept[]; brandImagePrompts?: string[] }>('/gemini/ad-concepts', { brand, product, audience, brief, aspect, seconds });
+      setConcepts(r.concepts); setSelectedConcept(0); setVoiceover(r.concepts[0]?.voiceover || '');
       const firstPrompt = r.brandImagePrompts?.[0] || r.concepts[0]?.imagePrompt || '';
       setImagePrompt(firstPrompt);
       setStatus('Three campaign directions are ready. Choose one to continue.');
@@ -106,7 +108,7 @@ export const AdMakerStudio: React.FC<Props> = ({ nicheName, onClose, onSaveNewVi
     ].filter(Boolean).join(' ');
     setBusy('render'); setError(''); setStatus('Submitting your image to the video engine...');
     try {
-      const r = await api.post<{ jobId: string }>('/ad/render-image', { imageUrl: selectedImage, prompt, seconds, aspect });
+      const r = await api.post<{ jobId: string }>('/ad/render-image', { imageUrl: selectedImage, prompt, seconds, aspect, voiceover, voiceGender });
       const started = Date.now();
       let videoUrl = '';
       while (Date.now() - started < 8 * 60_000) {
@@ -124,10 +126,10 @@ export const AdMakerStudio: React.FC<Props> = ({ nicheName, onClose, onSaveNewVi
         estimatedDuration: seconds, scenes: [{
           id: `ad-scene-${Date.now()}`, sceneNumber: 1, duration: seconds,
           visualCue: concept?.direction || prompt, motionStyle: 'Dynamic Zoom',
-          bgGradient: 'from-slate-950 via-indigo-950 to-black', narration: concept?.voiceover || '',
+          bgGradient: 'from-slate-950 via-indigo-950 to-black', narration: voiceover,
           onScreenText: concept?.onScreenText || '', soundEffectCue: 'Premium commercial sound design',
         }],
-        voiceoverStyle: 'Voice-over script included in storyboard', backgroundMusicTrack: 'Commercial sound design',
+        voiceoverStyle: voiceover.trim() ? 'AI voice-over generated and attached to the ad soundtrack' : 'No voice-over', backgroundMusicTrack: 'Commercial sound design',
         thumbnailUrl: selectedImage, videoUrl, createdAt: new Date().toISOString(), status: 'ready',
         hashtags: [], callToAction: concept?.callToAction || '',
       };
@@ -162,13 +164,13 @@ export const AdMakerStudio: React.FC<Props> = ({ nicheName, onClose, onSaveNewVi
               {preview || selectedImage ? <div className="relative"><img src={selectedImage.startsWith('data:') ? preview : selectedImage} alt="Selected brand asset" className="w-full max-h-64 object-contain rounded-lg bg-black" /><p className="text-[10px] text-slate-400 mt-1">This image will be used as the opening frame of your ad.</p></div> : <button onClick={()=>fileRef.current?.click()} className="w-full min-h-36 flex flex-col items-center justify-center gap-2 text-slate-400 text-xs"><ImagePlus className="w-8 h-8" />Tap to upload a product photo, package or brand image</button>}
               {brandImages.length>0 && <div className="grid grid-cols-2 gap-2 mt-3">{brandImages.map((url,i)=><button key={url} onClick={()=>setSelectedImage(url)} className={`rounded-lg border p-1 ${selectedImage===url?'border-fuchsia-400 ring-1 ring-fuchsia-400':'border-slate-700'}`}><img src={url} alt={`Generated brand visual ${i+1}`} className="w-full aspect-square object-cover rounded" /><span className="text-[10px] text-slate-300 flex items-center justify-center gap-1 py-1">{selectedImage===url?<Check className="w-3 h-3 text-emerald-400"/>:'Select'} Visual {i+1}</span></button>)}</div>}
             </div>
-            {concepts.length>0 && <div className="space-y-2"><p className="text-xs font-semibold text-white">AI creative directions</p>{concepts.map((item,i)=><button key={i} onClick={()=>{setSelectedConcept(i);setImagePrompt(item.imagePrompt);}} className={`w-full text-left rounded-lg border p-3 ${selectedConcept===i?'border-indigo-500 bg-indigo-950/50':'border-slate-800 bg-slate-900'}`}><span className="text-xs font-bold text-white">{i+1}. {item.title}</span><p className="text-[11px] text-slate-400 mt-1">{item.hook}</p><p className="text-[10px] text-slate-500 mt-1">{item.direction}</p></button>)}</div>}
+            {concepts.length>0 && <div className="space-y-2"><p className="text-xs font-semibold text-white">AI creative directions</p>{concepts.map((item,i)=><button key={i} onClick={()=>{setSelectedConcept(i);setImagePrompt(item.imagePrompt);setVoiceover(item.voiceover || '');}} className={`w-full text-left rounded-lg border p-3 ${selectedConcept===i?'border-indigo-500 bg-indigo-950/50':'border-slate-800 bg-slate-900'}`}><span className="text-xs font-bold text-white">{i+1}. {item.title}</span><p className="text-[11px] text-slate-400 mt-1">{item.hook}</p><p className="text-[10px] text-slate-500 mt-1">{item.direction}</p></button>)}</div>}
             <div><label className="block text-xs text-slate-300 font-semibold mb-1">Brand image prompt</label><textarea value={imagePrompt} onChange={e=>setImagePrompt(e.target.value)} rows={2} placeholder="AI will suggest premium campaign image directions here." className="w-full rounded-lg bg-slate-900 border border-slate-700 p-2.5 text-xs text-white" /><button onClick={makeImages} disabled={!!busy || imagePrompt.trim().length<20} className="mt-2 w-full rounded-lg border border-fuchsia-700 text-fuchsia-200 hover:bg-fuchsia-950/40 disabled:opacity-40 px-3 py-2.5 text-xs font-semibold flex items-center justify-center gap-2"><Wand2 className="w-4 h-4" />{busy==='images'?'Generating brand visuals...':'Generate 2 brand campaign images'}</button></div>
           </div>
         </div>
         <div className="px-4 sm:px-5 pb-5 space-y-3">
           <div><label className="block text-xs text-slate-300 font-semibold mb-1">Final motion direction</label><textarea value={motion} onChange={e=>setMotion(e.target.value)} rows={2} placeholder="e.g. Slowly orbit around the bottle as water droplets roll down the glass; dramatic light sweeps across the label." className="w-full rounded-lg bg-slate-900 border border-slate-700 p-2.5 text-sm text-white" /></div>
-          {concept && <div className="rounded-lg border border-slate-800 bg-slate-900/60 p-3"><p className="text-xs text-slate-200 font-semibold">Suggested voice-over</p><p className="text-sm text-slate-300 mt-1">{concept.voiceover}</p><p className="text-xs text-fuchsia-200 mt-2">CTA: {concept.callToAction}</p></div>}
+          {concept && <div className="rounded-lg border border-slate-800 bg-slate-900/60 p-3 space-y-2"><div className="flex items-center justify-between gap-2"><p className="text-xs text-slate-200 font-semibold">Spoken voice-over</p><select value={voiceGender} onChange={e=>setVoiceGender(e.target.value as 'female'|'male')} className="rounded-md bg-slate-800 border border-slate-700 px-2 py-1 text-[11px] text-white"><option value="female">Female voice</option><option value="male">Male voice</option></select></div><textarea value={voiceover} onChange={e=>setVoiceover(e.target.value)} rows={2} maxLength={300} className="w-full rounded-lg bg-slate-950 border border-slate-700 p-2 text-sm text-white" placeholder="Exact words spoken in the ad"/><p className="text-[10px] text-slate-500">This text is converted to speech and attached to the finished ad. Keep it under {seconds===5?10:22} words for the selected length.</p><p className="text-xs text-fuchsia-200">CTA: {concept.callToAction}</p></div>}
           {status && <p role="status" className="text-xs text-indigo-200">{status}</p>}
           {error && <p role="alert" className="text-xs text-red-300 bg-red-950/40 border border-red-900 rounded-lg p-3">{error}</p>}
           <button onClick={render} disabled={!!busy || !selectedImage} className="w-full flex items-center justify-center gap-2 rounded-xl bg-linear-to-r from-fuchsia-600 to-indigo-600 hover:opacity-90 disabled:opacity-40 px-4 py-3.5 text-sm font-bold text-white">{busy==='render'?<Loader2 className="w-4 h-4 animate-spin"/>:<Film className="w-4 h-4"/>}{busy==='render'?'Rendering your image-based ad...':'Animate selected image into an ad'}</button>
