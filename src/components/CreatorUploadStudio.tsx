@@ -1,0 +1,104 @@
+import React, { useEffect, useRef, useState } from 'react';
+import { upload } from '@vercel/blob/client';
+import { api, ApiError } from '../services/api';
+import { CloudUpload, Film, Image as ImageIcon, Music2, ShieldCheck, RefreshCw, Loader2, CheckCircle2, AlertCircle, HardDrive } from 'lucide-react';
+
+type MediaAsset = { id: string; name: string; contentType: string; size: number; createdAt: string };
+const ACCEPT = 'video/mp4,video/quicktime,video/webm,video/x-matroska,audio/mpeg,audio/mp4,audio/wav,audio/x-wav,image/jpeg,image/png,image/webp';
+const prettySize = (bytes: number) => bytes >= 1024 ** 3 ? `${(bytes / 1024 ** 3).toFixed(1)} GB` : bytes >= 1024 ** 2 ? `${(bytes / 1024 ** 2).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
+
+export const CreatorUploadStudio: React.FC = () => {
+  const input = useRef<HTMLInputElement>(null);
+  const [assets, setAssets] = useState<MediaAsset[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
+
+  const refresh = async () => {
+    try {
+      const result = await api.get<{ assets: MediaAsset[] }>('/media/list');
+      setAssets(result.assets || []);
+    } catch (e) {
+      if (e instanceof ApiError && e.status !== 402) setError(e.message);
+    } finally { setLoading(false); }
+  };
+
+  useEffect(() => { void refresh(); }, []);
+
+  const handleFiles = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    setError('');
+    setMessage('');
+    setProgress(0);
+    setBusy(true);
+    try {
+      await upload(`creator-media/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`, file, {
+        access: 'private',
+        handleUploadUrl: '/api/media/upload',
+        clientPayload: JSON.stringify({ name: file.name, type: file.type, size: file.size }),
+        multipart: file.size > 100 * 1024 ** 2,
+        onUploadProgress: ({ percentage }) => setProgress(Math.round(percentage)),
+      });
+      setMessage('Upload completed. Your private media is being added to the library.');
+      await refresh();
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : e instanceof Error ? e.message : 'Upload failed. Please try again.');
+    } finally { setBusy(false); setProgress(0); }
+  };
+
+  return (
+    <section className="rounded-2xl border border-indigo-500/25 bg-slate-950/90 p-4 sm:p-5 space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <div className="rounded-xl bg-indigo-500/15 p-2.5 text-indigo-300"><CloudUpload className="w-5 h-5" /></div>
+          <div>
+            <h2 className="text-base font-bold text-white">Creator Upload Studio</h2>
+            <p className="text-xs text-slate-400">Bring your own footage, images and audio into OmniPulse</p>
+          </div>
+        </div>
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-[10px] font-semibold text-emerald-300"><ShieldCheck className="w-3.5 h-3.5" /> Private storage</span>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-center rounded-xl border border-slate-800 bg-slate-900/70 p-4">
+        <div className="space-y-1">
+          <p className="text-sm font-semibold text-white">Upload your original media</p>
+          <p className="text-xs leading-relaxed text-slate-400">Choose video clips, voice recordings, music or images. Files upload directly to your private cloud library, not through your phone's local storage or the app server.</p>
+          <p className="text-[10px] text-slate-500">Supported: MP4, MOV, WebM, MKV, MP3, WAV, JPG, PNG and WebP. Per-file limits depend on your subscription.</p>
+        </div>
+        <button type="button" disabled={busy} onClick={() => input.current?.click()} className="inline-flex items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2.5 text-xs font-semibold text-white hover:bg-indigo-500 disabled:opacity-50">
+          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <CloudUpload className="h-4 w-4" />}
+          {busy ? 'Uploading…' : 'Choose media'}
+        </button>
+        <input ref={input} type="file" accept={ACCEPT} className="hidden" onChange={handleFiles} />
+      </div>
+
+      {busy && <div className="space-y-1.5" role="status" aria-live="polite"><div className="flex justify-between text-[11px] text-slate-300"><span>Uploading securely</span><span>{progress}%</span></div><div className="h-2 rounded-full bg-slate-800 overflow-hidden"><div className="h-full rounded-full bg-indigo-500 transition-all" style={{ width: `${progress}%` }} /></div></div>}
+      {message && <p className="flex items-center gap-2 text-xs text-emerald-300"><CheckCircle2 className="h-4 w-4 shrink-0" />{message}</p>}
+      {error && <p role="alert" className="flex items-center gap-2 text-xs text-rose-300"><AlertCircle className="h-4 w-4 shrink-0" />{error}</p>}
+
+      <div className="flex items-center justify-between gap-3 border-t border-slate-800 pt-3">
+        <div className="flex items-center gap-2"><HardDrive className="h-4 w-4 text-indigo-300" /><h3 className="text-xs font-semibold text-slate-200">Your media library</h3><span className="rounded-md bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-400">{assets.length}</span></div>
+        <button type="button" onClick={() => { setLoading(true); void refresh(); }} disabled={loading} className="inline-flex items-center gap-1 text-[10px] text-slate-400 hover:text-white disabled:opacity-40"><RefreshCw className={`h-3 w-3 ${loading ? 'animate-spin' : ''}`} />Refresh</button>
+      </div>
+      {loading ? <p className="text-xs text-slate-500">Loading your private media…</p> : assets.length ? (
+        <div className="grid gap-2 sm:grid-cols-2">
+          {assets.map((asset) => {
+            const video = asset.contentType.startsWith('video/');
+            const audio = asset.contentType.startsWith('audio/');
+            const Icon = video ? Film : audio ? Music2 : ImageIcon;
+            return <div key={asset.id} className="flex min-w-0 items-center gap-3 rounded-lg border border-slate-800 bg-slate-900/60 p-3">
+              <div className="rounded-lg bg-slate-800 p-2 text-indigo-300"><Icon className="h-4 w-4" /></div>
+              <div className="min-w-0 flex-1"><p className="truncate text-xs font-medium text-slate-200">{asset.name}</p><p className="mt-0.5 text-[10px] text-slate-500">{prettySize(Number(asset.size) || 0)} · {new Date(asset.createdAt).toLocaleDateString()}</p></div>
+              <ShieldCheck className="h-4 w-4 shrink-0 text-emerald-400" />
+            </div>;
+          })}
+        </div>
+      ) : <div className="rounded-lg border border-dashed border-slate-800 px-4 py-6 text-center"><CloudUpload className="mx-auto h-6 w-6 text-slate-600" /><p className="mt-2 text-xs text-slate-400">No creator media uploaded yet</p><p className="mt-1 text-[10px] text-slate-600">Your files will appear here after upload.</p></div>}
+      <p className="text-[10px] leading-relaxed text-slate-600">Uploads are private and linked to your signed-in account. The AI Director's analysis, timeline placement and export workflow will build on this media library next.</p>
+    </section>
+  );
+};
