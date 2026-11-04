@@ -527,7 +527,7 @@ function Workspace({ user: currentUser, initialDashboard, onLogout, onUserChange
       />
 
       {/* Main Workspace Area */}
-      <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8 pb-28 lg:pb-10 space-y-6">
+      <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8 pb-28 xl:pb-10 space-y-6">
         {/* Connected Social Accounts Bar with OAuth Login Trigger */}
         {activeTab === 'dashboard' && (
           <AccountsBar
