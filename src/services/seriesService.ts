@@ -20,7 +20,8 @@ export interface EpisodeScene {
   visualPrompt: string;
   voiceoverText: string;
   cameraMotion: string;
-  lines: { speaker: string; text: string }[];
+  /** Exact approved screenplay dialogue, assigned to its 10-second half for script-accurate captions. */
+  lines: { speaker: string; text: string; half?: 1 | 2 }[];
 }
 
 export interface Episode {
