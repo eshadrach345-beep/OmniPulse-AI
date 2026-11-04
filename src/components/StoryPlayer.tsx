@@ -35,19 +35,19 @@ const buildSrt = (items: GeneratedVideo['scenes']) => {
       const phrases = group.flatMap((line) => captionPhrases(String(line.text || '')).filter(Boolean));
       const gap = phrases.length > 1 ? Math.min(0.12, segmentDuration / (phrases.length * 4)) : 0;
       const usable = Math.max(0.2, segmentDuration - gap * Math.max(0, phrases.length - 1));
-      const weights = phrases.map((phrase) => Math.max(1, phrase.split(/\\s+/).length));
+      const weights = phrases.map((phrase) => Math.max(1, phrase.split(/\s+/).length));
       const totalWeight = weights.reduce((sum, weight) => sum + weight, 0) || 1;
       let cursor = offset + groupIndex * segmentDuration;
       phrases.forEach((phrase, index) => {
         const span = Math.max(0.18, usable * weights[index] / totalWeight);
         const end = Math.min(offset + (groupIndex + 1) * segmentDuration, cursor + span);
-        cues.push(`${cueNumber++}\\n${subtitleTimestamp(cursor)} --> ${subtitleTimestamp(Math.max(cursor + 0.12, end))}\\n${phrase}`);
+        cues.push(`${cueNumber++}\n${subtitleTimestamp(cursor)} --> ${subtitleTimestamp(Math.max(cursor + 0.12, end))}\n${phrase}`);
         cursor = end + gap;
       });
     });
     offset += duration;
   }
-  return cues.join('\\n\\n') + (cues.length ? '\\n' : '');
+  return cues.join('\n\n') + (cues.length ? '\n' : '');
 };
 /**
  * Plays a multi-character production. The video engine makes the pictures and the voices together, so the sound always matches.
