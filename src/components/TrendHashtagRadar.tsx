@@ -37,7 +37,10 @@ import {
   Zap,
   Wand2,
   Send,
-  Eye
+  Eye,
+  Youtube,
+  Newspaper,
+  Globe2
 } from 'lucide-react';
 
 /** YouTube exposes a stable public thumbnail URL for verified public video IDs. */
@@ -291,14 +294,69 @@ export const TrendHashtagRadar: React.FC<TrendHashtagRadarProps> = ({
       )}
 
       {activeNiche.trendingTopics.length > 0 && activeTab !== 'competitors' && activeNiche.researchGrounded && (
-        <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 text-slate-300 p-3 text-[11px] space-y-1.5">
-          <p className="font-semibold text-emerald-300">Live web research · {activeNiche.researchSources?.length || 0} sources</p>
-          <ul className="flex flex-wrap gap-x-4 gap-y-1">
-            {(activeNiche.researchSources || []).map((x) => (
-              <li key={x.url}><a href={x.url} target="_blank" rel="noopener noreferrer" className="text-indigo-300 hover:underline">{x.title.length > 48 ? `${x.title.slice(0, 48)}…` : x.title}</a></li>
-            ))}
-          </ul>
-        </div>
+        <section className="overflow-hidden rounded-2xl border border-emerald-500/20 bg-slate-900/75 shadow-xl shadow-black/10">
+          <div className="flex flex-col gap-3 border-b border-slate-800 bg-gradient-to-r from-emerald-500/10 via-slate-900 to-cyan-500/5 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
+            <div className="flex items-center gap-3">
+              <div className="relative flex h-10 w-10 items-center justify-center rounded-xl border border-emerald-400/20 bg-emerald-400/10">
+                <Search className="h-5 w-5 text-emerald-300" />
+                <span className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full border-2 border-slate-900 bg-emerald-400 shadow-[0_0_12px_rgba(52,211,153,.8)]" />
+              </div>
+              <div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <h2 className="text-sm font-bold text-white sm:text-base">Live Web Research</h2>
+                  <span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-emerald-300">Live sources</span>
+                </div>
+                <p className="mt-0.5 text-[11px] text-slate-400">Real pages and public videos used to build this research · {activeNiche.researchSources?.length || 0} sources found</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 text-[10px] text-slate-400">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+              Evidence-linked results
+            </div>
+          </div>
+          {(activeNiche.researchSources || []).length ? (
+            <div className="grid grid-cols-1 gap-3 p-3 sm:grid-cols-2 sm:p-4 xl:grid-cols-3">
+              {(activeNiche.researchSources || []).slice(0, 15).map((x, index) => {
+                const preview = x.imageUrl || youtubeThumbnail(x.url);
+                const isVideo = x.sourceType === 'video' || !!youtubeThumbnail(x.url);
+                const SourceIcon = isVideo ? Youtube : x.sourceType === 'news' ? Newspaper : Globe2;
+                const publisher = x.platform || x.domain || (() => { try { return new URL(x.url).hostname.replace(/^www\./i, ''); } catch { return 'Web source'; } })();
+                return (
+                  <a key={x.url} href={x.url} target="_blank" rel="noopener noreferrer" className="group overflow-hidden rounded-xl border border-slate-800 bg-slate-950/80 transition-all hover:-translate-y-0.5 hover:border-emerald-400/40 hover:shadow-lg hover:shadow-emerald-950/20">
+                    <div className="relative aspect-[16/9] overflow-hidden bg-gradient-to-br from-slate-800 via-slate-900 to-emerald-950/70">
+                      <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
+                        <div className="flex h-11 w-11 items-center justify-center rounded-xl border border-white/10 bg-white/5 shadow-lg">
+                          <SourceIcon className={`h-6 w-6 ${isVideo ? 'text-red-400' : 'text-emerald-300'}`} />
+                        </div>
+                        <span className="max-w-[80%] truncate text-[10px] font-semibold text-slate-300">{publisher}</span>
+                      </div>
+                      {preview && <img src={preview} alt="" loading="lazy" referrerPolicy="no-referrer" onError={(e) => { e.currentTarget.style.display = 'none'; }} className="absolute inset-0 h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.04]" />}
+                      <div className="absolute inset-x-0 bottom-0 flex items-center justify-between bg-gradient-to-t from-black/90 to-transparent px-3 pb-2 pt-7">
+                        <span className="inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-black/55 px-2 py-1 text-[9px] font-semibold text-white backdrop-blur-sm">
+                          <SourceIcon className={`h-3 w-3 ${isVideo ? 'text-red-300' : 'text-emerald-300'}`} /> {publisher}
+                        </span>
+                        <ExternalLink className="h-3.5 w-3.5 text-white/80" />
+                      </div>
+                    </div>
+                    <div className="space-y-2 p-3">
+                      <div className="flex items-center gap-2">
+                        {x.faviconUrl && <img src={x.faviconUrl} alt="" loading="lazy" onError={(e) => { e.currentTarget.style.display = 'none'; }} className="h-4 w-4 rounded-sm" />}
+                        <span className="min-w-0 truncate text-[10px] font-medium uppercase tracking-wide text-emerald-300/90">{x.domain || publisher}</span>
+                        {x.publishedAt && <span className="ml-auto shrink-0 text-[9px] text-slate-500">{x.publishedAt.slice(0, 10)}</span>}
+                      </div>
+                      <h3 className="line-clamp-2 min-h-[2.5rem] text-xs font-bold leading-5 text-slate-100 group-hover:text-emerald-200">{x.title}</h3>
+                      {x.snippet && <p className="line-clamp-2 text-[10px] leading-4 text-slate-400">{x.snippet}</p>}
+                      <span className="inline-flex items-center gap-1 pt-0.5 text-[10px] font-semibold text-indigo-300 group-hover:text-indigo-200">{isVideo ? 'Watch video' : 'Read source'} <ArrowUpRight className="h-3 w-3" /></span>
+                    </div>
+                  </a>
+                );
+              })}
+            </div>
+          ) : (
+            <p className="p-5 text-xs text-slate-400">Research completed, but no individual source cards were returned.</p>
+          )}
+          {(activeNiche.researchSources || []).length > 15 && <p className="border-t border-slate-800 px-4 py-3 text-center text-[10px] text-slate-500">Showing 15 of {activeNiche.researchSources?.length} live sources</p>}
+        </section>
       )}
 
       {/* Tab: Trending creators and evidence-backed video inspiration */}
