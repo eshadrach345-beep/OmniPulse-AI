@@ -936,7 +936,11 @@ function packLines(lines: PackLine[], halves: number): (PackLine & { half: 1 | 2
   const out: (PackLine & { half: 1 | 2 })[] = [];
   let half: 1 | 2 = 1;
   const inHalf = (h: number) => out.filter((l) => l.half === h);
-  const queue: PackLine[] = lines.map((l) => ({ ...l, text: fitText(l.text, MAX_WORDS_PER_CLIP * halves) }));
+  // Never truncate dialogue to make it fit: preserve every approved word, or ask the writer to shorten/rewrite the scene.
+  const queue: PackLine[] = lines.map((l) => ({ ...l, text: String(l.text || '').trim() }));
+  if (queue.some((l) => wordCount(l.text) > MAX_WORDS_PER_CLIP * halves)) {
+    throw new HttpError(424, `A dialogue line is too long for this ${halves * PART_SECONDS}-second scene. Retrying with the complete line preserved and a shorter delivery.`, 'GEMINI');
+  }
   let droppedLines = 0;
   while (queue.length) {
     const l = queue.shift()!;
