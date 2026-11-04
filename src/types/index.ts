@@ -75,7 +75,7 @@ export interface TrendingTopic {
 export interface HashtagItem {
   tag: string;
   volume: string; // e.g. "2.4M posts"
-  competition: 'Low' | 'Medium' | 'High';
+  competition: 'Low' | 'Medium' | 'High' | 'Unknown';
   velocityScore: number; // 1-100
   category: 'viral' | 'niche' | 'evergreen';
 }
