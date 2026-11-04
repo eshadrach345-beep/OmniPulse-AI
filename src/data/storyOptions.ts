@@ -237,8 +237,8 @@ export const CHARACTER_DESCRIPTOR_MAX = 300;
 export function clampSeconds(wanted: number, secondsLeft?: number | null): number {
   const n = Number.isFinite(wanted) ? wanted : 60;
   const inRange = Math.max(MIN_PART_SECONDS, Math.min(MAX_PART_SECONDS, Math.round(n / 10) * 10));
-  if (secondsLeft == null || !Number.isFinite(secondsLeft)) return inRange;
-  return Math.max(10, Math.min(inRange, Math.floor(secondsLeft / 10) * 10));
+  // Preserve the requested length. The server checks the combined plan + top-up balance and returns a clear limit error; never silently shorten a film here.
+  return inRange;
 }
 
 /** "45 seconds", "1 minute", "2 min 40 s" */
