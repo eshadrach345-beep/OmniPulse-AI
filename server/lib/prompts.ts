@@ -69,7 +69,7 @@ Return ONLY valid JSON in exactly this shape:
 
 export function scriptPrompt(a: {
   idea: string; niche: string; videoType: string; aspectRatio: string;
-  targetPlatforms: string[] | string; directorStyle: string; hookFormula: string; voiceName: string; seconds?: number; variationSeed?: string;
+  targetPlatforms: string[] | string; directorStyle: string; hookFormula: string; voiceName: string; seconds?: number;
 }): string {
   const { idea, niche, videoType, aspectRatio, targetPlatforms, directorStyle, hookFormula, voiceName } = a;
   const seconds = a.seconds === 10 ? 10 : 5;
@@ -86,7 +86,7 @@ Hook formula: ${hookFormula}
 Voice persona: ${voiceName}
 
 Rules:
-- Everything must be about the idea above. Do not mention OmniPulse or any product the user did not mention. Make this script meaningfully distinct from other scripts generated with the same format: vary the opening, setting, example, sequence, visual motif and payoff. Avoid stock hooks and repeated phrasing.
+- Everything must be about the idea above. Do not mention OmniPulse or any product the user did not mention.
 - Do not invent statistics, testimonials or claims. Keep it truthful.
 ${seconds <= 5 ? '- The whole video is 5 seconds long: write exactly 2 scenes of about 2 to 3 seconds each. Scene 1 is the hook, scene 2 the payoff. Total narration must be under 12 words.' : '- The whole video is 10 seconds long: write 3 or 4 scenes of about 2 to 4 seconds each, adding up to about 10 seconds, with a strong hook first and a clear call to action last. Total narration must be under 25 words.'}
 - Narration is natural spoken language, short enough to be spoken within each scene.
@@ -581,7 +581,8 @@ const sceneRules = (cam: { label: string }) => `SCENE RULES:
 - "cameraMotion": one sentence in film language applying the ${cam.label} profile to this shot.
 - "lines": 0 to 3 SHORT lines per scene (usually 3 to 8 words each), spoken in the middle of the action, from different characters whenever the scene allows. A scene with a single line, or an empty list, is fine when the action carries it. Every "speaker" must exactly match a character name. "half" is 1 or 2 (always 1 for 10 second scenes): the half of the scene in which the line is spoken. Respect each scene's word limits exactly; a line must be a complete thought that fits its half.
 - Preserve geography and screen direction across every scene. Keep the 180-degree action axis unless a visible camera move motivates crossing it. Running, driving, falling, throwing and reaching must continue in the same direction and with believable physics.
-- Avoid unnecessary cuts. Prefer one motivated continuous shot per 10-second clip; use a cut only when the story changes viewpoint or location.
+- Every scene after Scene 1 must begin from the previous scene's exact ending state: character positions, facing, travel direction, momentum, props, clothing, injuries, lighting and weather. Carry the previous action forward with a visible bridge; do not reset the action or invent a new position.
+- Avoid unnecessary cuts. Prefer one motivated continuous shot per 10-second clip; use a cut only when the story changes viewpoint or location. Never insert a montage or unrelated reaction shot in the middle of an uninterrupted action beat.
 - Everything must follow from the idea. Do not invent statistics or claims. Safe: no real people, no sexual content, no graphic violence, no hate. Write all dialogue in English.`;
 
 interface WriterBase {
