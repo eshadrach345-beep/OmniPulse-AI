@@ -117,3 +117,7 @@ export async function zernioPublish(userId:string,platform:string,post:{text:str
   const id=String(result?._id||result?.id||platformResult?.platformPostId||'queued');
   return `${platform}:${id}`;
 }
+
+export async function zernioHealth():Promise<void>{
+  await zernioRequest('/profiles');
+}
