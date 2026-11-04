@@ -105,7 +105,7 @@ export function verifyFlwSignature(header: string | undefined) {
 // Gemini
 // =====================================================================
 // Stable models first. Newer "preview" models are often paid-only, so they only run when GEMINI_MODEL names them.
-const PREFERRED_MODELS = () => [...new Set([(process.env.GEMINI_MODEL || '').trim(), 'gemini-2.5-flash', 'gemini-2.5-flash-lite'].filter(Boolean))] as string[];
+const PREFERRED_MODELS = () => [...new Set([(process.env.GEMINI_MODEL || '').trim(), 'gemini-3.8-flash', 'gemini-3.5-flash-lite'].filter(Boolean))] as string[];
 
 export interface GeminiResult { data: any; model: string; grounded: boolean; sources: { title: string; url: string }[] }
 
@@ -362,7 +362,9 @@ export async function llmGenerate(prompt: string, o: { json?: boolean; timeoutMs
   const start = Date.now();
   const deadline = start + (o.deadlineMs || 50_000);
   const backups = llmBackups();
-  const wantsBackupFirst = (o.preferBackup || (process.env.LLM_PRIMARY || '').trim().toLowerCase() === 'backup') && backups.length > 0;
+  const configuredPrimary = (process.env.LLM_PRIMARY || '').trim().toLowerCase();
+  // A configured OpenAI-compatible backup (Groq by default in this app) is the primary writer unless Gemini is explicitly selected.
+  const wantsBackupFirst = backups.length > 0 && (o.preferBackup === true || (o.preferBackup !== false && configuredPrimary !== 'gemini') || configuredPrimary === 'backup');
   const errs: { who: string; f: GeminiFail }[] = [];
   const tryGemini = async () => {
     const keys = geminiKeyList(); if (!keys.length) return null;
@@ -527,18 +529,18 @@ export async function geminiJson(prompt: string, opts: { grounded?: boolean } = 
 // =====================================================================
 /** Video model. Override with FAL_VIDEO_MODEL; extra JSON input (e.g. aspect_ratio) can be set in FAL_VIDEO_INPUT. */
 const FAL_APP = () => (process.env.FAL_VIDEO_MODEL || 'minimax/h3-max-turbo/text-to-video').trim();
-function falVideoBody(prompt: string, resolution: string, seconds: number) {
+function falVideoBody(prompt: string, resolution: string, seconds: number, aspect: string) {
   let extra: Record<string, unknown> = {};
   try { extra = JSON.parse(process.env.FAL_VIDEO_INPUT || '{}'); } catch { /* ignore bad JSON */ }
-  return { prompt, duration: seconds, resolution, prompt_expansion_mode: 'disabled', ...extra };
+  return { prompt, duration: seconds, resolution, aspect_ratio: aspect, prompt_expansion_mode: process.env.FAL_PROMPT_EXPANSION || 'balanced', ...extra };
 }
 const falHeaders = () => ({ Authorization: `Key ${need('FAL_KEY')}`, 'Content-Type': 'application/json' });
 
-export async function falSubmit(prompt: string, resolution: '480P' | '768P' | '1080P' = '480P', seconds = 5) {
+export async function falSubmit(prompt: string, resolution: '480P' | '768P' | '1080P' = '480P', seconds = 5, aspect = '9:16') {
   let r: Response;
   try {
     r = await fetch(`https://queue.fal.run/${FAL_APP()}`, {
-      method: 'POST', headers: falHeaders(), body: JSON.stringify(falVideoBody(prompt, resolution, seconds)), signal: AbortSignal.timeout(20_000),
+      method: 'POST', headers: falHeaders(), body: JSON.stringify(falVideoBody(prompt, resolution, seconds, aspect)), signal: AbortSignal.timeout(20_000),
     });
   } catch (e: any) {
     console.error('fal submit network error', e?.name, e?.message);
@@ -552,6 +554,28 @@ export async function falSubmit(prompt: string, resolution: '480P' | '768P' | '1
     throw new HttpError(424, msg, 'FAL');
   }
   return { requestId: d.request_id as string, statusUrl: d.status_url as string, responseUrl: d.response_url as string };
+}
+
+/** Continues a finished fal clip from its exact final frame using MiniMax H3 Max Turbo image-to-video. */
+export async function falContinueSubmit(prompt: string, imageUrl: string, resolution: '480P' | '768P' | '1080P' = '480P', seconds = 10, aspect = '9:16') {
+  const model = 'minimax/h3-max-turbo/image-to-video';
+  let r: Response;
+  try {
+    r = await fetch(`https://queue.fal.run/${model}`, {
+      method: 'POST', headers: falHeaders(),
+      body: JSON.stringify({ prompt, image_url: imageUrl, duration: seconds, resolution, aspect_ratio: aspect, prompt_expansion_mode: process.env.FAL_PROMPT_EXPANSION || 'balanced' }),
+      signal: AbortSignal.timeout(30_000),
+    });
+  } catch (e: any) {
+    throw new HttpError(424, e?.name === 'TimeoutError' ? 'The continuity video engine did not respond in time.' : 'Could not reach the continuity video engine.', 'FAL');
+  }
+  const d: any = await r.json().catch(() => ({}));
+  if (!r.ok || !d.request_id || !d.status_url || !d.response_url) {
+    console.error('fal continuation submit failed', r.status, d);
+    const detail = typeof d?.detail === 'string' ? d.detail : d?.detail ? JSON.stringify(d.detail) : '';
+    throw new HttpError(424, r.status === 401 || r.status === 403 ? 'fal.ai rejected the key. Check FAL_KEY and your balance.' : r.status === 402 ? 'fal.ai credits are exhausted.' : `The continuity render was rejected (${r.status}${detail ? `: ${detail.slice(0, 180)}` : ''}).`, 'FAL');
+  }
+  return { requestId: String(d.request_id), statusUrl: String(d.status_url), responseUrl: String(d.response_url) };
 }
 
 export async function falStatus(statusUrl: string, responseUrl: string) {
