@@ -15,6 +15,8 @@ export const CreatorUploadStudio: React.FC = () => {
   const [progress, setProgress] = useState(0);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [preview, setPreview] = useState<{ id: string; url: string; contentType: string; name: string } | null>(null);
+  const [previewing, setPreviewing] = useState<string | null>(null);
 
   const refresh = async () => {
     try {
@@ -26,6 +28,18 @@ export const CreatorUploadStudio: React.FC = () => {
   };
 
   useEffect(() => { void refresh(); }, []);
+
+
+  const openPreview = async (asset: MediaAsset) => {
+    setPreviewing(asset.id);
+    setError('');
+    try {
+      const result = await api.get<{ url: string }>(`/media/url?id=${encodeURIComponent(asset.id)}`);
+      setPreview({ id: asset.id, url: result.url, contentType: asset.contentType, name: asset.name });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not open this media file.');
+    } finally { setPreviewing(null); }
+  };
 
   const handleFiles = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -80,6 +94,8 @@ export const CreatorUploadStudio: React.FC = () => {
       {message && <p className="flex items-center gap-2 text-xs text-emerald-300"><CheckCircle2 className="h-4 w-4 shrink-0" />{message}</p>}
       {error && <p role="alert" className="flex items-center gap-2 text-xs text-rose-300"><AlertCircle className="h-4 w-4 shrink-0" />{error}</p>}
 
+      {preview && <div className="rounded-xl border border-indigo-500/30 bg-slate-900 p-3 space-y-2"><div className="flex items-center justify-between gap-2"><p className="truncate text-xs font-semibold text-white">Preview: {preview.name}</p><button type="button" onClick={() => setPreview(null)} className="text-xs text-slate-400 hover:text-white">Close</button></div>{preview.contentType.startsWith('video/') ? <video src={preview.url} controls playsInline className="max-h-72 w-full rounded-lg bg-black" /> : preview.contentType.startsWith('audio/') ? <audio src={preview.url} controls className="w-full" /> : <img src={preview.url} alt={preview.name} className="max-h-72 max-w-full rounded-lg object-contain" />}</div>}
+
       <div className="flex items-center justify-between gap-3 border-t border-slate-800 pt-3">
         <div className="flex items-center gap-2"><HardDrive className="h-4 w-4 text-indigo-300" /><h3 className="text-xs font-semibold text-slate-200">Your media library</h3><span className="rounded-md bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-400">{assets.length}</span></div>
         <button type="button" onClick={() => { setLoading(true); void refresh(); }} disabled={loading} className="inline-flex items-center gap-1 text-[10px] text-slate-400 hover:text-white disabled:opacity-40"><RefreshCw className={`h-3 w-3 ${loading ? 'animate-spin' : ''}`} />Refresh</button>
@@ -93,7 +109,7 @@ export const CreatorUploadStudio: React.FC = () => {
             return <div key={asset.id} className="flex min-w-0 items-center gap-3 rounded-lg border border-slate-800 bg-slate-900/60 p-3">
               <div className="rounded-lg bg-slate-800 p-2 text-indigo-300"><Icon className="h-4 w-4" /></div>
               <div className="min-w-0 flex-1"><p className="truncate text-xs font-medium text-slate-200">{asset.name}</p><p className="mt-0.5 text-[10px] text-slate-500">{prettySize(Number(asset.size) || 0)} · {new Date(asset.createdAt).toLocaleDateString()}</p></div>
-              <ShieldCheck className="h-4 w-4 shrink-0 text-emerald-400" />
+              <button type="button" onClick={() => void openPreview(asset)} disabled={previewing === asset.id} className="shrink-0 rounded-md border border-slate-700 px-2 py-1 text-[10px] text-indigo-200 hover:border-indigo-500 disabled:opacity-50">{previewing === asset.id ? 'Opening…' : 'Preview'}</button>
             </div>;
           })}
         </div>
