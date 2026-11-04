@@ -166,14 +166,18 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
 
   // Ensure active video has valid videoUrl
   const currentVideoSrc = activeVideo.videoUrl || '';
+  const previousSelectedVideoId = useRef(selectedVideoId);
 
-  // Sync active video if prop changes
+  // Keep the active project in sync with autosaved edits. Reset playback only
+  // when the creator switches projects, never on every timeline autosave.
   useEffect(() => {
+    const selectionChanged = previousSelectedVideoId.current !== selectedVideoId;
+    previousSelectedVideoId.current = selectedVideoId;
     if (selectedVideoId) {
       const found = effectiveVideos.find(v => v.id === selectedVideoId);
       if (found) {
         setActiveVideo(found);
-        resetPlayer();
+        if (selectionChanged) resetPlayer();
       }
     } else if (videos.length === 0) {
       setActiveVideo(BLANK_VIDEO);
