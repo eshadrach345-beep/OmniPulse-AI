@@ -316,7 +316,7 @@ export const TrendHashtagRadar: React.FC<TrendHashtagRadarProps> = ({
           </div>
           {(activeNiche.researchSources || []).length ? (
             <div className="grid grid-cols-1 gap-3 p-3 sm:grid-cols-2 sm:p-4 xl:grid-cols-3">
-              {(activeNiche.researchSources || []).slice(0, 15).map((x, index) => {
+              {(activeNiche.researchSources || []).slice(0, 15).map((x) => {
                 const preview = x.imageUrl || youtubeThumbnail(x.url);
                 const isVideo = x.sourceType === 'video' || !!youtubeThumbnail(x.url);
                 const SourceIcon = isVideo ? Youtube : x.sourceType === 'news' ? Newspaper : Globe2;
