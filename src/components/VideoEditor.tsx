@@ -24,6 +24,10 @@ export const VideoEditor: React.FC<Props> = ({ video, onSave }) => {
   const patchCurrent = (patch: Partial<VideoScene>) => {
     if (current) commit(scenes.map((scene, index) => index === selected ? { ...scene, ...patch } : scene));
   };
+  const patchLine = (lineIndex: number, patch: Partial<NonNullable<VideoScene['lines']>[number]>) => {
+    if (!current?.lines) return;
+    patchCurrent({ lines: current.lines.map((line, index) => index === lineIndex ? { ...line, ...patch } : line) });
+  };
   const move = (to: number) => {
     if (to < 0 || to >= scenes.length) return;
     const next = [...scenes]; const [item] = next.splice(selected, 1); next.splice(to, 0, item);
@@ -85,6 +89,7 @@ export const VideoEditor: React.FC<Props> = ({ video, onSave }) => {
             <label className="block space-y-1"><span className="text-[11px] font-medium text-slate-400">Overlay placement</span><select value={current.overlayPosition || 'center'} onChange={(event) => patchCurrent({ overlayPosition: event.target.value as VideoScene['overlayPosition'] })} className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-white"><option value="top">Top title</option><option value="center">Center title</option><option value="bottom">Bottom lower-third</option></select></label>
             <label className="block space-y-1"><span className="text-[11px] font-medium text-slate-400">Visual direction</span><textarea value={current.visualCue || ''} onChange={(e) => patchCurrent({ visualCue: e.target.value })} rows={3} maxLength={1200} className="w-full resize-y rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-white outline-none focus:border-indigo-400" /></label>
             <label className="block space-y-1"><span className="text-[11px] font-medium text-slate-400">Scene dialogue / narration</span><textarea value={current.narration || ''} onChange={(e) => patchCurrent({ narration: e.target.value })} rows={3} maxLength={1600} className="w-full resize-y rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-white outline-none focus:border-indigo-400" /></label>
+            {!!current.lines?.length && <div className="space-y-2 border-t border-slate-800 pt-3"><p className="text-[11px] font-semibold text-slate-300">Subtitle / dialogue track</p>{current.lines.map((line, lineIndex) => <div key={lineIndex} className="rounded-lg border border-slate-800 bg-slate-950 p-2 space-y-1.5"><input value={line.speaker} onChange={(e) => patchLine(lineIndex, { speaker: e.target.value })} aria-label="Dialogue speaker" className="w-full rounded border border-slate-700 bg-slate-900 px-2 py-1.5 text-[11px] font-semibold text-indigo-200" /><textarea value={line.text} onChange={(e) => patchLine(lineIndex, { text: e.target.value })} rows={2} maxLength={500} aria-label="Dialogue subtitle" className="w-full resize-y rounded border border-slate-700 bg-slate-900 px-2 py-1.5 text-xs text-white" /></div>)}</div>}
           </>}
           <p className="text-[10px] leading-relaxed text-slate-500">Reordering and cutting scenes changes the scene sequence used for the joined film. Overlay and script edits are saved to the project; source footage remains untouched.</p>
         </div>
