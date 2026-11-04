@@ -66,6 +66,11 @@ export async function zernioSyncAccounts(userId:string,limit:number):Promise<num
   const accounts:any[]=Array.isArray(d?.accounts)?d.accounts:[];
   let added=0;
   const supported=accounts.filter(a=>FROM_Z[String(a?.platform||'')] && (a?.isActive!==false));
+  const remoteIds=new Set(supported.map(a=>String(a._id||a.accountId||'')).filter(Boolean));
+  const existingRows:any[]=await sql()`SELECT platform,account_id FROM zernio_connections WHERE user_id=${userId}`;
+  for(const old of existingRows){
+    if(!remoteIds.has(String(old.account_id))) await sql()`DELETE FROM zernio_connections WHERE user_id=${userId} AND platform=${old.platform}`;
+  }
   const existing:any[]=await sql()`SELECT platform FROM zernio_connections WHERE user_id=${userId}`;
   const known=new Set(existing.map(r=>String(r.platform)));
   for(const a of supported){
