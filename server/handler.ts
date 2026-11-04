@@ -9,10 +9,9 @@ import { mail, flw, verifyFlwSignature, lookupEnv, geminiJson, geminiRaw, gemini
 import { trendsFormatPrompt, scriptPrompt, adConceptPrompt, abPrompt, competitorPrompt, outrankPrompt, parseStoryBrief, type SeriesContinuity, type StoryBriefInput, storyBeats, STORY_MOODS, CAMERA_PROFILES, GENRES, INTENSITIES, ENDINGS, PRESENTATIONS, CASTS, TROPES, styleBlock, STORY_LIMITS, planScenes, castMinimum, storyboardPrompt, outlinePrompt, chunkPrompt, adaptPrompt, PART_SECONDS, SCENES_PER_WRITER_CALL, MAX_WORDS_PER_CLIP } from './lib/prompts.js';
 import { assembleParts } from './lib/assemble.js';
 import { refineScene, shownInstruction, proseToUnits, thoughtToVisual, type SpokenLine } from './lib/screenplay.js';
-import { ppConfigured, ppConnectUrl, ppSync, ppForget, ppPublish, ppHealth } from './lib/postpeer.js';
 import { mergeClips, lastFrameJpeg } from './lib/merge.js';
 import { PROVIDERS, PLATFORM_IDS, Platform, isPlatform, isConfigured, redirectUri, socialPkce, socialAuthorizeUrl, exchangeSocialCode, saveSocialConnection, listSocialAccounts, removeSocialConnection, publishToPlatform, socialMetrics } from './lib/social.js';
-import { zernioConfigured, zernioConnectUrl, zernioSyncAccounts, zernioListAccounts, zernioDisconnect, zernioPublish } from './lib/zernio.js';
+import { zernioConfigured, zernioConnectUrl, zernioSyncAccounts, zernioListAccounts, zernioDisconnect, zernioPublish, zernioHealth } from './lib/zernio.js';
 
 // We parse bodies ourselves (webhooks need the raw bytes).
 export const config = { api: { bodyParser: false }, maxDuration: 60 };
@@ -1131,15 +1130,15 @@ const systemCheck: Handler = async ({ req, res }) => {
       for (const x of ids) { const p = await flw(`/payment-plans/${encodeURIComponent(x.id!)}`).catch(() => { throw new Error(`Plan ${x.id} (${x.t} ${x.c}) was not found. Is it in the same mode (Test/Live) as your secret key?`); }); out.push(`${x.t} ${x.c}: ${p.amount} ${p.currency}`); }
       return `Key accepted. Plans: ${out.join(' · ')}`;
     }),
-    run('PostPeer (social publishing)', async () => {
-      if (!ppConfigured()) return 'Not set up. Add POSTPEER_API_KEY in Vercel to connect social accounts.';
-      await ppHealth();
-      return 'Key accepted by PostPeer. Customers can connect their accounts.';
+    run('Zernio (social publishing)', async () => {
+      if (!zernioConfigured()) throw new Error('ZERNIO_API_KEY is not set in Vercel. Add it and redeploy to enable customer social connections.');
+      await zernioHealth();
+      return 'Zernio API key accepted. Each OmniPulse customer will use a separate profile.';
     }),
-    run('Social networks (direct connect)', async () => {
-      if (ppConfigured()) return 'Not needed: PostPeer is handling the connections.';
+    run('Social networks (direct connect fallback)', async () => {
+      if (zernioConfigured()) return 'Not needed: Zernio is handling social connections.';
       const lines = PLATFORM_IDS.map((p) => `${PROVIDERS[p].name}: ${isConfigured(p) ? 'ready' : `missing ${PROVIDERS[p].idEnv} / ${PROVIDERS[p].secretEnv}`} · redirect ${redirectUri(appUrl(req), p)}`);
-      if (!PLATFORM_IDS.some((p) => isConfigured(p))) throw new Error(`No social network is set up yet. ${lines.join(' | ')}`);
+      if (!PLATFORM_IDS.some((p) => isConfigured(p))) throw new Error(`Zernio is not configured and no direct social network developer apps are set up. Add ZERNIO_API_KEY in Vercel.`);
       return lines.join(' | ');
     }),
     run('Scheduled-post sender', async () => {
