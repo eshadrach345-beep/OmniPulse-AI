@@ -68,7 +68,7 @@ export const TrendHashtagRadar: React.FC<TrendHashtagRadarProps> = ({
   const [activeTab, setActiveTab] = useState<'topics' | 'creators' | 'hashtags' | 'competitors' | 'best-practices'>('topics');
   const [showAllCreators, setShowAllCreators] = useState(false);
   const [creatorPlatformFilter, setCreatorPlatformFilter] = useState('All');
-  const [creatorSort, setCreatorSort] = useState<'rank' | 'views' | 'recent'>('rank');
+  const [creatorSort, setCreatorSort] = useState<'rank' | 'views' | 'velocity' | 'recent'>('rank');
 
   // Handle custom niche search or refresh analysis
   const handleRunAnalysis = async (e?: React.FormEvent) => {
@@ -135,6 +135,7 @@ export const TrendHashtagRadar: React.FC<TrendHashtagRadarProps> = ({
     .slice()
     .sort((a, b) => {
       if (creatorSort === 'views') return Math.max(0, ...(b.recentVideos || []).map(v => v.views || 0)) - Math.max(0, ...(a.recentVideos || []).map(v => v.views || 0));
+      if (creatorSort === 'velocity') return Math.max(0, ...(b.recentVideos || []).map(v => v.viewsPerHour || 0)) - Math.max(0, ...(a.recentVideos || []).map(v => v.viewsPerHour || 0));
       if (creatorSort === 'recent') return Math.max(0, ...(b.recentVideos || []).map(v => Date.parse(v.publishedAt || '') || 0)) - Math.max(0, ...(a.recentVideos || []).map(v => Date.parse(v.publishedAt || '') || 0));
       return (a.rank || 999) - (b.rank || 999);
     });
@@ -306,8 +307,8 @@ export const TrendHashtagRadar: React.FC<TrendHashtagRadarProps> = ({
                   <select aria-label="Filter creators by platform" value={creatorPlatformFilter} onChange={(e) => { setCreatorPlatformFilter(e.target.value); setShowAllCreators(false); }} className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-200">
                     <option value="All">All platforms</option><option value="YouTube">YouTube</option><option value="TikTok">TikTok</option><option value="Instagram">Instagram</option><option value="Facebook">Facebook</option><option value="X">X</option><option value="LinkedIn">LinkedIn</option>
                   </select>
-                  <select aria-label="Sort creators" value={creatorSort} onChange={(e) => setCreatorSort(e.target.value as 'rank' | 'views' | 'recent')} className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-200">
-                    <option value="rank">Sort: evidence rank</option><option value="views">Sort: public views</option><option value="recent">Sort: newest content</option>
+                  <select aria-label="Sort creators" value={creatorSort} onChange={(e) => setCreatorSort(e.target.value as 'rank' | 'views' | 'velocity' | 'recent')} className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-200">
+                    <option value="rank">Sort: evidence rank</option><option value="views">Sort: public views</option><option value="velocity">Sort: views per hour</option><option value="recent">Sort: newest content</option>
                   </select>
                 </div>
                 {creatorResults.length > 10 && (
