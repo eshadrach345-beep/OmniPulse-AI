@@ -488,6 +488,7 @@ async function youtubePublicTrendEvidence(niche: string): Promise<{ text: string
       videoId: v.id, title: String((v.snippet && v.snippet.title) || '').slice(0, 220),
       channelId: v.snippet && v.snippet.channelId, channelTitle: String((v.snippet && v.snippet.channelTitle) || ''),
       publishedAt: (v.snippet && v.snippet.publishedAt) || '', views: Number((v.statistics && v.statistics.viewCount) || 0),
+      viewsPerHour: Math.round(Number((v.statistics && v.statistics.viewCount) || 0) / Math.max(1, (Date.now() - new Date((v.snippet && v.snippet.publishedAt) || Date.now()).getTime()) / 3600000)),
       likes: Number((v.statistics && v.statistics.likeCount) || 0), comments: Number((v.statistics && v.statistics.commentCount) || 0),
       thumbnail: (v.snippet && v.snippet.thumbnails && (v.snippet.thumbnails.high || v.snippet.thumbnails.medium) && (v.snippet.thumbnails.high || v.snippet.thumbnails.medium).url) || '',
       subscribers: Number((ch && ch.statistics && ch.statistics.subscriberCount) || 0),
@@ -509,7 +510,7 @@ async function youtubePublicTrendEvidence(niche: string): Promise<{ text: string
     '\nPublished: ' + c.publishedAt + '\nPublic views: ' + c.views +
     '\nPublic likes: ' + (c.likes || 'Hidden') + '\nPublic comments: ' + (c.comments || 'Hidden') +
     '\nThumbnail: ' + c.thumbnail + '\nAdditional videos: ' +
-    (c.topVideos.slice(1).map((v: any) => v.title + ' | ' + v.videoUrl + ' | ' + v.views + ' public views | ' + v.publishedAt + ' | ' + v.thumbnail).join(' ; ') || 'None returned')
+    (c.topVideos.slice(1).map((v: any) => v.title + ' | ' + v.videoUrl + ' | ' + v.views + ' public views | ' + v.viewsPerHour + ' public views/hour (calculated) | ' + v.publishedAt + ' | ' + v.thumbnail).join(' ; ') || 'None returned')
   ).join('\n\n');
   const sources = creators.flatMap((c: any) => [
     { title: c.channelTitle + ' — YouTube channel', url: c.channelUrl },
