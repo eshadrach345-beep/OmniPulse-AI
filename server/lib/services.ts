@@ -507,7 +507,7 @@ async function youtubePublicTrendEvidence(niche: string): Promise<{ text: string
     '[YOUTUBE PUBLIC CREATOR ' + (i + 1) + '] ' + c.channelTitle +
     '\nChannel: ' + c.channelUrl + '\nSubscribers (public): ' + (c.subscribers || 'Hidden') +
     '\nTop recent public video: ' + c.title + '\nVideo URL: ' + c.videoUrl +
-    '\nPublished: ' + c.publishedAt + '\nPublic views: ' + c.views +
+    '\nPublished: ' + c.publishedAt + '\nPublic views: ' + c.views + '\nCalculated public views per hour: ' + c.viewsPerHour +
     '\nPublic likes: ' + (c.likes || 'Hidden') + '\nPublic comments: ' + (c.comments || 'Hidden') +
     '\nThumbnail: ' + c.thumbnail + '\nAdditional videos: ' +
     (c.topVideos.slice(1).map((v: any) => v.title + ' | ' + v.videoUrl + ' | ' + v.views + ' public views | ' + v.viewsPerHour + ' public views/hour (calculated) | ' + v.publishedAt + ' | ' + v.thumbnail).join(' ; ') || 'None returned')
