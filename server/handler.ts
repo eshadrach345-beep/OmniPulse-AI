@@ -1964,7 +1964,7 @@ const routes: Record<string, Handler> = {
     ok: true, build: (process.env.VERCEL_GIT_COMMIT_SHA || 'local').slice(0, 7),
     configured: {
       database: !!(process.env.DATABASE_URL || process.env.POSTGRES_URL), sessionSecret: (process.env.SESSION_SECRET || '').length >= 32,
-      gemini: !!lookupEnv('GEMINI_API_KEY'), groq: !!lookupEnv('GROQ_API_KEY'), tavily: !!lookupEnv('TAVILY_API_KEY'), brave: !!lookupEnv('BRAVE_SEARCH_API_KEY'), fal: !!lookupEnv('FAL_KEY'), postpeer: ppConfigured(), deapi: !!lookupEnv('DEAPI_API_KEY'), resend: !!lookupEnv('RESEND_API_KEY'),
+      gemini: !!lookupEnv('GEMINI_API_KEY'), groq: !!lookupEnv('GROQ_API_KEY'), tavily: !!lookupEnv('TAVILY_API_KEY'), brave: !!lookupEnv('BRAVE_SEARCH_API_KEY'), youtubeData: !!lookupEnv('YOUTUBE_API_KEY') || !!lookupEnv('YOUTUBE_DATA_API_KEY'), fal: !!lookupEnv('FAL_KEY'), postpeer: ppConfigured(), deapi: !!lookupEnv('DEAPI_API_KEY'), resend: !!lookupEnv('RESEND_API_KEY'),
       flutterwave: !!process.env.FLW_SECRET_KEY, flutterwaveHash: !!process.env.FLW_SECRET_HASH, social: Object.fromEntries(PLATFORM_IDS.map((p) => [p, isConfigured(p)])), cron: !!process.env.CRON_SECRET, ownerCode: !!process.env.OWNER_ACCESS_CODE,
     },
   }),
