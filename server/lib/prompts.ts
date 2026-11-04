@@ -708,3 +708,27 @@ Return ONLY valid JSON in exactly this shape:
   "callToAction": "<short closing line for the caption>"
 }`;
 }
+
+
+/** Premium ad concepts grounded only in the user's supplied brand/product facts. */
+export function adConceptPrompt(a: { brand: string; product: string; audience: string; brief: string; aspect: string }): string {
+  return `You are a senior creative director at a world-class advertising agency. Create 3 distinct, production-ready short-form ad concepts for the user's real brand.
+Brand: "${a.brand}"
+Product/service: "${a.product}"
+Target audience: "${a.audience}"
+User's creative brief: "${a.brief}"
+Frame: ${a.aspect}
+
+For each concept, give it a different creative route (for example: premium cinematic reveal, problem-to-solution, or lifestyle aspiration). Be specific about the opening hook, visual action, lighting, camera movement, product details, voice-over, on-screen copy and call to action. Make the product the hero. Keep the ad credible and polished. Do not invent prices, discounts, guarantees, certifications, customer reviews, statistics, ingredients, product capabilities or results. If a fact is not supplied, avoid claiming it.
+
+Also create two image prompts for premium brand campaign stills. Keep the product's identity and packaging faithful to the supplied description. No fake logos or unreadable generated text; leave clean negative space for real branding to be added later.
+
+Return ONLY valid JSON:
+{
+  "concepts": [
+    { "title": "...", "hook": "...", "direction": "...", "videoPrompt": "...", "voiceover": "...", "onScreenText": "...", "callToAction": "...", "imagePrompt": "..." }
+  ],
+  "brandImagePrompts": ["...", "..."],
+  "recommendedConcept": 1
+}`;
+}
