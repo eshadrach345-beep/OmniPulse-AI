@@ -178,10 +178,41 @@ export interface VideoCharacter {
 }
 
 export interface SceneLine { speaker: string; text: string; half?: 1 | 2; emotion?: string; doing?: string }
+export type VideoMediaLayerKind = 'video' | 'image' | 'audio';
+export type VideoMediaTrack = 'main' | 'overlay' | 'audio';
+
+/** A persistent reference to a private creator-library asset. Never store temporary signed URLs here. */
+export interface VideoMediaLayer {
+  id: string;
+  assetId: string;
+  name: string;
+  contentType: string;
+  kind: VideoMediaLayerKind;
+  track: VideoMediaTrack;
+  startAt: number;
+  sourceIn: number;
+  duration: number;
+  volume: number;
+  opacity: number;
+  scale: number;
+  x: number;
+  y: number;
+}
+
+export interface VideoCaptionCue {
+  start: number;
+  end: number;
+  text: string;
+}
+
 
 export interface VideoScene {
   id: string;
   /** Multi-character productions: what each character says in this scene. */
+  /** Private creator-library sources and overlays, stored by asset ID rather than expiring URL. */
+  mediaLayers?: VideoMediaLayer[];
+  /** Word/segment-timed captions created from source-media transcription. */
+  captions?: VideoCaptionCue[];
   lines?: SceneLine[];
   /** Multi-character productions: the rendered clip for this scene. */
   clipUrl?: string;
