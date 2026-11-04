@@ -316,6 +316,9 @@ export const TrendHashtagRadar: React.FC<TrendHashtagRadarProps> = ({
                   </button>
                 )}
               </div>
+              {creatorResults.length === 0 ? (
+                <div className="rounded-xl border border-dashed border-slate-700 bg-slate-900/50 p-6 text-center text-xs text-slate-400">No creators were found for this platform filter. Try another platform or return to All platforms.</div>
+              ) : (
               <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
                 {creatorResults.slice(0, showAllCreators ? 50 : 10).map((c, i) => (
                   <article key={c.url || c.handle || c.name + i} className="bg-slate-900/75 border border-slate-800 rounded-xl p-4 sm:p-5 space-y-3 hover:border-indigo-500/40 transition-colors">
@@ -367,6 +370,7 @@ export const TrendHashtagRadar: React.FC<TrendHashtagRadarProps> = ({
                   </article>
                 ))}
               </div>
+              )}
             </>
           )}
         </div>
