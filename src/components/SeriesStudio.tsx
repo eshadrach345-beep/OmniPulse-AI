@@ -75,7 +75,7 @@ function episodeCaptionTracks(scenes: Episode['scenes']): CaptionCue[][] {
       let cursor = 0.35;
       const cues: CaptionCue[] = [];
       for (const line of lines) {
-        const count = line.text.trim().split(/\\s+/).filter(Boolean).length;
+        const count = line.text.trim().split(/\s+/).filter(Boolean).length;
         const duration = Math.max(1.25, Math.min(4.8, count / 2.25 + 0.45));
         const start = Math.min(cursor, 9.1);
         const end = Math.min(9.8, start + duration);
@@ -430,9 +430,9 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
                 )}
                 <button type="button" onClick={() => {
                   const tracks = episodeCaptionTracks(episode.scenes); let offset = 0; const cues: string[] = [];
-                  tracks.forEach((track) => { track.forEach((cue) => { cues.push(`${cues.length + 1}\\n${vttTime(offset + cue.start)} --> ${vttTime(offset + cue.end)}\\n${cue.text}`); }); offset += 10; });
-                  const base = (episode.title || 'omnipulse-subtitles').replace(/[^\\w\\- ]+/g, '').trim().slice(0, 60) || 'omnipulse-subtitles';
-                  saveBlob(new Blob([`WEBVTT\\n\\n${cues.join('\\n\\n')}`], { type: 'text/vtt' }), `${base}.vtt`);
+                  tracks.forEach((track) => { track.forEach((cue) => { cues.push(`${cues.length + 1}\n${vttTime(offset + cue.start)} --> ${vttTime(offset + cue.end)}\n${cue.text}`); }); offset += 10; });
+                  const base = (episode.title || 'omnipulse-subtitles').replace(/[^\w\- ]+/g, '').trim().slice(0, 60) || 'omnipulse-subtitles';
+                  saveBlob(new Blob([`WEBVTT\n\n${cues.join('\n\n')}`], { type: 'text/vtt' }), `${base}.vtt`);
                 }} className="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-white flex items-center gap-1.5"><FileText className="w-3.5 h-3.5" />Download accurate subtitles (.vtt)</button>
                 {single
                   ? <><button type="button" onClick={backToList} className="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-white flex items-center gap-1.5"><Plus className="w-3.5 h-3.5" />Make another video</button>
