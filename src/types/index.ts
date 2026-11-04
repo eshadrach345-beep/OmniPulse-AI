@@ -51,6 +51,8 @@ export interface TrendingCreatorVideo {
   publishedAt?: string;
   /** Public view count only; never private impressions. */
   views?: number | null;
+  /** Calculated from public views and elapsed time; not platform-reported impressions. */
+  viewsPerHour?: number | null;
   metricLabel?: string;
 }
 export interface TrendingCreator {
