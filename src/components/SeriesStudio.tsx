@@ -75,11 +75,11 @@ function episodeCaptionTracks(scenes: Episode['scenes']): CaptionCue[][] {
       let cursor = 0.25;
       const cues: CaptionCue[] = [];
       for (const line of lines) {
-        const words = line.text.trim().split(/\\s+/).filter(Boolean);
+        const words = line.text.trim().split(/\s+/).filter(Boolean);
         for (let i = 0; i < words.length; i += 5) {
           if (cursor >= 9.65) break;
           const phrase = words.slice(i, i + 5).join(' ');
-          const count = phrase.split(/\\s+/).filter(Boolean).length;
+          const count = phrase.split(/\s+/).filter(Boolean).length;
           const duration = Math.max(0.85, Math.min(2.35, count / 2.65 + 0.28));
           const end = Math.min(9.85, cursor + duration);
           cues.push({ start: cursor, end, text: phrase });
