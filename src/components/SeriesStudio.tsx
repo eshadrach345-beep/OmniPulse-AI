@@ -65,22 +65,40 @@ const saveBlob = (blob: Blob, name: string) => {
 };
 
 type CaptionCue = { start: number; end: number; text: string };
-/** Build captions only from the approved screenplay, never from text hallucinated inside generated footage. */
+/** Captions come only from approved spoken dialogue, split into natural reading phrases. Never add speaker labels or invented copy. */
 function episodeCaptionTracks(scenes: Episode['scenes']): CaptionCue[][] {
   const tracks: CaptionCue[][] = [];
+  const phrases = (text: string) => {
+    const tokens = text.trim().split(/\\s+/).filter(Boolean);
+    const out: string[] = [];
+    let at = 0;
+    while (at < tokens.length) {
+      let stop = Math.min(tokens.length, at + 6);
+      if (stop < tokens.length) {
+        for (let j = stop; j >= at + 3; j--) {
+          if (/[,.!?;:]$/.test(tokens[j - 1])) { stop = j; break; }
+        }
+      }
+      out.push(tokens.slice(at, stop).join(' '));
+      at = stop;
+    }
+    return out;
+  };
   for (const scene of scenes) {
     const halves = Math.max(1, Math.ceil(scene.clipSeconds / 10));
     for (let half = 1; half <= halves; half++) {
       const lines = scene.lines.filter((line) => (line.half || 1) === half);
-      let cursor = 0.35;
+      let cursor = 0.25;
       const cues: CaptionCue[] = [];
       for (const line of lines) {
-        const count = line.text.trim().split(/\s+/).filter(Boolean).length;
-        const duration = Math.max(1.25, Math.min(4.8, count / 2.25 + 0.45));
-        const start = Math.min(cursor, 9.1);
-        const end = Math.min(9.8, start + duration);
-        cues.push({ start, end, text: line.speaker.toLowerCase() === 'narrator' ? line.text : `${line.speaker}: ${line.text}` });
-        cursor = end + 0.18;
+        for (const phrase of phrases(line.text)) {
+          const count = phrase.trim().split(/\\s+/).filter(Boolean).length;
+          const start = Math.min(cursor, 9.25);
+          const end = Math.min(9.7, start + Math.max(1.0, count / 2.55 + 0.3));
+          if (end <= start) continue;
+          cues.push({ start, end, text: phrase });
+          cursor = end + 0.12;
+        }
       }
       tracks.push(cues);
     }
@@ -140,7 +158,7 @@ const ClipSequence: React.FC<{ clips: string[]; captions?: CaptionCue[][] }> = (
         {caption && <div aria-live="polite" className="absolute bottom-14 left-3 right-3 flex justify-center pointer-events-none"><span className="max-w-[92%] rounded-md bg-black/85 px-3 py-2 text-center text-sm sm:text-base font-semibold leading-snug text-white shadow-lg">{caption.text}</span></div>}
         {buffering && <div className="absolute inset-0 flex items-center justify-center pointer-events-none"><span className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-black/70 text-[11px] text-slate-200"><Loader2 className="w-3.5 h-3.5 animate-spin" />Loading video...</span></div>}
       </div>
-      <p className="text-[11px] text-slate-500 text-center">Clip {i + 1} of {clips.length}. Captions use the approved screenplay dialogue, not AI-generated text in the picture.</p>
+      <p className="text-[11px] text-slate-500 text-center">Clip {i + 1} of {clips.length}. Subtitles use the exact approved spoken lines, split into readable phrases. No generated subtitle text is used.</p>
     </div>
   );
 };
