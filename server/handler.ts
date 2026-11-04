@@ -625,7 +625,7 @@ async function prepareStory(row: any, user: { secondsLimit: number }, input: Sto
   if (available < PART_SECONDS) throw new HttpError(403, `You need at least ${PART_SECONDS} video seconds to make a video. Buy extra seconds or upgrade your plan.`, 'LIMIT');
   if (available < brief.requestedSeconds) throw new HttpError(403, `You selected ${brief.requestedSeconds} seconds, but your available balance is ${available} seconds. OmniPulse will not silently shorten your film. Choose a shorter length or add video seconds, then try again.`, 'LIMIT');
 
-  const plan = planScenes(brief.requestedSeconds, available, brief.sceneSeconds);
+  let plan = planScenes(brief.requestedSeconds, available, brief.sceneSeconds);
   const notes: string[] = [];
   if ((script || single) && !noCap && plan.scenes.length > SCENES_PER_WRITER_CALL) {
     const keep = plan.scenes.slice(0, SCENES_PER_WRITER_CALL);
