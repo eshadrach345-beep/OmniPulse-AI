@@ -1,7 +1,6 @@
 import crypto from 'node:crypto';
 import { sql } from './db.js';
 import { HttpError, encrypt, decrypt } from './core.js';
-import { ppConfigured, ppPublish } from './postpeer.js';
 
 /**
  * Direct connections to each social network (no middleman).
@@ -72,7 +71,7 @@ export const PROVIDERS: Record<Platform, Provider> = {
 
 export const PLATFORM_IDS = Object.keys(PROVIDERS) as Platform[];
 export const isPlatform = (p: unknown): p is Platform => typeof p === 'string' && p in PROVIDERS;
-export const isConfigured = (p: Platform) => ppConfigured() || !!(process.env[PROVIDERS[p].idEnv] && process.env[PROVIDERS[p].secretEnv]);
+export const isConfigured = (p: Platform) => !!(process.env[PROVIDERS[p].idEnv] && process.env[PROVIDERS[p].secretEnv]);
 export const redirectUri = (base: string, p: Platform) => `${base}/api/social/callback/${p}`;
 
 const b64url = (b: Buffer) => b.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
@@ -192,7 +191,7 @@ export async function listSocialAccounts(userId: string) {
   return PLATFORM_IDS.map((p) => {
     const c = rows.find((r: any) => r.platform === p);
     return {
-      platform: p, name: PROVIDERS[p].name, configured: isConfigured(p), publishable: ppConfigured() || PROVIDERS[p].publishable,
+      platform: p, name: PROVIDERS[p].name, configured: isConfigured(p), publishable: PROVIDERS[p].publishable,
       connected: !!c, handle: c?.handle || '', avatar: c?.avatar || '', followers: Number(c?.followers) || 0, connectedAt: c?.connected_at || null,
     };
   });
@@ -340,7 +339,6 @@ async function publishTikTok(c: Conn, p: PostInput): Promise<string> {
 }
 
 export async function publishToPlatform(userId: string, p: Platform, post: PostInput): Promise<string> {
-  if (ppConfigured()) return ppPublish(userId, p, post);
   if (!PROVIDERS[p].publishable) throw new HttpError(422, `${PROVIDERS[p].name} publishing isn't available yet.`, 'SOCIAL_POST');
   const c = await connection(userId, p);
   let id: string;
@@ -358,7 +356,6 @@ export async function publishToPlatform(userId: string, p: Platform, post: PostI
 
 // ---------------------------------------------------------------- metrics (where the network exposes them)
 export async function socialMetrics(userId: string, ids: string[]) {
-  if (ppConfigured()) return [];
   const out: { id: string; metrics: Record<string, number> }[] = [];
   for (const full of ids) {
     const [p, ...rest] = full.split(':');
