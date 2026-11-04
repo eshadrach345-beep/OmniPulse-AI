@@ -23,7 +23,7 @@ export const StoryPlayer: React.FC<{ video: GeneratedVideo }> = ({ video }) => {
   const [front, setFront] = useState<0 | 1>(0);
   const [playing, setPlaying] = useState(false);
   const [muted, setMuted] = useState(false);
-  const [caption, setCaption] = useState<SceneLine | null>(null);
+  const [caption, setCaption] = useState<string | null>(null);
   const [join, setJoin] = useState<{ state: 'idle' | 'working' | 'error'; msg: string }>({ state: 'idle', msg: '' });
   const run = useRef(0);
   const mutedRef = useRef(false);
@@ -71,7 +71,13 @@ export const StoryPlayer: React.FC<{ video: GeneratedVideo }> = ({ video }) => {
       try { await el.play(); } catch { setPlaying(false); return; }
       load(other, scenes[i + 1]?.clipUrl); // start loading the next scene right away
       const captions = (async () => {
-        for (const line of sc.lines || []) { if (run.current !== myRun) return; setCaption(line); await wait(lineMs(line.text)); }
+        for (const line of sc.lines || []) {
+          for (const phrase of captionPhrases(line.text)) {
+            if (run.current !== myRun) return;
+            setCaption(phrase);
+            await wait(phraseMs(phrase));
+          }
+        }
         setCaption(null);
       })();
       await Promise.all([ended, captions]);
@@ -123,8 +129,7 @@ export const StoryPlayer: React.FC<{ video: GeneratedVideo }> = ({ video }) => {
         ))}
         {caption && (
           <div className="absolute inset-x-0 bottom-0 p-3 bg-linear-to-t from-black/85 to-transparent text-center pointer-events-none">
-            <p className="text-[11px] font-bold text-indigo-300">{caption.speaker}</p>
-            <p className="text-sm text-white leading-snug">{caption.text}</p>
+            <p className="inline-block max-w-[92%] rounded-lg bg-black/70 px-3 py-2 text-sm font-semibold text-white leading-snug shadow-lg">{caption}</p>
           </div>
         )}
         {!playing && (
