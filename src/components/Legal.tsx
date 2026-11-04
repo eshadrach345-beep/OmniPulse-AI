@@ -48,7 +48,7 @@ const CONTENT: Record<LegalPage, { title: string; body: React.ReactNode }> = {
       <H>How we use it</H>
       <P>To provide and secure the Service, send transactional emails (verification codes, receipts, payment notices), process payments, and improve reliability. We do not sell your personal data.</P>
       <H>Service providers</H>
-      <P>We share only the information needed to provide a feature with relevant service providers. Depending on which features you use, these may include Vercel (hosting), Neon (database), Resend (email), Flutterwave (payments), PostPeer and the social networks you connect (account authorization and publishing), and AI or research providers such as Groq, Google Gemini, Tavily and fal.ai (processing prompts, scripts, media or search requests). Provider availability may change. Review the privacy policies of connected third-party services as well.</P>
+      <P>We share only the information needed to provide a feature with relevant service providers. Depending on which features you use, these may include Vercel (hosting), Neon (database), Resend (email), Flutterwave (payments), Zernio and the social networks you connect (account authorization and publishing), and AI or research providers such as Groq, Google Gemini, Tavily and fal.ai (processing prompts, scripts, media or search requests). Provider availability may change. Review the privacy policies of connected third-party services as well.</P>
       <H>Cookies</H>
       <P>We use one essential, secure session cookie to keep you signed in. We do not use advertising cookies.</P>
       <H>Your rights</H>
