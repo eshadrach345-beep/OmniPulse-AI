@@ -20,7 +20,7 @@ const CONTENT: Record<LegalPage, { title: string; body: React.ReactNode }> = {
     body: (<>
       <P>These Terms govern your use of {COMPANY} (the "Service"). By creating an account you agree to them.</P>
       <H>1. The Service</H>
-      <P>{COMPANY} helps you plan, generate and publish social media content using AI tools and third-party services including the social networks you connect, Google Gemini and fal.ai. Features may change over time.</P>
+      <P>{COMPANY} provides tools for content planning, AI-assisted script and video creation, trend research, scheduling, analytics and publishing. Features may use third-party AI, hosting, payment, research and social-platform providers. Features and supported integrations may change as providers update their services.</P>
       <H>2. Your account</H>
       <P>You must provide accurate information, keep your password secure, and are responsible for activity under your account. You must be at least 18 years old.</P>
       <H>3. Subscriptions and billing</H>
@@ -48,7 +48,7 @@ const CONTENT: Record<LegalPage, { title: string; body: React.ReactNode }> = {
       <H>How we use it</H>
       <P>To provide and secure the Service, send transactional emails (verification codes, receipts, payment notices), process payments, and improve reliability. We do not sell your personal data.</P>
       <H>Service providers</H>
-      <P>We share only what is needed with: Vercel (hosting), Neon (database), Resend (email), Flutterwave (payments), the social networks you choose to connect (publishing), and Google (Gemini) and fal.ai (AI processing of the prompts and scripts you submit).</P>
+      <P>We share only the information needed to provide a feature with relevant service providers. Depending on which features you use, these may include Vercel (hosting), Neon (database), Resend (email), Flutterwave (payments), PostPeer and the social networks you connect (account authorization and publishing), and AI or research providers such as Groq, Google Gemini, Tavily and fal.ai (processing prompts, scripts, media or search requests). Provider availability may change. Review the privacy policies of connected third-party services as well.</P>
       <H>Cookies</H>
       <P>We use one essential, secure session cookie to keep you signed in. We do not use advertising cookies.</P>
       <H>Your rights</H>
