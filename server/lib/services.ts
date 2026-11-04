@@ -465,20 +465,28 @@ export async function webTrendResearch(niche: string, customQuery: string): Prom
   const tavilyKey = (process.env.TAVILY_API_KEY || '').trim();
   if (braveKey) {
     const groups = await Promise.all(queries.map(async (q, i) => {
-      const url = new URL('https://api.search.brave.com/res/v1/web/search');
-      url.searchParams.set('q', q); url.searchParams.set('count', '10'); url.searchParams.set('extra_snippets', 'true');
+      const url = new URL('https://api.search.brave.com/res/v1/llm/context');
+      url.searchParams.set('q', q); url.searchParams.set('count', '15');
+      url.searchParams.set('maximum_number_of_tokens', '2048'); url.searchParams.set('maximum_number_of_urls', '10');
+      url.searchParams.set('context_threshold_mode', 'balanced'); url.searchParams.set('enable_source_metadata', 'true');
       if (i < 2) url.searchParams.set('freshness', 'pm');
-      const r = await fetch(url, { headers: { 'X-Subscription-Token': braveKey, Accept: 'application/json' }, signal: AbortSignal.timeout(14000) });
-      if (!r.ok) throw new HttpError(424, `Brave Search returned ${r.status}. Check BRAVE_SEARCH_API_KEY and its plan.`, 'SEARCH');
+      const r = await fetch(url, { headers: { 'X-Subscription-Token': braveKey, Accept: 'application/json' }, signal: AbortSignal.timeout(25000) });
+      if (!r.ok) throw new HttpError(424, `Brave LLM Context returned ${r.status}. Check BRAVE_SEARCH_API_KEY and its plan.`, 'SEARCH');
       const d: any = await r.json();
-      return (d?.web?.results || []).map((x: any) => ({ title: String(x.title || '').slice(0, 240), url: String(x.url || ''), content: String([x.description, ...(x.extra_snippets || [])].filter(Boolean).join(' ')).slice(0, 1600), date: String(x.page_age || x.age || ''), query: q }));
+      const generic = d?.grounding?.generic || [];
+      const meta = d?.sources || {};
+      return generic.map((x: any) => ({ title: String(x.title || meta[x.url]?.title || '').slice(0, 240), url: String(x.url || ''), content: (x.snippets || []).map((v: any) => String(v)).join('\n').slice(0, 7000), date: (meta[x.url]?.age || []).join(' | '), query: q }));
     }));
-    for (const group of groups) for (const x of group) if (/^https?:\/\//i.test(x.url)) unique.set(x.url, x);
+    for (const group of groups) for (const x of group) if (/^https?:\/\//i.test(x.url)) {
+      const old = unique.get(x.url);
+      if (old) old.content = `${old.content}\n${x.content}`.slice(0, 10000);
+      else unique.set(x.url, x);
+    }
     if (unique.size < 8) throw new HttpError(424, 'Live search returned too few independent sources. Try a more specific or broader niche.', 'SEARCH');
-    const items = [...unique.values()].slice(0, 32);
+    const items = [...unique.values()].slice(0, 30);
     const sources = items.map(x => ({ title: x.title || x.url, url: x.url }));
-    const text = items.map((x, i) => `[SOURCE ${i + 1}] ${x.title}\nURL: ${x.url}\nPublished/updated: ${x.date || 'Not supplied'}\nSearch query: ${x.query}\nEvidence: ${x.content}`).join('\n\n');
-    return { text: `Search provider: Brave Search. Research date: ${new Date().toISOString()}. Sources: ${sources.length}.\n\n${text}`, sources, provider: 'brave-search' };
+    const text = items.map((x, i) => `[SOURCE ${i + 1}] ${x.title}\nURL: ${x.url}\nPublished/updated: ${x.date || 'Not supplied'}\nSearch query: ${x.query}\nExtracted evidence: ${x.content}`).join('\n\n');
+    return { text: `Search provider: Brave LLM Context (pre-extracted page content). Research date: ${new Date().toISOString()}. Sources: ${sources.length}.\n\n${text}`, sources, provider: 'brave-llm-context' };
   }
   if (tavilyKey) {
     const groups = await Promise.all(queries.slice(0, 3).map(async q => {
