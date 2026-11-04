@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import { AppUser } from '../types/auth';
-import { Zap, Video, Clapperboard, Calendar, TrendingUp, Split, BarChart3, Radio, Crown, LogOut, Settings, Activity, CreditCard, ImagePlus } from 'lucide-react';
+import { Zap, Video, Clapperboard, Calendar, TrendingUp, Split, BarChart3, Radio, Crown, LogOut, Settings, Activity, CreditCard, ImagePlus, Share2 } from 'lucide-react';
 
-export type TabId = 'dashboard' | 'video-studio' | 'series' | 'trends-hashtags' | 'scheduler' | 'ab-testing' | 'analytics';
+export type TabId = 'dashboard' | 'accounts' | 'video-studio' | 'series' | 'trends-hashtags' | 'scheduler' | 'ab-testing' | 'analytics';
 
 interface TopNavProps {
   activeTab: TabId;
@@ -21,6 +21,7 @@ interface TopNavProps {
 
 const NAV: { id: TabId; label: string; short: string; icon: React.ElementType }[] = [
   { id: 'dashboard', label: 'Dashboard', short: 'Home', icon: Activity },
+  { id: 'accounts', label: 'Social Accounts', short: 'Accounts', icon: Share2 },
   { id: 'video-studio', label: 'Video Studio', short: 'Videos', icon: Video },
   { id: 'series', label: 'Series', short: 'Series', icon: Clapperboard },
   { id: 'trends-hashtags', label: 'Trends & Hashtags', short: 'Trends', icon: TrendingUp },
@@ -50,11 +51,11 @@ export const TopNav: React.FC<TopNavProps> = ({
             </span>
           </div>
 
-          <nav className="hidden lg:flex items-center gap-1 xl:gap-2" aria-label="Main">
+          <nav className="hidden xl:flex items-center gap-0.5" aria-label="Main">
             {NAV.map(({ id, label, icon: Icon }) => (
               <button
                 key={id} onClick={() => setActiveTab(id)} aria-current={activeTab === id ? 'page' : undefined}
-                className={`flex items-center gap-1.5 px-3 py-2 text-sm font-medium transition-colors border-b-2 ${activeTab === id ? 'border-indigo-400 text-white' : 'border-transparent text-slate-400 hover:text-slate-100'}`}
+                className={`flex items-center gap-1 px-2 py-2 text-xs font-medium transition-colors border-b-2 ${activeTab === id ? 'border-indigo-400 text-white' : 'border-transparent text-slate-400 hover:text-slate-100'}`}
               >
                 <Icon className="w-4 h-4" /><span>{label}</span>
               </button>
@@ -111,8 +112,8 @@ export const TopNav: React.FC<TopNavProps> = ({
       </header>
 
       {/* Phone navigation: a bottom tab bar is easier to reach than a scrolling strip */}
-      <nav aria-label="Main" className="lg:hidden fixed bottom-0 inset-x-0 z-40 border-t border-slate-800 bg-slate-950/95 backdrop-blur-md pb-[env(safe-area-inset-bottom)]">
-        <div className="grid grid-cols-7 max-w-xl mx-auto">
+      <nav aria-label="Main" className="xl:hidden fixed bottom-0 inset-x-0 z-40 border-t border-slate-800 bg-slate-950/95 backdrop-blur-md pb-[env(safe-area-inset-bottom)]">
+        <div className="grid grid-cols-4 max-w-2xl mx-auto">
           {NAV.map(({ id, short, icon: Icon }) => (
             <button
               key={id} onClick={() => setActiveTab(id)} aria-current={activeTab === id ? 'page' : undefined}
