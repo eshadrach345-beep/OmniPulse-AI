@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react';
-import { ImagePlus, Sparkles, Wand2, Loader2, X, Check, Film, Download, RefreshCw } from 'lucide-react';
+import { ImagePlus, Sparkles, Wand2, Loader2, X, Check, Film } from 'lucide-react';
 import type { AspectRatioType, GeneratedVideo } from '../types';
 import { api } from '../services/api';
 
@@ -49,7 +49,6 @@ export const AdMakerStudio: React.FC<Props> = ({ nicheName, onClose, onSaveNewVi
   const [brief, setBrief] = useState('');
   const [aspect, setAspect] = useState<AspectRatioType>('9:16');
   const [seconds, setSeconds] = useState<5 | 10>(5);
-  const [imageData, setImageData] = useState('');
   const [preview, setPreview] = useState('');
   const [selectedImage, setSelectedImage] = useState('');
   const [concepts, setConcepts] = useState<Concept[]>([]);
@@ -67,7 +66,7 @@ export const AdMakerStudio: React.FC<Props> = ({ nicheName, onClose, onSaveNewVi
     setError('');
     try {
       const data = await compressImage(file);
-      setImageData(data); setSelectedImage(data);
+      setSelectedImage(data);
       const url = URL.createObjectURL(file); setPreview(url); setBrandImages([]);
     } catch (e) { setError(e instanceof Error ? e.message : 'Image upload failed.'); }
   };
