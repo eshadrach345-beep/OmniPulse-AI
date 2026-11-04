@@ -108,6 +108,21 @@ export function ensureSchema(): Promise<void> {
         user_id TEXT NOT NULL,
         created_at TIMESTAMPTZ NOT NULL DEFAULT now()
       )`;
+      await q`CREATE TABLE IF NOT EXISTS zernio_profiles (
+        user_id TEXT PRIMARY KEY,
+        profile_id TEXT NOT NULL UNIQUE,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      )`;
+      await q`CREATE TABLE IF NOT EXISTS zernio_connections (
+        user_id TEXT NOT NULL,
+        profile_id TEXT NOT NULL,
+        platform TEXT NOT NULL,
+        account_id TEXT NOT NULL,
+        username TEXT NOT NULL DEFAULT '',
+        connected_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        PRIMARY KEY (user_id, platform),
+        UNIQUE (account_id)
+      )`;
       await q`CREATE TABLE IF NOT EXISTS postpeer_profiles (
         user_id TEXT PRIMARY KEY,
         profile_id TEXT NOT NULL
