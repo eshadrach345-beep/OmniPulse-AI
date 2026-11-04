@@ -731,7 +731,7 @@ export async function falImageVideoSubmit(imageUrl: string, prompt: string, seco
 
 /** Generates two optional brand campaign stills; the FAL key stays server-side. */
 export async function falGenerateBrandImages(prompt: string, aspect: '9:16' | '16:9' | '1:1') {
-  const imageSize = aspect === '9:16' ? 'portrait_4_3' : aspect === '16:9' ? 'landscape_4_3' : 'square_hd';
+  const imageSize = aspect === '9:16' ? 'portrait_16_9' : aspect === '16:9' ? 'landscape_16_9' : 'square_hd';
   let r: Response;
   try {
     r = await fetch('https://fal.run/fal-ai/flux/dev', {
