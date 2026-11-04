@@ -5,7 +5,7 @@ import {
 } from './lib/core.js';
 import { sql, ensureSchema } from './lib/db.js';
 import { PLANS, TIERS, Tier, Cycle, planId, tierFromPlanId, priceFor, BILLING_CURRENCY, TRIAL, TOPUPS, trialPrice } from './lib/plans.js';
-import { mail, flw, verifyFlwSignature, lookupEnv, geminiJson, geminiRaw, geminiFormat, webTrendResearch, aiWriterStatus, testAiWriters, falSubmit, falStatus, falImageVideoSubmit, falGenerateBrandImages, deapiSubmit, deapiStatus, deapiAnimate, RateLimited, synthesize } from './lib/services.js';
+import { mail, flw, verifyFlwSignature, lookupEnv, geminiJson, geminiRaw, geminiFormat, webTrendResearch, aiWriterStatus, testAiWriters, falSubmit, falContinueSubmit, falStatus, falImageVideoSubmit, falGenerateBrandImages, deapiSubmit, deapiStatus, deapiAnimate, RateLimited, synthesize } from './lib/services.js';
 import { trendsFormatPrompt, scriptPrompt, adConceptPrompt, abPrompt, competitorPrompt, outrankPrompt, parseStoryBrief, type SeriesContinuity, type StoryBriefInput, storyBeats, STORY_MOODS, CAMERA_PROFILES, GENRES, INTENSITIES, ENDINGS, PRESENTATIONS, CASTS, TROPES, styleBlock, STORY_LIMITS, planScenes, castMinimum, storyboardPrompt, outlinePrompt, chunkPrompt, adaptPrompt, PART_SECONDS, SCENES_PER_WRITER_CALL, MAX_WORDS_PER_CLIP } from './lib/prompts.js';
 import { assembleParts } from './lib/assemble.js';
 import { refineScene, shownInstruction, proseToUnits, thoughtToVisual, type SpokenLine } from './lib/screenplay.js';
@@ -572,6 +572,8 @@ const clipWords = (text: string, maxWords: number) => {
 interface StoryInput {
   idea: string; format: string; look: string; aspect: string; niche: string;
   brief: StoryBriefInput;
+  /** Unique per production so identical genre settings do not produce the same story. */
+  variationSeed?: string;
   /** Set for Part 2 and later: what the writer must remember from the previous part. */
   continuity?: SeriesContinuity;
   /** The person's own script (paste mode). Empty means the AI writes the story. */
@@ -589,6 +591,7 @@ function parseStoryInput(body: any): Omit<StoryInput, 'continuity' | 'script'> {
     aspect: ['9:16', '16:9', '1:1'].includes(String(body.aspectRatio)) ? String(body.aspectRatio) : '9:16',
     niche: str(body.niche || 'general audience', 80),
     brief: parseStoryBrief(body),
+    variationSeed: str(body.variationSeed || crypto.randomUUID(), 80),
   };
 }
 
@@ -609,10 +612,10 @@ async function prepareStory(row: any, user: { secondsLimit: number }, input: Sto
   const script = (input.script || '').trim();
   const available = await secondsAvailable(row, user);
   if (available < PART_SECONDS) throw new HttpError(403, `You need at least ${PART_SECONDS} video seconds to make a video. Buy extra seconds or upgrade your plan.`, 'LIMIT');
+  if (available < brief.requestedSeconds) throw new HttpError(403, `You selected ${brief.requestedSeconds} seconds, but your available balance is ${available} seconds. OmniPulse will not silently shorten your film. Choose a shorter length or add video seconds, then try again.`, 'LIMIT');
 
-  let plan = planScenes(brief.requestedSeconds, available, brief.sceneSeconds);
+  const plan = planScenes(brief.requestedSeconds, available, brief.sceneSeconds);
   const notes: string[] = [];
-  if (plan.capped) notes.push(`You asked for ${brief.requestedSeconds} seconds but only have ${available} video seconds left, so this part is ${plan.targetSeconds} seconds.`);
   if ((script || single) && !noCap && plan.scenes.length > SCENES_PER_WRITER_CALL) {
     const keep = plan.scenes.slice(0, SCENES_PER_WRITER_CALL);
     plan = { scenes: keep, targetSeconds: sumSeconds(keep), capped: plan.capped };
@@ -627,7 +630,7 @@ async function prepareStory(row: any, user: { secondsLimit: number }, input: Sto
   const presentation = format === 'documentary' ? 'narrated' as const : brief.presentation;
   const silentCast = presentation === 'narrated' || (brief.dialogue === 'none' && presentation !== 'dialogue' && presentation !== 'shortdrama') || (brief.cast === 'animals' && !brief.animalsTalk);
   const style = styleBlock({ presentation, genre: brief.genre, intensity: brief.intensity, dialogue: brief.dialogue, ending: brief.ending, cast: brief.cast, animalsTalk: brief.animalsTalk, trope: brief.trope });
-  const base = { idea, format, look, niche: input.niche, aspectRatio: aspect, scenes: plan.scenes, mood: brief.mood, cameraProfile: brief.cameraProfile, pacing, characterLock: brief.characterLock, continuity, style, silentCast };
+  const base = { idea, format, look, niche: input.niche, aspectRatio: aspect, scenes: plan.scenes, mood: brief.mood, cameraProfile: brief.cameraProfile, pacing, characterLock: brief.characterLock, continuity, variationSeed: input.variationSeed, style, silentCast };
   return { idea, format, look, aspect, brief, continuity, script, available, plan, notes, mood, cam, base, presentation, silentCast, castMin: castMinimum(plan.targetSeconds, format) };
 }
 
@@ -1138,7 +1141,7 @@ const tts: Handler = async ({ req, res, body }) => {
 async function submitToProvider(prompt: string, reso: '480P' | '768P' | '1080P', seconds: 5 | 10, aspect: string): Promise<{ statusUrl: string; responseUrl: string }> {
   const provider = (process.env.VIDEO_PROVIDER || 'fal').trim().toLowerCase();
   const viaDeapi = async () => { const j = await deapiSubmit(prompt, reso, seconds, aspect); return { statusUrl: `deapi:${j.requestId}`, responseUrl: 'deapi' }; };
-  const viaFal = async () => { const j = await falSubmit(prompt, reso, seconds); return { statusUrl: j.statusUrl, responseUrl: j.responseUrl }; };
+  const viaFal = async () => { const j = await falSubmit(prompt, reso, seconds, aspect); return { statusUrl: j.statusUrl, responseUrl: j.responseUrl }; };
   if (provider === 'deapi') return viaDeapi();
   if (provider === 'auto' && lookupEnv('DEAPI_API_KEY')) {
     try { return await viaFal(); } catch (e: any) { console.error('fal failed, switching to deAPI:', e?.message); return viaDeapi(); }
@@ -1538,7 +1541,7 @@ function episodeView(e: any) {
     scenes: scenes.map((sc) => ({
       sceneId: String(sc.sceneId || ''), sceneNumber: Number(sc.sceneNumber) || 0, beat: String(sc.beat || ''), clipSeconds: Number(sc.clipSeconds) || 0,
       visualPrompt: String(sc.visualPrompt || ''), voiceoverText: String(sc.voiceoverText || ''), cameraMotion: String(sc.cameraMotion || ''),
-      lines: (Array.isArray(sc.lines) ? sc.lines : []).map((l: any) => ({ speaker: String(l.speaker || ''), text: String(l.text || '') })),
+      lines: (Array.isArray(sc.lines) ? sc.lines : []).map((l: any) => ({ speaker: String(l.speaker || ''), text: String(l.text || ''), half: Number(l.half) === 2 ? 2 : 1 })),
     })),
     // Finished clips in story order. A 20 second scene contributes its two clips one after the other, so every scene plays to its end.
     clips: e.status === 'COMPLETED' ? entries.flatMap((en) => en.parts.map((p) => p.url as string).filter(Boolean)) : [],
@@ -1592,7 +1595,7 @@ const episodeCreate: Handler = async ({ req, res, body }) => {
   }
 
   const episodeId = newId('ep');
-  const settings = { format: input.format, look: input.look, aspect: input.aspect, niche: input.niche, brief: input.brief, mode, script, direction, reviewFirst: body.reviewFirst === true, approved: false };
+  const settings = { format: input.format, look: input.look, aspect: input.aspect, niche: input.niche, brief: input.brief, variationSeed: input.variationSeed, mode, script, direction, reviewFirst: body.reviewFirst === true, approved: false };
   try {
     await sql()`INSERT INTO episodes (id, project_id, part_number, prompt_input, status, brief) VALUES (${episodeId}, ${projectId}, ${partNumber}, ${input.idea}, 'PROCESSING', ${jsonb(settings)}::jsonb)`;
   } catch (e: any) {
@@ -1624,7 +1627,7 @@ async function stageScript(row: any, user: ReturnType<typeof toUser>, ep: any) {
     script = String(prev?.storyboard_json?.remainingScript || '');
     if (!script.trim()) throw new HttpError(409, 'There is no saved script left to continue. Paste more of your script, or ask the AI to write the next part.', 'SERIES_STATE');
   }
-  const storyInput: StoryInput = { idea: ep.prompt_input, format: cfg.format || 'drama', look: cfg.look || 'cinematic', aspect: cfg.aspect || '9:16', niche: cfg.niche || 'general audience', brief, continuity, script };
+  const storyInput: StoryInput = { idea: ep.prompt_input, format: cfg.format || 'drama', look: cfg.look || 'cinematic', aspect: cfg.aspect || '9:16', niche: cfg.niche || 'general audience', brief, continuity, variationSeed: str(cfg.variationSeed || crypto.randomUUID(), 80), script };
   // A pasted script never waits for the AI: it is split into scenes right here and the video starts at once.
   const out: Awaited<ReturnType<typeof writeStoryboard>> = script.trim()
     ? await adaptPastedScript(row, user, storyInput)
@@ -1657,14 +1660,24 @@ async function startPart(row: any, user: ReturnType<typeof toUser>, spec: { prom
   await rateLimit(`render:${row.id}`, 300, 3600);
   const reso = PLANS[user.tier]?.resolution || '480P';
   let job: { statusUrl: string; responseUrl: string } | undefined;
-  if (spec.kind === 'continue' && spec.prevUrl && (process.env.VIDEO_PROVIDER || 'fal').trim().toLowerCase() === 'deapi') {
-    try {
-      const frame = await lastFrameJpeg(spec.prevUrl);
+  if (spec.kind === 'continue' && spec.prevUrl) {
+    const provider = (process.env.VIDEO_PROVIDER || 'fal').trim().toLowerCase();
+    const frame = await lastFrameJpeg(spec.prevUrl);
+    if (provider === 'deapi') {
       const j = await deapiAnimate(spec.prompt, frame, reso, PART_SECONDS, spec.aspect);
       job = { statusUrl: `deapi:${j.requestId}`, responseUrl: 'deapi' };
-    } catch (e: any) {
-      if (e instanceof RateLimited) throw e;
-      console.error('image-to-video failed, using a normal clip instead:', e?.message);
+    } else {
+      const imageUrl = `data:image/jpeg;base64,${frame.toString('base64')}`;
+      try {
+        const j = await falContinueSubmit(spec.prompt, imageUrl, reso, PART_SECONDS, spec.aspect);
+        job = { statusUrl: j.statusUrl, responseUrl: j.responseUrl };
+      } catch (e: any) {
+        if (e instanceof RateLimited) throw e;
+        if (provider === 'auto' && lookupEnv('DEAPI_API_KEY')) {
+          const j = await deapiAnimate(spec.prompt, frame, reso, PART_SECONDS, spec.aspect);
+          job = { statusUrl: `deapi:${j.requestId}`, responseUrl: 'deapi' };
+        } else throw e;
+      }
     }
   }
   if (!job) job = await submitToProvider(spec.prompt, reso, PART_SECONDS, spec.aspect);
