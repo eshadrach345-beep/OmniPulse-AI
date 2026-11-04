@@ -123,15 +123,6 @@ export function ensureSchema(): Promise<void> {
         PRIMARY KEY (user_id, platform),
         UNIQUE (account_id)
       )`;
-      await q`CREATE TABLE IF NOT EXISTS postpeer_profiles (
-        user_id TEXT PRIMARY KEY,
-        profile_id TEXT NOT NULL
-      )`;
-      await q`CREATE TABLE IF NOT EXISTS postpeer_removed (
-        user_id TEXT NOT NULL,
-        integration_id TEXT NOT NULL,
-        PRIMARY KEY (user_id, integration_id)
-      )`;
       await q`CREATE TABLE IF NOT EXISTS topups (
         tx_ref TEXT PRIMARY KEY,
         user_id TEXT NOT NULL,
