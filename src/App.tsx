@@ -54,6 +54,8 @@ function Workspace({ user: currentUser, initialDashboard, onLogout, onUserChange
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isSystemOpen, setIsSystemOpen] = useState(false);
   const [createRequest, setCreateRequest] = useState<{ open: boolean; prompt: string }>({ open: false, prompt: '' });
+  const [adMakerRequest, setAdMakerRequest] = useState(false);
+  const requestCreateAd = () => { setActiveTab('video-studio'); setAdMakerRequest(true); };
   const requestCreateVideo = (prompt = '') => { setActiveTab('video-studio'); setCreateRequest({ open: true, prompt }); };
 
   // Every navigation lands exactly on the section that was clicked (below the sticky nav), never part-way down the page.
@@ -494,6 +496,7 @@ function Workspace({ user: currentUser, initialDashboard, onLogout, onUserChange
         activeTab={activeTab}
         setActiveTab={setActiveTab}
         onOpenCreateVideo={() => requestCreateVideo()}
+        onOpenAdMaker={requestCreateAd}
         onOpenSchedulePost={() => setActiveTab('scheduler')}
         autoPilotActive={autoPilotActive}
         toggleAutoPilot={() => setIsAutoPilotModalOpen(true)}
@@ -551,6 +554,8 @@ function Workspace({ user: currentUser, initialDashboard, onLogout, onUserChange
             onSaveNewVideo={handleSaveNewVideo}
             onScheduleVideoDirect={handleScheduleVideoDirect}
             initialCreateRequested={createRequest.open}
+            initialAdMakerRequested={adMakerRequest}
+            onResetAdMakerRequest={() => setAdMakerRequest(false)}
             prefillPrompt={createRequest.prompt}
             onResetCreateRequested={() => setCreateRequest({ open: false, prompt: '' })}
           />
