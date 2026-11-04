@@ -12,11 +12,6 @@ import {
 } from '../types';
 import { analyzeNicheTrends } from '../services/aiService';
 
-/** YouTube exposes a stable public thumbnail URL for videos with a verified video ID. */
-const youtubeThumbnail = (url: string) => {
-  const match = url.match(/(?:youtube\.com\/(?:watch\?.*v=|shorts\/|embed\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/i);
-  return match ? `https://img.youtube.com/vi/${match[1]}/hqdefault.jpg` : undefined;
-};
 import { 
   TrendingUp, 
   Hash, 
@@ -44,6 +39,18 @@ import {
   Send,
   Eye
 } from 'lucide-react';
+
+/** YouTube exposes a stable public thumbnail URL for verified public video IDs. */
+const youtubeThumbnail = (url: string) => {
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname.toLowerCase();
+    if (!host.endsWith('youtube.com') && host !== 'youtu.be' && !host.endsWith('.youtube.com')) return undefined;
+    const parts = parsed.pathname.split('/').filter(Boolean);
+    const id = host === 'youtu.be' ? parts[0] : (parsed.searchParams.get('v') || parts[parts.length - 1]);
+    return id && /^[A-Za-z0-9_-]{11}$/.test(id) ? `https://img.youtube.com/vi/${id}/hqdefault.jpg` : undefined;
+  } catch { return undefined; }
+};
 
 interface TrendHashtagRadarProps {
   niches: NicheCategory[];
