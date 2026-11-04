@@ -126,3 +126,16 @@ export async function zernioPublish(userId:string,platform:string,post:{text:str
 export async function zernioHealth():Promise<void>{
   await zernioRequest('/profiles');
 }
+
+/** Remove the customer's connected accounts and profile when they delete their OmniPulse account. */
+export async function zernioDeleteCustomer(userId:string):Promise<void>{
+  const profiles:any[]=await sql()`SELECT profile_id FROM zernio_profiles WHERE user_id=${userId}`;
+  if(!profiles[0]?.profile_id) return;
+  const accounts:any[]=await sql()`SELECT account_id FROM zernio_connections WHERE user_id=${userId}`;
+  for(const account of accounts){
+    await zernioRequest(`/accounts/${encodeURIComponent(String(account.account_id))}`,{method:'DELETE'});
+  }
+  await zernioRequest(`/profiles/${encodeURIComponent(String(profiles[0].profile_id))}`,{method:'DELETE'});
+  await sql()`DELETE FROM zernio_connections WHERE user_id=${userId}`;
+  await sql()`DELETE FROM zernio_profiles WHERE user_id=${userId}`;
+}
