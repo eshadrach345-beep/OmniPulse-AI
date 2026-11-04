@@ -737,7 +737,7 @@ export async function falGenerateBrandImages(prompt: string, aspect: '9:16' | '1
     r = await fetch('https://fal.run/fal-ai/flux/dev', {
       method: 'POST', headers: falHeaders(),
       body: JSON.stringify({ prompt, image_size: imageSize, num_images: 2, num_inference_steps: 28, enable_safety_checker: true }),
-      signal: AbortSignal.timeout(90_000),
+      signal: AbortSignal.timeout(45_000),
     });
   } catch (e: any) {
     throw new HttpError(424, e?.name === 'TimeoutError' ? 'Brand image generation timed out. Please try again.' : 'Could not reach the brand image generator.', 'FAL');
