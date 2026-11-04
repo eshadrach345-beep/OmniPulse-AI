@@ -28,7 +28,7 @@ Rules:
 - Never label a topic viral, breakout or rising without dated evidence of increasing attention; otherwise use Evergreen or clearly caveated Rising.
 - Do not invent creator handles. If an account cannot be verified from a direct source URL, omit it.
 - Return up to 50 distinct creators/accounts only when supported by the supplied evidence. Rank them by the strongest available evidence, prioritising official public video views and recency. Never imply this is a complete platform-wide ranking.
-- For every creator, include 1 to 3 recent high-performing video examples when direct video URLs are present in the evidence. Each example must include its exact title, exact URL, platform, publication date when supplied, exact thumbnail URL when supplied, and numeric public view count only when explicitly supplied. Do not infer or calculate private impressions.
+- For every creator, include 1 to 3 recent high-performing video examples when direct video URLs are present in the evidence. Each example must include its exact title, exact URL, platform, publication date when supplied, exact thumbnail URL when supplied, and numeric public view count only when explicitly supplied. Preserve viewsPerHour only when it is explicitly calculated and supplied in the official YouTube evidence. This is public views divided by elapsed hours, not impressions. Do not infer private impressions.
 - For YouTube API evidence, public view counts, likes, comments, subscribers and thumbnails are source-backed. Label view counts as public views, never impressions. For TikTok/Instagram/other networks, use only metrics explicitly visible in the supplied evidence; otherwise leave the metric unavailable.
 - A creator's avatar/profile image URL may be included only when it appears verbatim in the evidence. Never manufacture image URLs.
 - estimatedReachMultiplier must be 'Not measured' unless the supplied evidence provides defensible comparative data.
@@ -53,7 +53,7 @@ Return ONLY valid JSON in exactly this shape:
       "takeaway": "<original idea users can adapt, not copy verbatim>", "exampleHook": "<new original hook>",
       "recentVideos": [
         { "title": "<exact sourced video title>", "url": "<exact video URL>", "thumbnailUrl": "<exact thumbnail URL or empty>",
-          "platform": "<platform>", "publishedAt": "<date or empty>", "views": null, "metricLabel": "<Public views|Not publicly available>" }
+          "platform": "<platform>", "publishedAt": "<date or empty>", "views": null, "viewsPerHour": null, "metricLabel": "<Public views|Not publicly available>" }
       ]
     }
   ],
