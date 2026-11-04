@@ -1429,15 +1429,22 @@ const videoDownload: Handler = async ({ req, res, query }) => {
   const { row } = await requireAccess(req);
   const j = ((await sql()`SELECT * FROM video_jobs WHERE id = ${query.get('id') || ''} AND user_id = ${row.id}`) as any[])[0];
   if (!j) throw new HttpError(404, 'Video not found.');
-  const up = await fetch(await jobVideoUrl(j), { signal: AbortSignal.timeout(30_000) });
+  const up = await fetch(await jobVideoUrl(j), { signal: AbortSignal.timeout(55_000) });
   if (!up.ok || !up.body) throw new HttpError(424, 'The video could not be fetched from the video engine.', 'DOWNLOAD');
   res.statusCode = 200;
   res.setHeader('Content-Type', 'video/mp4');
   res.setHeader('Content-Disposition', `attachment; filename="${safeName(query.get('name') || 'scene')}.mp4"`);
   res.setHeader('Cache-Control', 'private, no-store');
   const len = up.headers.get('content-length'); if (len) res.setHeader('Content-Length', len);
-  for await (const chunk of up.body as any) res.write(chunk);
-  res.end();
+  // Pipe the upstream stream with backpressure. Do not accumulate the full MP4 in memory.
+  const { Readable } = await import('node:stream');
+  await new Promise<void>((resolve, reject) => {
+    const stream = Readable.fromWeb(up.body as any);
+    stream.on('error', reject);
+    res.on('finish', resolve);
+    res.on('close', resolve);
+    stream.pipe(res);
+  });
 };
 
 /** Joins all scenes of a production into one MP4 and sends it as a download. */
