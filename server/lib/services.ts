@@ -523,7 +523,7 @@ async function youtubePublicTrendEvidence(niche: string): Promise<{ text: string
 }
 
 // Independent multi-query search for niche intelligence; does not require Gemini.
-export async function webTrendResearch(niche: string, customQuery: string): Promise<{ text: string; sources: { title: string; url: string }[]; provider: string }> {
+export async function webTrendResearch(niche: string, customQuery: string): Promise<{ text: string; sources: { title: string; url: string; domain: string; faviconUrl: string; imageUrl?: string; snippet: string; publishedAt?: string; sourceType: 'video' | 'article' | 'news' | 'website'; platform?: string }[]; provider: string }> {
   const focus = customQuery ? ' ' + customQuery : '';
   const queries = [
     '"' + niche + '" trends launches news last 14 days' + focus,
@@ -548,7 +548,7 @@ export async function webTrendResearch(niche: string, customQuery: string): Prom
       const r = await fetch(url, { headers: { 'X-Subscription-Token': braveKey, Accept: 'application/json' }, signal: AbortSignal.timeout(25000) });
       if (!r.ok) throw new HttpError(424, 'Brave LLM Context returned ' + r.status + '. Check BRAVE_SEARCH_API_KEY and its plan.', 'SEARCH');
       const d: any = await r.json(), generic = d && d.grounding && d.grounding.generic || [], meta = d && d.sources || {};
-      return generic.map((x: any) => ({ title: String(x.title || (meta[x.url] && meta[x.url].title) || '').slice(0, 240), url: String(x.url || ''), content: (x.snippets || []).map((v: any) => String(v)).join('\n').slice(0, 7000), date: ((meta[x.url] && meta[x.url].age) || []).join(' | '), query: q }));
+      return generic.map((x: any) => ({ title: String(x.title || (meta[x.url] && meta[x.url].title) || '').slice(0, 240), url: String(x.url || ''), content: (x.snippets || []).map((v: any) => String(v)).join('\n').slice(0, 7000), date: ((meta[x.url] && meta[x.url].age) || []).join(' | '), imageUrl: String(meta[x.url]?.thumbnail?.src || meta[x.url]?.thumbnail || ''), query: q }));
     }));
     for (const group of groups) for (const x of group) if (/^https?:\/\//i.test(x.url)) {
       const oldItem = unique.get(x.url);
@@ -561,10 +561,10 @@ export async function webTrendResearch(niche: string, customQuery: string): Prom
     provider = 'brave-llm-context';
   } else if (tavilyKey) {
     const groups = await Promise.all(queries.map(async q => {
-      const r = await fetch('https://api.tavily.com/search', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ api_key: tavilyKey, query: q, topic: 'general', search_depth: 'advanced', max_results: 8, include_answer: false, include_raw_content: false }), signal: AbortSignal.timeout(18000) });
+      const r = await fetch('https://api.tavily.com/search', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ api_key: tavilyKey, query: q, topic: 'general', search_depth: 'advanced', max_results: 8, include_answer: false, include_raw_content: false, include_images: true }), signal: AbortSignal.timeout(18000) });
       if (!r.ok) throw new HttpError(424, 'Tavily Search returned ' + r.status + '. Check TAVILY_API_KEY.', 'SEARCH');
       const d: any = await r.json();
-      return (d.results || []).map((x: any) => ({ title: String(x.title || '').slice(0, 240), url: String(x.url || ''), content: String(x.content || '').slice(0, 2200), date: String(x.published_date || ''), query: q }));
+      return (d.results || []).map((x: any) => ({ title: String(x.title || '').slice(0, 240), url: String(x.url || ''), content: String(x.content || '').slice(0, 2200), date: String(x.published_date || ''), imageUrl: String(x.image || x.image_url || x.thumbnail_url || x.thumbnail?.src || ''), query: q }));
     }));
     for (const group of groups) for (const x of group) if (/^https?:\/\//i.test(x.url)) unique.set(x.url, x);
     if (unique.size < 8) throw new HttpError(424, 'Live search returned too few independent sources. Try a more specific or broader niche.', 'SEARCH');
@@ -582,7 +582,19 @@ export async function webTrendResearch(niche: string, customQuery: string): Prom
   } catch (e) {
     youtubeText = 'YouTube Data API enrichment unavailable: ' + (e instanceof Error ? e.message : 'request failed') + '. Use only public metrics visible in web-search evidence; do not infer private impressions.';
   }
-  const sources = [...unique.values()].slice(0, 80).map(x => ({ title: x.title || x.url, url: x.url }));
+  const sources = [...unique.values()].slice(0, 80).map(x => {
+    const parsed = new URL(x.url);
+    const domain = parsed.hostname.replace(/^www\\./i, '');
+    const host = parsed.hostname.toLowerCase();
+    const isYouTube = host === 'youtu.be' || host.endsWith('youtube.com');
+    const videoId = isYouTube ? (host === 'youtu.be' ? parsed.pathname.split('/').filter(Boolean)[0] : (parsed.searchParams.get('v') || parsed.pathname.split('/').filter(Boolean).pop())) : '';
+    const youtubeImage = videoId && /^[A-Za-z0-9_-]{11}$/.test(videoId) ? 'https://img.youtube.com/vi/' + videoId + '/hqdefault.jpg' : '';
+    const rawImage = typeof x.imageUrl === 'string' ? x.imageUrl : '';
+    const imageUrl = /^https?:\\/\\//i.test(rawImage) ? rawImage : (youtubeImage || undefined);
+    const platform = isYouTube ? 'YouTube' : host.includes('tiktok') ? 'TikTok' : host.includes('instagram') ? 'Instagram' : host.includes('facebook') ? 'Facebook' : host.includes('linkedin') ? 'LinkedIn' : host.includes('x.com') || host.includes('twitter') ? 'X' : undefined;
+    const sourceType = isYouTube && videoId ? 'video' : /news|bbc|cnn|reuters|guardian|forbes|techcrunch|wired|nytimes/i.test(domain) ? 'news' : 'article';
+    return { title: x.title || x.url, url: x.url, domain, faviconUrl: 'https://www.google.com/s2/favicons?domain=' + encodeURIComponent(domain) + '&sz=64', imageUrl, snippet: String(x.content || '').slice(0, 360), publishedAt: x.date || undefined, sourceType, platform };
+  });
   const text = 'Search provider: ' + provider + '. Research date: ' + new Date().toISOString() + '. Web sources: ' + sources.length + '.\n\n' + searchText + '\n\n' + youtubeText;
   return { text, sources, provider: provider + ((process.env.YOUTUBE_API_KEY || process.env.YOUTUBE_DATA_API_KEY) ? '+youtube-data-api' : '') };
 }
