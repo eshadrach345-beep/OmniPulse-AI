@@ -161,7 +161,7 @@ export const PricingModal: React.FC<PricingModalProps> = ({ currentUser, isOpen,
           const f = FEATURES[id];
           const price = info ? (cycle === 'annual' ? info.annual : info.monthly) : null;
           const isCurrent = subscribed && currentUser.tier === id && currentUser.billingCycle === cycle;
-          const unavailable = info && !info.available;
+          const unavailable = info && (!info.available || (cycle === 'annual' ? info.annualAvailable === false : info.monthlyAvailable === false));
           return (
             <div key={id} className={`relative rounded-2xl border p-5 flex flex-col bg-slate-900 ${touched && (fit?.id === id || (!fit && biggest?.id === id)) ? 'border-emerald-400 ring-2 ring-emerald-400/40' : f.popular ? 'border-indigo-500 shadow-lg shadow-indigo-500/10' : 'border-slate-800'}`}>
               {touched && (fit?.id === id || (!fit && biggest?.id === id)) && <span className="absolute -top-2.5 right-4 text-[10px] font-bold uppercase bg-emerald-500 text-slate-950 rounded-full px-3 py-0.5">Best fit for you</span>}
