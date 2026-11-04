@@ -42,23 +42,27 @@ They are *not* needed in Google AI Studio. This app runs on Vercel, not in the A
 Flutterwave webhook URL: `https://YOUR-DOMAIN/api/billing/webhook`
 
 
-## Social networks (users connect directly, no middleman)
+## Social networks (Zernio connector)
 
-Users click **Connect** → the network's own login + permission page → back to OmniPulse. Passwords never touch your server.
-You create one developer app per network (once), then paste its keys here. A network without keys shows "Not set up" on its button.
-Redirect URIs must match exactly (replace the domain with your `APP_URL`).
+The primary connector is Zernio. Add `ZERNIO_API_KEY` above; customers then connect through the social network's official authorization flow hosted by Zernio. OmniPulse creates one separate Zernio profile per customer, and stores only the profile and connected-account IDs locally. You do not need to create separate developer apps for each network.
+
+Zernio redirects back to `https://YOUR-DOMAIN/api/social/zernio-callback`; this callback is handled by OmniPulse and does not need to be registered in each social platform's developer console. The current OmniPulse account screen exposes YouTube, TikTok, Instagram, X, LinkedIn, Facebook Pages and Pinterest. Zernio supports additional platforms that can be added to the interface later.
+
+**Pricing note:** Zernio's first two connected accounts are free across the OmniPulse Zernio team, not two free accounts for every OmniPulse customer. Check Zernio's dashboard for current usage and billing before opening the service to customers.
+
+### Optional direct-OAuth fallback
+
+If `ZERNIO_API_KEY` is not set, OmniPulse can still use direct platform OAuth when you have configured the relevant developer apps. These are fallback credentials, not required for the Zernio integration. Redirect URIs must match exactly (replace the domain with your `APP_URL`).
 
 | Network | Env vars | Redirect URI to register | Notes |
 |---|---|---|---|
-| YouTube | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | `/api/social/callback/youtube` | Google Cloud → enable *YouTube Data API v3*, OAuth consent screen, scopes `youtube.upload` + `youtube.readonly`. Until Google audits the app, uploads are forced private. |
-| X (Twitter) | `X_CLIENT_ID`, `X_CLIENT_SECRET` | `/api/social/callback/x` | OAuth 2.0 app with read+write. Videos are posted as a link (X's video upload needs a paid API tier). |
+| YouTube | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | `/api/social/callback/youtube` | Google Cloud → enable *YouTube Data API v3*, OAuth consent screen, scopes `youtube.upload` + `youtube.readonly`. |
+| X (Twitter) | `X_CLIENT_ID`, `X_CLIENT_SECRET` | `/api/social/callback/x` | OAuth 2.0 app with read+write. |
 | Facebook Page | `META_APP_ID`, `META_APP_SECRET` | `/api/social/callback/facebook` | Meta app. Needs `pages_manage_posts` (App Review for public use). |
-| Instagram | same `META_*` keys | `/api/social/callback/instagram` | Add **both** Meta redirect URIs. Account must be Business/Creator and linked to a Facebook Page. Needs `instagram_content_publish` (App Review). |
+| Instagram | same `META_*` keys | `/api/social/callback/instagram` | Account must be Business/Creator and linked to a Facebook Page. |
 | LinkedIn | `LINKEDIN_CLIENT_ID`, `LINKEDIN_CLIENT_SECRET` | `/api/social/callback/linkedin` | Enable *Share on LinkedIn* + *Sign In with OpenID Connect*. |
-| TikTok | `TIKTOK_CLIENT_KEY`, `TIKTOK_CLIENT_SECRET` | `/api/social/callback/tiktok` | Content Posting API. Unaudited apps can only post privately (`TIKTOK_PRIVACY=SELF_ONLY`, default). After TikTok's audit set `TIKTOK_PRIVACY=PUBLIC_TO_EVERYONE`. |
-| Pinterest | `PINTEREST_APP_ID`, `PINTEREST_APP_SECRET` | `/api/social/callback/pinterest` | Connect only for now; publishing is not built. |
-
-Apps in development mode only work for accounts added as testers in each developer portal. Public use needs each network's review/audit, which only you can request.
+| TikTok | `TIKTOK_CLIENT_KEY`, `TIKTOK_CLIENT_SECRET` | `/api/social/callback/tiktok` | Content Posting API; unaudited apps may have posting restrictions. |
+| Pinterest | `PINTEREST_APP_ID`, `PINTEREST_APP_SECRET` | `/api/social/callback/pinterest` | Direct fallback connection. |
 
 ## Scheduled posts
 
