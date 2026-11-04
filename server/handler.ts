@@ -614,6 +614,17 @@ const generateStory: Handler = async ({ req, res, body }) => {
   json(res, 200, (out as { sb: any }).sb);
 };
 
+// Multi-step writer endpoint: long-form productions are outlined and completed in bounded chunks
+// so a 2-minute (or longer) selection is never silently reduced to the first eight scenes.
+const generateStoryStep: Handler = async ({ req, res, body }) => {
+  const { row, user } = await requireAccess(req);
+  await rateLimit(`ai:${row.id}`, 120, 3600);
+  const input = parseStoryInput(body);
+  const draft = body.draft && typeof body.draft === 'object' ? body.draft : undefined;
+  const out = await writeStoryboard(row, user, input, draft, false);
+  json(res, 200, out.done ? { done: true, sb: out.sb } : { done: false, draft: out.draft });
+};
+
 const sumSeconds = (a: number[]) => a.reduce((x, y) => x + y, 0);
 const speechCap = 9.0; // seconds of speech that safely fit a 10 second clip
 
@@ -1936,7 +1947,7 @@ const routes: Record<string, Handler> = {
   'POST /auth/register': register, 'POST /auth/verify': verifyEmail, 'POST /auth/resend': resend, 'POST /auth/login': login,
   'POST /auth/reset': resetPassword, 'POST /auth/owner-access': ownerAccess, 'GET /auth/me': me,
   'POST /auth/logout': async ({ res }) => { endSession(res); json(res, 200, { ok: true }); },
-  'GET /billing/plans': plans, 'POST /gemini/generate-story': generateStory, 'POST /video/render-batch': videoRenderBatch, 'POST /billing/checkout': checkout, 'POST /billing/trial': trialCheckout, 'POST /billing/topup': topupCheckout, 'GET /billing/extras': billingExtras, 'GET /billing/verify': billingVerify,
+  'GET /billing/plans': plans, 'POST /gemini/generate-story': generateStory, 'POST /gemini/generate-story-step': generateStoryStep, 'POST /video/render-batch': videoRenderBatch, 'POST /billing/checkout': checkout, 'POST /billing/trial': trialCheckout, 'POST /billing/topup': topupCheckout, 'GET /billing/extras': billingExtras, 'GET /billing/verify': billingVerify,
   'POST /billing/cancel': cancelBilling, 'POST /billing/webhook': webhook,
   'GET /account/usage': usage, 'PUT /account/profile': updateProfile, 'POST /account/password': changePassword,
   'GET /account/export': exportData, 'POST /account/delete': deleteAccount,
