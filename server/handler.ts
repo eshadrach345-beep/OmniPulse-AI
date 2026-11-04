@@ -577,7 +577,7 @@ async function prepareStory(row: any, user: { secondsLimit: number }, input: Sto
     : 'Balanced. Steady build with room for one or two breathing moments.';
   const mood = STORY_MOODS[brief.mood], cam = CAMERA_PROFILES[brief.cameraProfile];
   // a documentary is always narrated; everything else follows the chosen presentation
-  const presentation = format === 'documentary' ? 'narrated' as const : brief.presentation;
+  const presentation = format === 'documentary' || format === 'commercial' ? 'narrated' as const : brief.presentation;
   const silentCast = presentation === 'narrated' || (brief.dialogue === 'none' && presentation !== 'dialogue' && presentation !== 'shortdrama') || (brief.cast === 'animals' && !brief.animalsTalk);
   const style = styleBlock({ presentation, genre: brief.genre, intensity: brief.intensity, dialogue: brief.dialogue, ending: brief.ending, cast: brief.cast, animalsTalk: brief.animalsTalk, trope: brief.trope });
   const base = { idea, format, look, niche: input.niche, aspectRatio: aspect, scenes: plan.scenes, mood: brief.mood, cameraProfile: brief.cameraProfile, pacing, characterLock: brief.characterLock, continuity, style, silentCast };
