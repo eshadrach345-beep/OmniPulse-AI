@@ -3,6 +3,7 @@ import { SeriesStudio } from './SeriesStudio';
 import { AdMakerStudio } from './AdMakerStudio';
 import { StoryPlayer } from './StoryPlayer';
 import { VideoEditor } from './VideoEditor';
+import { CreatorUploadStudio } from './CreatorUploadStudio';
 import { 
   GeneratedVideo, 
   VideoType, 
