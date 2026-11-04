@@ -219,6 +219,8 @@ export interface GeneratedVideo {
   backgroundMusicTrack: string;
   thumbnailUrl: string;
   videoUrl?: string;
+  /** Render job ID for authenticated, streamed downloads without browser-side buffering. */
+  videoJobId?: string;
   createdAt: string;
   status: 'ready' | 'rendering' | 'scheduled' | 'published';
   directorStyle?: VideoDirectorStyle;
