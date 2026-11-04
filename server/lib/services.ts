@@ -458,53 +458,130 @@ export async function geminiRaw(prompt: string, opts: { grounded?: boolean; time
 }
 
 /** Step 1 of research: a Google-Search-grounded pass. Kept under ~30s so no single request runs long. THROWS if search did not really run. */
+// Official YouTube public statistics, when the owner has configured a YouTube Data API key.
+async function youtubePublicTrendEvidence(niche: string): Promise<{ text: string; sources: { title: string; url: string }[] }> {
+  const key = (process.env.YOUTUBE_API_KEY || process.env.YOUTUBE_DATA_API_KEY || '').trim();
+  if (!key) return { text: 'YouTube Data API: not configured. Web-search discoveries may still include YouTube links, but official public view-count ranking is unavailable.', sources: [] };
+  const after = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
+  const base = 'https://www.googleapis.com/youtube/v3/';
+  const searchUrl = new URL(base + 'search');
+  searchUrl.search = new URLSearchParams({ part: 'snippet', type: 'video', order: 'viewCount', maxResults: '50', publishedAfter: after, q: niche, key }).toString();
+  const sr = await fetch(searchUrl, { signal: AbortSignal.timeout(18000) });
+  if (!sr.ok) throw new Error('YouTube search returned ' + sr.status);
+  const sd: any = await sr.json();
+  const found = (sd.items || []).filter((x: any) => x && x.id && x.id.videoId && x.snippet && x.snippet.channelId);
+  if (!found.length) return { text: 'YouTube Data API: no recent public videos found for this niche in the last 90 days.', sources: [] };
+  const videoIds = found.map((x: any) => x.id.videoId);
+  const channelIds = [...new Set(found.map((x: any) => x.snippet.channelId))];
+  const [vr, cr] = await Promise.all([
+    fetch(base + 'videos?' + new URLSearchParams({ part: 'snippet,statistics,contentDetails', id: videoIds.join(','), key }), { signal: AbortSignal.timeout(18000) }),
+    fetch(base + 'channels?' + new URLSearchParams({ part: 'snippet,statistics', id: channelIds.join(','), key }), { signal: AbortSignal.timeout(18000) }),
+  ]);
+  if (!vr.ok || !cr.ok) throw new Error('YouTube details returned ' + (!vr.ok ? vr.status : cr.status));
+  const vd: any = await vr.json(), cd: any = await cr.json();
+  const channels = new Map((cd.items || []).map((x: any) => [x.id, x]));
+  const videos = (vd.items || []).map((v: any) => {
+    const ch: any = channels.get(v.snippet && v.snippet.channelId);
+    return {
+      videoId: v.id, title: String((v.snippet && v.snippet.title) || '').slice(0, 220),
+      channelId: v.snippet && v.snippet.channelId, channelTitle: String((v.snippet && v.snippet.channelTitle) || ''),
+      publishedAt: (v.snippet && v.snippet.publishedAt) || '', views: Number((v.statistics && v.statistics.viewCount) || 0),
+      likes: Number((v.statistics && v.statistics.likeCount) || 0), comments: Number((v.statistics && v.statistics.commentCount) || 0),
+      thumbnail: (v.snippet && v.snippet.thumbnails && (v.snippet.thumbnails.high || v.snippet.thumbnails.medium) && (v.snippet.thumbnails.high || v.snippet.thumbnails.medium).url) || '',
+      subscribers: Number((ch && ch.statistics && ch.statistics.subscriberCount) || 0),
+      channelUrl: 'https://www.youtube.com/channel/' + (v.snippet && v.snippet.channelId),
+      videoUrl: 'https://www.youtube.com/watch?v=' + v.id,
+    };
+  }).sort((a: any, b: any) => b.views - a.views);
+  const grouped = new Map<string, any>();
+  for (const v of videos) {
+    const prior = grouped.get(v.channelId);
+    if (!prior) grouped.set(v.channelId, Object.assign({}, v, { topVideos: [v] }));
+    else if (prior.topVideos.length < 3) prior.topVideos.push(v);
+  }
+  const creators = [...grouped.values()].sort((a: any, b: any) => b.views - a.views).slice(0, 50);
+  const evidence = creators.map((c: any, i: number) =>
+    '[YOUTUBE PUBLIC CREATOR ' + (i + 1) + '] ' + c.channelTitle +
+    '\nChannel: ' + c.channelUrl + '\nSubscribers (public): ' + (c.subscribers || 'Hidden') +
+    '\nTop recent public video: ' + c.title + '\nVideo URL: ' + c.videoUrl +
+    '\nPublished: ' + c.publishedAt + '\nPublic views: ' + c.views +
+    '\nPublic likes: ' + (c.likes || 'Hidden') + '\nPublic comments: ' + (c.comments || 'Hidden') +
+    '\nThumbnail: ' + c.thumbnail + '\nAdditional videos: ' +
+    (c.topVideos.slice(1).map((v: any) => v.title + ' | ' + v.videoUrl + ' | ' + v.views + ' public views | ' + v.publishedAt + ' | ' + v.thumbnail).join(' ; ') || 'None returned')
+  ).join('\n\n');
+  const sources = creators.flatMap((c: any) => [
+    { title: c.channelTitle + ' — YouTube channel', url: c.channelUrl },
+    ...c.topVideos.map((v: any) => ({ title: v.title, url: v.videoUrl })),
+  ]);
+  return {
+    text: 'OFFICIAL YOUTUBE DATA API RESULTS. Search ordered by public view count, restricted to videos published in the last 90 days. These are public views, NOT private impressions. This is a discovery sample, not a complete platform-wide ranking.\n\n' + evidence,
+    sources,
+  };
+}
+
 // Independent multi-query search for niche intelligence; does not require Gemini.
 export async function webTrendResearch(niche: string, customQuery: string): Promise<{ text: string; sources: { title: string; url: string }[]; provider: string }> {
-  const focus = customQuery ? ` ${customQuery}` : '';
-  const queries = [`"${niche}" trends launches news last 14 days${focus}`, `"${niche}" TikTok Instagram Reels YouTube Shorts creators formats${focus}`, `"${niche}" hashtags search keywords audience questions${focus}`, `"${niche}" market reports consumer behaviour product launches${focus}`];
+  const focus = customQuery ? ' ' + customQuery : '';
+  const queries = [
+    '"' + niche + '" trends launches news last 14 days' + focus,
+    '"' + niche + '" top YouTube creators recent high view videos' + focus,
+    '"' + niche + '" TikTok creators viral videos examples' + focus,
+    '"' + niche + '" Instagram Reels creators popular recent videos' + focus,
+    '"' + niche + '" creator accounts video formats hooks audience' + focus,
+    '"' + niche + '" market reports hashtags search keywords audience questions' + focus,
+  ];
   const unique = new Map<string, any>();
   const braveKey = (process.env.BRAVE_SEARCH_API_KEY || '').trim();
   const tavilyKey = (process.env.TAVILY_API_KEY || '').trim();
+  let searchText = '';
+  let provider = '';
   if (braveKey) {
     const groups = await Promise.all(queries.map(async (q, i) => {
       const url = new URL('https://api.search.brave.com/res/v1/llm/context');
       url.searchParams.set('q', q); url.searchParams.set('count', '15');
       url.searchParams.set('maximum_number_of_tokens', '2048'); url.searchParams.set('maximum_number_of_urls', '10');
       url.searchParams.set('context_threshold_mode', 'balanced'); url.searchParams.set('enable_source_metadata', 'true');
-      if (i < 2) url.searchParams.set('freshness', 'pm');
+      if (i < 4) url.searchParams.set('freshness', 'pm');
       const r = await fetch(url, { headers: { 'X-Subscription-Token': braveKey, Accept: 'application/json' }, signal: AbortSignal.timeout(25000) });
-      if (!r.ok) throw new HttpError(424, `Brave LLM Context returned ${r.status}. Check BRAVE_SEARCH_API_KEY and its plan.`, 'SEARCH');
-      const d: any = await r.json();
-      const generic = d?.grounding?.generic || [];
-      const meta = d?.sources || {};
-      return generic.map((x: any) => ({ title: String(x.title || meta[x.url]?.title || '').slice(0, 240), url: String(x.url || ''), content: (x.snippets || []).map((v: any) => String(v)).join('\n').slice(0, 7000), date: (meta[x.url]?.age || []).join(' | '), query: q }));
+      if (!r.ok) throw new HttpError(424, 'Brave LLM Context returned ' + r.status + '. Check BRAVE_SEARCH_API_KEY and its plan.', 'SEARCH');
+      const d: any = await r.json(), generic = d && d.grounding && d.grounding.generic || [], meta = d && d.sources || {};
+      return generic.map((x: any) => ({ title: String(x.title || (meta[x.url] && meta[x.url].title) || '').slice(0, 240), url: String(x.url || ''), content: (x.snippets || []).map((v: any) => String(v)).join('\n').slice(0, 7000), date: ((meta[x.url] && meta[x.url].age) || []).join(' | '), query: q }));
     }));
     for (const group of groups) for (const x of group) if (/^https?:\/\//i.test(x.url)) {
-      const old = unique.get(x.url);
-      if (old) old.content = `${old.content}\n${x.content}`.slice(0, 10000);
+      const oldItem = unique.get(x.url);
+      if (oldItem) oldItem.content = (oldItem.content + '\n' + x.content).slice(0, 10000);
       else unique.set(x.url, x);
     }
     if (unique.size < 8) throw new HttpError(424, 'Live search returned too few independent sources. Try a more specific or broader niche.', 'SEARCH');
-    const items = [...unique.values()].slice(0, 30);
-    const sources = items.map(x => ({ title: x.title || x.url, url: x.url }));
-    const text = items.map((x, i) => `[SOURCE ${i + 1}] ${x.title}\nURL: ${x.url}\nPublished/updated: ${x.date || 'Not supplied'}\nSearch query: ${x.query}\nExtracted evidence: ${x.content}`).join('\n\n');
-    return { text: `Search provider: Brave LLM Context (pre-extracted page content). Research date: ${new Date().toISOString()}. Sources: ${sources.length}.\n\n${text}`, sources, provider: 'brave-llm-context' };
-  }
-  if (tavilyKey) {
-    const groups = await Promise.all(queries.slice(0, 3).map(async q => {
-      const r = await fetch('https://api.tavily.com/search', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ api_key: tavilyKey, query: q, topic: 'general', search_depth: 'advanced', max_results: 10, include_answer: false, include_raw_content: false }), signal: AbortSignal.timeout(18000) });
-      if (!r.ok) throw new HttpError(424, `Tavily Search returned ${r.status}. Check TAVILY_API_KEY.`, 'SEARCH');
+    const items = [...unique.values()].slice(0, 36);
+    searchText = items.map((x, i) => '[SOURCE ' + (i + 1) + '] ' + x.title + '\nURL: ' + x.url + '\nPublished/updated: ' + (x.date || 'Not supplied') + '\nSearch query: ' + x.query + '\nExtracted evidence: ' + x.content).join('\n\n');
+    provider = 'brave-llm-context';
+  } else if (tavilyKey) {
+    const groups = await Promise.all(queries.map(async q => {
+      const r = await fetch('https://api.tavily.com/search', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ api_key: tavilyKey, query: q, topic: 'general', search_depth: 'advanced', max_results: 8, include_answer: false, include_raw_content: false }), signal: AbortSignal.timeout(18000) });
+      if (!r.ok) throw new HttpError(424, 'Tavily Search returned ' + r.status + '. Check TAVILY_API_KEY.', 'SEARCH');
       const d: any = await r.json();
-      return (d?.results || []).map((x: any) => ({ title: String(x.title || '').slice(0, 240), url: String(x.url || ''), content: String(x.content || '').slice(0, 1800), date: String(x.published_date || ''), query: q }));
+      return (d.results || []).map((x: any) => ({ title: String(x.title || '').slice(0, 240), url: String(x.url || ''), content: String(x.content || '').slice(0, 2200), date: String(x.published_date || ''), query: q }));
     }));
     for (const group of groups) for (const x of group) if (/^https?:\/\//i.test(x.url)) unique.set(x.url, x);
     if (unique.size < 8) throw new HttpError(424, 'Live search returned too few independent sources. Try a more specific or broader niche.', 'SEARCH');
-    const items = [...unique.values()].slice(0, 30);
-    const sources = items.map(x => ({ title: x.title || x.url, url: x.url }));
-    const text = items.map((x, i) => `[SOURCE ${i + 1}] ${x.title}\nURL: ${x.url}\nPublished: ${x.date || 'Not supplied'}\nSearch query: ${x.query}\nEvidence: ${x.content}`).join('\n\n');
-    return { text: `Search provider: Tavily. Research date: ${new Date().toISOString()}. Sources: ${sources.length}.\n\n${text}`, sources, provider: 'tavily' };
+    const items = [...unique.values()].slice(0, 36);
+    searchText = items.map((x, i) => '[SOURCE ' + (i + 1) + '] ' + x.title + '\nURL: ' + x.url + '\nPublished: ' + (x.date || 'Not supplied') + '\nSearch query: ' + x.query + '\nEvidence: ' + x.content).join('\n\n');
+    provider = 'tavily';
+  } else {
+    throw new HttpError(424, 'Live niche research needs a search API key. Add TAVILY_API_KEY in Vercel, then redeploy. This research step does not use Gemini.', 'SEARCH_SETUP');
   }
-  throw new HttpError(424, 'Live niche research needs a search API key. Add BRAVE_SEARCH_API_KEY (recommended) or TAVILY_API_KEY in Vercel, then redeploy. This research step does not use Gemini.', 'SEARCH_SETUP');
+  let youtubeText = '';
+  try {
+    const yt = await youtubePublicTrendEvidence(niche);
+    youtubeText = yt.text;
+    for (const s of yt.sources) if (!unique.has(s.url)) unique.set(s.url, { title: s.title, url: s.url });
+  } catch (e) {
+    youtubeText = 'YouTube Data API enrichment unavailable: ' + (e instanceof Error ? e.message : 'request failed') + '. Use only public metrics visible in web-search evidence; do not infer private impressions.';
+  }
+  const sources = [...unique.values()].slice(0, 80).map(x => ({ title: x.title || x.url, url: x.url }));
+  const text = 'Search provider: ' + provider + '. Research date: ' + new Date().toISOString() + '. Web sources: ' + sources.length + '.\n\n' + searchText + '\n\n' + youtubeText;
+  return { text, sources, provider: provider + ((process.env.YOUTUBE_API_KEY || process.env.YOUTUBE_DATA_API_KEY) ? '+youtube-data-api' : '') };
 }
 export async function geminiSearch(researchPrompt: string): Promise<{ text: string; sources: { title: string; url: string }[]; model: string }> {
   const key = geminiKeyList().find((k) => keyBlockedMs(k) === 0) || need('GEMINI_API_KEY', 'GOOGLE_API_KEY');
