@@ -126,7 +126,7 @@ export const PricingModal: React.FC<PricingModalProps> = ({ currentUser, isOpen,
       <div className="flex justify-center">
         <div className="inline-flex bg-slate-900 border border-slate-800 rounded-full p-1 text-xs">
           {(['monthly', 'annual'] as const).map((c) => (
-            <button key={c} onClick={() => setCycle(c)} className={`px-4 py-1.5 rounded-full font-medium transition-colors ${cycle === c ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-slate-200'}`}>
+            <button key={c} disabled={c === 'annual' && plans.length > 0 && !plans.some((p) => p.annualAvailable)} onClick={() => setCycle(c)} className={`px-4 py-1.5 rounded-full font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${cycle === c ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-slate-200'}`}>
               {c === 'monthly' ? 'Monthly' : `Annual${saving > 0 ? ` · save ${saving}%` : ''}`}
             </button>
           ))}
