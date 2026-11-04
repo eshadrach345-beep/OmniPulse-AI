@@ -693,3 +693,61 @@ export async function falTts(text: string, voiceId: string, gender?: string): Pr
   if (!f || !f.ok) throw new HttpError(424, 'Voice audio could not be downloaded. Please try again.', 'FAL_VOICE');
   return { audio: Buffer.from(await f.arrayBuffer()), type: f.headers.get('content-type') || 'audio/wav' };
 }
+
+
+/** Starts an image-conditioned brand-ad clip. The image may be a short-lived data URI or a public HTTPS URL. */
+export async function falImageVideoSubmit(imageUrl: string, prompt: string, seconds: 5 | 10, aspect: '9:16' | '16:9' | '1:1', resolution: '480P' | '768P' | '1080P' = '480P') {
+  const model = 'fal-ai/wan/v2.2-a14b/image-to-video';
+  const body = {
+    image_url: imageUrl,
+    prompt,
+    num_frames: seconds === 10 ? 161 : 81,
+    frames_per_second: 16,
+    resolution: resolution === '1080P' ? '720p' : resolution === '768P' ? '580p' : '480p',
+    aspect_ratio: aspect,
+    enable_safety_checker: true,
+    enable_output_safety_checker: true,
+    enable_prompt_expansion: true,
+    acceleration: 'regular',
+    video_quality: 'high',
+    video_write_mode: 'balanced',
+  };
+  let r: Response;
+  try {
+    r = await fetch(`https://queue.fal.run/${model}`, {
+      method: 'POST', headers: falHeaders(), body: JSON.stringify(body), signal: AbortSignal.timeout(30_000),
+    });
+  } catch (e: any) {
+    throw new HttpError(424, e?.name === 'TimeoutError' ? 'The image-to-video engine did not respond in time. Please try again.' : 'Could not reach the image-to-video engine.', 'FAL');
+  }
+  const d: any = await r.json().catch(() => ({}));
+  if (!r.ok || !d.request_id || !d.status_url || !d.response_url) {
+    console.error('fal image-to-video submit failed', r.status, d);
+    const detail = typeof d?.detail === 'string' ? d.detail : d?.detail ? JSON.stringify(d.detail) : '';
+    throw new HttpError(424, r.status === 401 || r.status === 403 ? 'fal.ai rejected the key. Check FAL_KEY and your fal.ai balance.' : r.status === 402 ? 'fal.ai credits are exhausted.' : `Image-to-video request was rejected (${r.status}${detail ? `: ${detail.slice(0, 180)}` : ''}).`, 'FAL');
+  }
+  return { requestId: String(d.request_id), statusUrl: String(d.status_url), responseUrl: String(d.response_url) };
+}
+
+/** Generates two optional brand campaign stills; the FAL key stays server-side. */
+export async function falGenerateBrandImages(prompt: string, aspect: '9:16' | '16:9' | '1:1') {
+  const imageSize = aspect === '9:16' ? 'portrait_4_3' : aspect === '16:9' ? 'landscape_4_3' : 'square_hd';
+  let r: Response;
+  try {
+    r = await fetch('https://fal.run/fal-ai/flux/dev', {
+      method: 'POST', headers: falHeaders(),
+      body: JSON.stringify({ prompt, image_size: imageSize, num_images: 2, num_inference_steps: 28, enable_safety_checker: true }),
+      signal: AbortSignal.timeout(90_000),
+    });
+  } catch (e: any) {
+    throw new HttpError(424, e?.name === 'TimeoutError' ? 'Brand image generation timed out. Please try again.' : 'Could not reach the brand image generator.', 'FAL');
+  }
+  const d: any = await r.json().catch(() => ({}));
+  const images = Array.isArray(d?.images) ? d.images.map((x: any) => String(x?.url || '')).filter((x: string) => /^https:\/\//i.test(x)).slice(0, 2) : [];
+  if (!r.ok || !images.length) {
+    console.error('fal brand image generation failed', r.status, d);
+    const detail = typeof d?.detail === 'string' ? d.detail : '';
+    throw new HttpError(424, r.status === 401 || r.status === 403 ? 'fal.ai rejected the key. Check FAL_KEY and your fal.ai balance.' : r.status === 402 ? 'fal.ai credits are exhausted.' : `Brand image generation failed (${r.status}${detail ? `: ${detail.slice(0, 180)}` : ''}).`, 'FAL');
+  }
+  return images;
+}
