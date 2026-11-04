@@ -584,13 +584,13 @@ export async function webTrendResearch(niche: string, customQuery: string): Prom
   }
   const sources = [...unique.values()].slice(0, 80).map(x => {
     const parsed = new URL(x.url);
-    const domain = parsed.hostname.replace(/^www\\./i, '');
+    const domain = parsed.hostname.replace(/^www\./i, '');
     const host = parsed.hostname.toLowerCase();
     const isYouTube = host === 'youtu.be' || host.endsWith('youtube.com');
     const videoId = isYouTube ? (host === 'youtu.be' ? parsed.pathname.split('/').filter(Boolean)[0] : (parsed.searchParams.get('v') || parsed.pathname.split('/').filter(Boolean).pop())) : '';
     const youtubeImage = videoId && /^[A-Za-z0-9_-]{11}$/.test(videoId) ? 'https://img.youtube.com/vi/' + videoId + '/hqdefault.jpg' : '';
     const rawImage = typeof x.imageUrl === 'string' ? x.imageUrl : '';
-    const imageUrl = /^https?:\\/\\//i.test(rawImage) ? rawImage : (youtubeImage || undefined);
+    const imageUrl = /^https?:\/\//i.test(rawImage) ? rawImage : (youtubeImage || undefined);
     const platform = isYouTube ? 'YouTube' : host.includes('tiktok') ? 'TikTok' : host.includes('instagram') ? 'Instagram' : host.includes('facebook') ? 'Facebook' : host.includes('linkedin') ? 'LinkedIn' : host.includes('x.com') || host.includes('twitter') ? 'X' : undefined;
     const sourceType = isYouTube && videoId ? 'video' : /news|bbc|cnn|reuters|guardian|forbes|techcrunch|wired|nytimes/i.test(domain) ? 'news' : 'article';
     return { title: x.title || x.url, url: x.url, domain, faviconUrl: 'https://www.google.com/s2/favicons?domain=' + encodeURIComponent(domain) + '&sz=64', imageUrl, snippet: String(x.content || '').slice(0, 360), publishedAt: x.date || undefined, sourceType, platform };
