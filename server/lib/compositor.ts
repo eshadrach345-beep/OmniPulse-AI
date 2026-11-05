@@ -65,8 +65,9 @@ export async function renderComposition(input: CompositionInput): Promise<void> 
     const end = Math.max(start + 0.1, Math.min(duration, start + Math.max(0.1, layer.duration)));
     const scale = Math.max(10, Math.min(100, Number(layer.scale) || 55));
     const opacity = Math.max(0, Math.min(1, Number(layer.opacity) || 0));
-    const x = Math.max(0, Math.min(100, Number(layer.x) || 50)) / 100;
-    const y = Math.max(0, Math.min(100, Number(layer.y) || 50)) / 100;
+    const rawX = Number(layer.x), rawY = Number(layer.y);
+    const x = Math.max(0, Math.min(100, Number.isFinite(rawX) ? rawX : 50)) / 100;
+    const y = Math.max(0, Math.min(100, Number.isFinite(rawY) ? rawY : 50)) / 100;
     filter.push(`[${index}:v]scale=${Math.round(width * scale / 100 / 2) * 2}:-2,format=rgba,colorchannelmixer=aa=${opacity},setpts=PTS-STARTPTS+${start}/TB[ov${index}]`);
     filter.push(`[${videoLabel}][ov${index}]overlay=x=(W-w)*${x}:y=(H-h)*${y}:enable='between(t,${start},${end})':eof_action=pass:shortest=0[${nextLabel}]`);
     videoLabel = nextLabel;
