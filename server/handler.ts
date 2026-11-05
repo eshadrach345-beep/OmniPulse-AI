@@ -2170,9 +2170,10 @@ const videoEditorRender: Handler = async ({ req, res, body }) => {
         duration: clampNumber(layer.duration, duration - startAt, 0.1, duration - startAt),
         volume: clampNumber(layer.volume, 1, 0, 2),
         opacity: clampNumber(layer.opacity, 1, 0, 1),
-        scale: clampNumber(layer.scale, 100, 10, 200),
-        x: clampNumber(layer.x, 0.5, 0, 1),
-        y: clampNumber(layer.y, 0.5, 0, 1),
+        scale: clampNumber(layer.scale, 55, 10, 100),
+        // The editor stores overlay positions as percentages (0–100), not fractions.
+        x: clampNumber(layer.x, 50, 0, 100),
+        y: clampNumber(layer.y, 50, 0, 100),
       };
     });
   const main = layers.find((layer: any) => layer.track === 'main');
