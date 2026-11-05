@@ -2197,6 +2197,8 @@ const videoEditorRender: Handler = async ({ req, res, body }) => {
         startAt,
         duration: clampNumber(layer.duration, duration - startAt, 0.1, duration - startAt),
         volume: clampNumber(layer.volume, 1, 0, 2),
+        fadeIn: clampNumber(layer.fadeIn, 0, 0, 3),
+        fadeOut: clampNumber(layer.fadeOut, 0, 0, 3),
         opacity: clampNumber(layer.opacity, 1, 0, 1),
         scale: clampNumber(layer.scale, 55, 10, 100),
         // The editor stores overlay positions as percentages (0–100), not fractions.
