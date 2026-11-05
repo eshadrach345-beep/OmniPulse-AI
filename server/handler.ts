@@ -1791,7 +1791,7 @@ async function stageScript(row: any, user: ReturnType<typeof toUser>, ep: any) {
   }
   const sb = (out as { sb: any }).sb;
   // Character portraits are opt-in: never spend image credits during script creation unless requested.
-  if (cfg.characterReferences === true && Array.isArray(sb.characters) && sb.characters.length) {
+  if (cfg.characterReferences === true && (process.env.VIDEO_PROVIDER || 'fal').trim().toLowerCase() !== 'deapi' && Array.isArray(sb.characters) && sb.characters.length) {
     await rateLimit(`cast-reference:${row.id}`, 8, 3600);
     const refs = await Promise.all(sb.characters.slice(0, 4).map(async (c: any) => {
       if (c.referenceImageUrl && /^https:\/\//i.test(c.referenceImageUrl)) return c;
