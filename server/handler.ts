@@ -1827,9 +1827,9 @@ async function startPart(row: any, user: ReturnType<typeof toUser>, spec: { prom
   const source = await reserveSource(row, user, PART_SECONDS);
   await rateLimit(`render:${row.id}`, 300, 3600);
   const reso = PLANS[user.tier]?.resolution || '480P';
+  const provider = (process.env.VIDEO_PROVIDER || 'fal').trim().toLowerCase();
   let job: { statusUrl: string; responseUrl: string } | undefined;
   if (spec.kind === 'continue' && spec.prevUrl) {
-    const provider = (process.env.VIDEO_PROVIDER || 'fal').trim().toLowerCase();
     const frame = await lastFrameJpeg(spec.prevUrl);
     if (provider === 'deapi') {
       const j = await deapiAnimate(spec.prompt, frame, reso, PART_SECONDS, spec.aspect);
@@ -1845,7 +1845,7 @@ async function startPart(row: any, user: ReturnType<typeof toUser>, spec: { prom
         job = { statusUrl: j.statusUrl, responseUrl: j.responseUrl };
       } catch (e: any) {
         if (e instanceof RateLimited) throw e;
-        if (provider === 'auto' && lookupEnv('DEAPI_API_KEY')) {
+        if (lookupEnv('DEAPI_API_KEY')) {
           const j = await deapiAnimate(spec.prompt, frame, reso, PART_SECONDS, spec.aspect);
           job = { statusUrl: `deapi:${j.requestId}`, responseUrl: 'deapi' };
         } else throw e;
