@@ -16,6 +16,7 @@ export interface CompositionInput {
   height: number;
   output: string;
   audioGain?: number;
+  normalizeAudio?: boolean;
   brightness?: number;
   contrast?: number;
   saturation?: number;
@@ -57,6 +58,7 @@ export async function renderComposition(input: CompositionInput): Promise<void> 
   const height = Math.max(480, Math.min(1920, Math.round(input.height / 2) * 2));
   const args = ['-hide_banner', '-y'];
   const audioGain = Math.max(0, Math.min(2.5, Number(input.audioGain ?? 1)));
+  const normalizeAudio = input.normalizeAudio !== false;
   const brightness = Math.max(-0.15, Math.min(0.15, Number(input.brightness ?? 0)));
   const contrast = Math.max(0.5, Math.min(1.8, Number(input.contrast ?? 1)));
   const saturation = Math.max(0, Math.min(2, Number(input.saturation ?? 1)));
@@ -131,8 +133,8 @@ export async function renderComposition(input: CompositionInput): Promise<void> 
     filter.push(`[${index}:a]atrim=duration=${Math.max(0.1, layer.duration)},asetpts=PTS-STARTPTS,adelay=${startMs}|${startMs},volume=${volume}[${label}]`);
     audioLabels.push(`[${label}]`);
   }
-  if (audioLabels.length > 1) filter.push(`${audioLabels.join('')}amix=inputs=${audioLabels.length}:duration=longest:dropout_transition=0,alimiter=limit=0.95[aout]`);
-  else if (audioLabels.length === 1) filter.push(`${audioLabels[0]}anull[aout]`);
+  if (audioLabels.length > 1) filter.push(`${audioLabels.join('')}amix=inputs=${audioLabels.length}:duration=longest:dropout_transition=0${normalizeAudio ? ',loudnorm=I=-16:TP=-1.5:LRA=11' : ''},alimiter=limit=0.95[aout]`);
+  else if (audioLabels.length === 1) filter.push(`${audioLabels[0]}${normalizeAudio ? 'loudnorm=I=-16:TP=-1.5:LRA=11,' : ''}alimiter=limit=0.95[aout]`);
 
   args.push('-filter_complex', filter.join(';'), '-map', `[${videoLabel}]`);
   if (audioLabels.length) args.push('-map', '[aout]');
