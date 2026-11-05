@@ -94,7 +94,7 @@ export const PricingModal: React.FC<PricingModalProps> = ({ currentUser, isOpen,
         {blocking ? (
           <button onClick={onLogout} className="text-xs text-slate-400 hover:text-slate-200 flex items-center gap-1 shrink-0"><LogOut className="w-3.5 h-3.5" /> Sign out</button>
         ) : (
-          <button onClick={onClose} aria-label="Close" className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-slate-300 hover:bg-slate-800 hover:text-white" aria-label="Close plans and billing"><X className="w-5 h-5" /></button>
+          <button onClick={onClose} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-slate-300 hover:bg-slate-800 hover:text-white" aria-label="Close plans and billing"><X className="w-5 h-5" /></button>
         )}
       </div>
 
