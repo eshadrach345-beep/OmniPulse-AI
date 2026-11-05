@@ -35,7 +35,7 @@ const toUser = (r: any) => {
     subscriptionStatus: r.sub_status as string, billingCycle: r.sub_cycle as string | null,
     hasAccess: !!active, currentPeriodEnd: r.period_end ? new Date(r.period_end).toISOString() : null,
     // The owner (admin) account is unlimited: no monthly video or seconds cap.
-    channelsLimit: plan.channels, videosLimit: r.sub_status === 'owner' ? UNLIMITED : trial ? Math.ceil(TRIAL.seconds / 5) : plan.videosPerMonth, secondsLimit: r.sub_status === 'owner' ? UNLIMITED : trial ? TRIAL.seconds : plan.secondsPerMonth,
+    channelsLimit: r.sub_status === 'owner' ? UNLIMITED : plan.channels, videosLimit: r.sub_status === 'owner' ? UNLIMITED : trial ? Math.ceil(TRIAL.seconds / 5) : plan.videosPerMonth, secondsLimit: r.sub_status === 'owner' ? UNLIMITED : trial ? TRIAL.seconds : plan.secondsPerMonth,
     isTrial: trial, trialAvailable: r.sub_status === 'none' && !r.trial_used && !!r.email_verified, createdAt: new Date(r.created_at).toISOString(),
     isVerified: !!r.email_verified, isOwner: r.sub_status === 'owner',
   };
