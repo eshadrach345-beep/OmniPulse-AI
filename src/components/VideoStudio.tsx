@@ -909,7 +909,7 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
       {/* ---------------------------------------------------- */}
       {isCreating && (
         <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-xs flex items-start justify-center p-3 sm:p-4 overflow-y-auto overscroll-contain">
-          <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-2xl shadow-2xl p-5 sm:p-6 space-y-4 my-8 animate-in fade-in zoom-in-95 duration-200">
+          <div role="dialog" aria-modal="true" aria-label="Film and series video creator" className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-2xl shadow-2xl p-5 sm:p-6 space-y-4 my-2 sm:my-4 animate-in fade-in zoom-in-95 duration-200">
             <div className="flex items-center justify-between pb-3 border-b border-slate-800">
               <div className="flex items-center gap-2">
                 <Wand2 className="w-5 h-5 text-indigo-400" />
@@ -1220,14 +1220,14 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
 
       {isPublishOpen && (
         <div className="fixed inset-0 z-[70] bg-black/85 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
-          <div className="my-6 w-full max-w-xl rounded-2xl border border-slate-700 bg-slate-900 p-5 sm:p-6 shadow-2xl space-y-5">
+          <div role="dialog" aria-modal="true" aria-label="Publish your video" className="my-2 sm:my-4 w-full max-w-xl rounded-2xl border border-slate-700 bg-slate-900 p-4 sm:p-6 shadow-2xl space-y-5">
             <div className="flex items-start justify-between gap-3 border-b border-slate-800 pb-4">
               <div>
                 <div className="flex items-center gap-2 text-indigo-300"><Share2 className="h-5 w-5" /><span className="text-[10px] font-bold uppercase tracking-[0.16em]">OmniPulse distribution</span></div>
                 <h3 className="mt-2 text-lg font-bold text-white">Publish your video</h3>
                 <p className="mt-1 text-xs text-slate-400">Choose connected channels, polish the caption, and send this finished MP4.</p>
               </div>
-              <button onClick={() => setIsPublishOpen(false)} className="rounded-lg px-2 py-1 text-slate-400 hover:bg-slate-800 hover:text-white" aria-label="Close publish dialog">✕</button>
+              <button onClick={() => setIsPublishOpen(false)} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-slate-300 hover:bg-slate-800 hover:text-white" aria-label="Close publish dialog"><X className="h-5 w-5" /></button>
             </div>
 
             {!accounts.some(a => a.configured && a.publishable !== false) && (
@@ -1296,7 +1296,7 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
       {/* ---------------------------------------------------- */}
       {isVoiceSettingsOpen && (
         <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
-          <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-lg shadow-2xl p-5 sm:p-6 space-y-4 my-8 animate-in fade-in zoom-in-95 duration-200">
+          <div role="dialog" aria-modal="true" aria-label="Studio voice and narration settings" className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-lg shadow-2xl p-4 sm:p-6 space-y-4 my-2 sm:my-4 animate-in fade-in zoom-in-95 duration-200">
             <div className="flex items-center justify-between pb-3 border-b border-slate-800">
               <div className="flex items-center gap-2">
                 <Mic className="w-5 h-5 text-indigo-400" />
@@ -1316,7 +1316,7 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
               </button>
             </div>
 
-            <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-1">
+            <div className="space-y-4 pr-1">
               {/* Voice Pacing Slider */}
               <div className="p-3.5 bg-slate-950 rounded-xl border border-slate-800 space-y-2">
                 <div className="flex items-center justify-between text-xs">

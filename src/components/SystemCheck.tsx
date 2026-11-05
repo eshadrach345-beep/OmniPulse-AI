@@ -27,7 +27,7 @@ export const SystemCheck: React.FC<{ onClose: () => void }> = ({ onClose }) => {
       <div role="dialog" aria-modal="true" aria-label="System status" className="bg-slate-900 border border-slate-700 rounded-2xl p-6 my-6 max-w-xl mx-auto space-y-4" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between">
           <div><h2 className="text-lg font-bold text-white">System status</h2><p className="text-[11px] text-slate-500">Live checks of every connected service · build {BUILD}</p></div>
-          <button onClick={onClose} aria-label="Close" className="text-slate-400 hover:text-slate-200"><X className="w-5 h-5" /></button>
+          <button onClick={onClose} aria-label="Close" className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-slate-300 hover:bg-slate-800 hover:text-white"><X className="w-5 h-5" /></button>
         </div>
         {error && <div role="alert" className="text-xs text-rose-300 bg-rose-500/10 border border-rose-500/30 rounded-lg px-3 py-2">{error}</div>}
         {!checks && busy && <div className="flex items-center gap-2 text-sm text-slate-400 py-6 justify-center"><Loader2 className="w-4 h-4 animate-spin" />Checking your services...</div>}
