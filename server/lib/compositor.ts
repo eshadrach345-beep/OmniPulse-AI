@@ -10,6 +10,7 @@ export interface CompositionInput {
   captions: VideoCaptionCue[];
   title?: string;
   titlePosition?: 'top' | 'center' | 'bottom';
+  titleStyle?: 'cinematic' | 'minimal' | 'lower_third';
   duration: number;
   width: number;
   height: number;
@@ -96,7 +97,12 @@ export async function renderComposition(input: CompositionInput): Promise<void> 
       const captionPath = path.join(path.dirname(input.output), `captions-${Date.now()}.srt`);
       await fs.writeFile(captionPath, srt, 'utf8');
       const escaped = captionPath.replace(/\\/g, '/').replace(/:/g, '\\:').replace(/'/g, "\\'");
-      filter.push(`[${videoLabel}]subtitles=filename='${escaped}':force_style='FontName=Arial,FontSize=22,Outline=2,Shadow=1,Alignment=2,MarginV=38'[vfinal]`);
+      const style = input.titleStyle === 'minimal'
+        ? 'FontName=Arial,FontSize=20,PrimaryColour=&H00FFFFFF,Outline=0,Shadow=1,Alignment=2,MarginV=42'
+        : input.titleStyle === 'lower_third'
+          ? 'FontName=Arial,FontSize=22,PrimaryColour=&H00FFFFFF,BackColour=&HCC111827,BorderStyle=3,Outline=1,Shadow=0,Alignment=1,MarginL=54,MarginV=54'
+          : 'FontName=Arial,FontSize=24,PrimaryColour=&H00FFFFFF,BackColour=&HCC090D18,BorderStyle=3,Outline=2,Shadow=1,Alignment=2,MarginV=42';
+      filter.push(`[${videoLabel}]subtitles=filename='${escaped}':force_style='${style}'[vfinal]`);
       videoLabel = 'vfinal';
     }
   }
