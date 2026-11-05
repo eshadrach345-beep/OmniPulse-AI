@@ -188,7 +188,7 @@ async function mergeClipsFresh(urls: string[]): Promise<MergeResult> {
         const clipDuration = c.seconds.toFixed(2);
         parts.push(`[${i}:a]aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo,dynaudnorm=f=150:g=7:p=0.8,apad,atrim=duration=${clipDuration},asetpts=PTS-STARTPTS[a${i}]`);
       } else {
-        parts.push(`anullsrc=r=44100:cl=stereo,atrim=duration=${c.seconds.toFixed(2)},asetpts=PTS-STARTPTS[a${i}]`);
+        parts.push(`anullsrc=r=44100:cl=stereo,atrim=duration=${c.seconds.toFixed(2)},aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo,asetpts=PTS-STARTPTS[a${i}]`);
       }
       audioLabels.push(`[a${i}]`);
     });
