@@ -20,6 +20,7 @@ export interface EpisodeScene {
   visualPrompt: string;
   voiceoverText: string;
   cameraMotion: string;
+  continuesPrevious?: boolean;
   /** Exact approved screenplay dialogue, assigned to its 10-second half for script-accurate captions. */
   lines: { speaker: string; text: string; half?: 1 | 2 }[];
 }
@@ -61,6 +62,8 @@ export interface Episode {
   scenes: EpisodeScene[];
   /** Finished scene clips in story order (set once the episode is COMPLETED). */
   clips: string[];
+  /** Owned render-job IDs aligned with clips, used by the episode timeline editor. */
+  clipJobIds: string[];
 }
 
 export interface SeriesCharacter { name: string; role: string; gender: string; description: string; voice?: string }
