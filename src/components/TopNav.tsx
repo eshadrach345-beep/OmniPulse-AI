@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { AppUser } from '../types/auth';
-import { Zap, Video, Clapperboard, Calendar, TrendingUp, Split, BarChart3, Radio, Crown, LogOut, Settings, Activity, CreditCard, ImagePlus, Share2, MessageSquare } from 'lucide-react';
+import { Zap, Video, Clapperboard, Calendar, TrendingUp, Split, BarChart3, Radio, Crown, LogOut, Settings, Activity, CreditCard, ImagePlus, Share2, MessageSquare, CloudUpload } from 'lucide-react';
 
 export type TabId = 'dashboard' | 'accounts' | 'video-studio' | 'creator-studio' | 'series' | 'trends-hashtags' | 'scheduler' | 'ab-testing' | 'analytics' | 'support' | 'owner';
 
@@ -23,7 +23,7 @@ const NAV: { id: TabId; label: string; short: string; icon: React.ElementType }[
   { id: 'dashboard', label: 'Dashboard', short: 'Home', icon: Activity },
   { id: 'accounts', label: 'Social Accounts', short: 'Accounts', icon: Share2 },
   { id: 'video-studio', label: 'Video Studio', short: 'Videos', icon: Video },
-  { id: 'creator-studio', label: 'Creator Studio', short: 'Creator', icon: Clapperboard },
+  { id: 'creator-studio', label: 'Upload & Edit', short: 'Upload', icon: CloudUpload },
   { id: 'series', label: 'Series', short: 'Series', icon: Clapperboard },
   { id: 'trends-hashtags', label: 'Trends & Hashtags', short: 'Trends', icon: TrendingUp },
   { id: 'scheduler', label: 'Post Scheduler', short: 'Posts', icon: Calendar },
@@ -76,6 +76,10 @@ export const TopNav: React.FC<TopNavProps> = ({
             <button onClick={onOpenCreateVideo} className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-white bg-indigo-600 rounded-lg hover:bg-indigo-500 transition-colors whitespace-nowrap">
               <Video className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">Direct Video</span><span className="sm:hidden">Create</span>
+            </button>
+            <button onClick={() => setActiveTab('creator-studio')} title="Upload your own video and edit it with AI" className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-emerald-100 bg-emerald-950 border border-emerald-700/60 rounded-lg hover:bg-emerald-900 transition-colors whitespace-nowrap">
+              <CloudUpload className="w-3.5 h-3.5" />
+              <span>Upload & Edit</span>
             </button>
             <button onClick={onOpenAdMaker} title="Open the dedicated brand advertising studio" className="flex items-center gap-1.5 px-2.5 py-2 text-xs font-semibold text-fuchsia-100 bg-fuchsia-950 border border-fuchsia-700/60 rounded-lg hover:bg-fuchsia-900 transition-colors whitespace-nowrap">
               <ImagePlus className="w-3.5 h-3.5" /><span className="hidden sm:inline">Ad Maker</span><span className="sm:hidden">Ad</span>
