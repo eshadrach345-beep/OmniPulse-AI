@@ -2521,26 +2521,6 @@ const ownerOverview: Handler = async ({ req, res }) => {
   json(res, 200, { users: users[0] || {}, payments: payments[0] || {}, support: support[0] || {} });
 };
 
-// TEMPORARY production-only provider smoke test. Remove immediately after the one-time test.
-const videoProviderDiagnostic: Handler = async ({ req, res, query }) => {
-  if (process.env.VERCEL_ENV !== 'production') throw new HttpError(404, 'Not found.');
-  const expected = process.env.VIDEO_PROVIDER_TEST_TOKEN || '';
-  const given = String(query.get('token') || '');
-  if (!expected || !given || !crypto.timingSafeEqual(Buffer.from(sha256(given)), Buffer.from(sha256(expected)))) {
-    throw new HttpError(404, 'Not found.');
-  }
-  const requestId = String(query.get('requestId') || '');
-  if (requestId) {
-    const status = await deapiStatus(requestId);
-    return json(res, 200, { provider: 'deAPI', ...status });
-  }
-  const started = await deapiSubmit(
-    'A cinematic live-action 5-second test: a young adult woman in a red coat walks naturally through a sunlit city street, camera tracking smoothly beside her, realistic human movement, stable face and clothing, natural daylight, no text or logos.',
-    '480P', 5, '16:9'
-  );
-  json(res, 202, { provider: 'deAPI', state: 'queued', requestId: started.requestId });
-};
-
 // ---------------------------------------------------------------- router
 const routes: Record<string, Handler> = {
   'POST /auth/register': register, 'POST /auth/verify': verifyEmail, 'POST /auth/resend': resend, 'POST /auth/login': login,
@@ -2564,7 +2544,6 @@ const routes: Record<string, Handler> = {
   'GET /system/check': systemCheck,
   // Public liveness endpoint intentionally reveals no deployment, provider, or secret-configuration details.
   'GET /health': async ({ res }) => json(res, 200, { ok: true }),
-  'GET /_diag/video-provider': videoProviderDiagnostic,
 };
 
 export default async function handler(req: Req, res: Res) {
