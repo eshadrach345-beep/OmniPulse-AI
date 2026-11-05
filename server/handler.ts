@@ -2516,6 +2516,32 @@ const ownerOverview: Handler = async ({ req, res }) => {
   json(res, 200, { users: users[0] || {}, payments: payments[0] || {}, support: support[0] || {} });
 };
 
+// ---------------------------------------------------------------- temporary preview-only video smoke test
+// Guarded by a short-lived Vercel preview secret; remove after provider QA.
+const videoDiagnostic: Handler = async ({ res, query }) => {
+  if (process.env.VERCEL_ENV !== 'preview') throw new HttpError(404, 'Not found');
+  const expected = process.env.VIDEO_DIAGNOSTIC_TOKEN || '';
+  if (!expected || query.get('token') !== expected) throw new HttpError(404, 'Not found');
+  const action = query.get('action') || 'start';
+  if (action === 'start') {
+    const prompt = 'Cinematic 5-second live-action test, wide 16:9. One athletic adult runner in a dark blue jacket sprints continuously from left to right along a wet city street at night. Camera tracks parallel to the runner. The runner keeps the torso, head and gaze aligned toward the direction of travel for the entire shot; no turning to face the camera, no front pose, no reversal, no mirrored movement. Natural running cycle, consistent clothing and face, realistic foot contact and motion blur. Start an audible rhythmic cinematic music bed on the very first frame and keep it continuous to the final frame. A clear natural male voice begins speaking at about 1 second while the music continues underneath, gently ducked, never stopped or restarted. Exact dialogue: "Keep moving. We are almost there." No captions, text, logos or watermarks.';
+    const job = await falSubmit(prompt, '480P', 5, '16:9');
+    return json(res, 200, { state: 'queued', model: process.env.FAL_VIDEO_MODEL || 'minimax/h3-max-turbo/text-to-video', statusUrl: job.statusUrl, responseUrl: job.responseUrl });
+  }
+  if (action === 'status') {
+    const statusUrl = query.get('statusUrl') || '';
+    const responseUrl = query.get('responseUrl') || '';
+    for (const candidate of [statusUrl, responseUrl]) {
+      let parsed: URL;
+      try { parsed = new URL(candidate); } catch { throw new HttpError(400, 'Invalid queue URL'); }
+      if (parsed.protocol !== 'https:' || parsed.hostname !== 'queue.fal.run') throw new HttpError(400, 'Invalid queue host');
+    }
+    const result = await falStatus(statusUrl, responseUrl);
+    return json(res, 200, result);
+  }
+  throw new HttpError(400, 'Unknown diagnostic action');
+};
+
 // ---------------------------------------------------------------- router
 const routes: Record<string, Handler> = {
   'POST /auth/register': register, 'POST /auth/verify': verifyEmail, 'POST /auth/resend': resend, 'POST /auth/login': login,
@@ -2538,6 +2564,7 @@ const routes: Record<string, Handler> = {
   'GET /cron/dispatch': cronDispatch, 'POST /cron/dispatch': cronDispatch,
   'GET /system/check': systemCheck,
   // Public liveness endpoint intentionally reveals no deployment, provider, or secret-configuration details.
+  'GET /_diag/video-test': videoDiagnostic,
   'GET /health': async ({ res }) => json(res, 200, { ok: true }),
 };
 
@@ -2555,7 +2582,7 @@ export default async function handler(req: Req, res: Res) {
     const route = routes[cb ? 'GET /social/callback' : `${req.method} ${path}`];
     if (!route) throw new HttpError(404, 'Not found');
     const isWebhook = path === '/billing/webhook';
-    if (path !== '/health') await ensureSchema();
+    if (path !== '/health' && !path.startsWith('/_diag/')) await ensureSchema();
     const raw = ['POST', 'PUT', 'PATCH'].includes(req.method || '') ? await readRaw(req) : Buffer.alloc(0);
     let body: any = {};
     if (raw.length && !isWebhook) {
