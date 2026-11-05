@@ -935,7 +935,7 @@ export async function falGenerateCharacterReference(name: string, role: string, 
     r = await fetch('https://fal.run/fal-ai/flux/dev', {
       method: 'POST', headers: falHeaders(),
       body: JSON.stringify({ prompt, image_size: 'portrait_4_3', num_images: 1, num_inference_steps: 28, enable_safety_checker: true, output_format: 'jpeg' }),
-      signal: AbortSignal.timeout(45_000),
+      signal: AbortSignal.timeout(25_000),
     });
   } catch (e: any) {
     throw new HttpError(424, e?.name === 'TimeoutError' ? 'Character portrait generation timed out.' : 'Could not reach the character portrait generator.', 'FAL');
