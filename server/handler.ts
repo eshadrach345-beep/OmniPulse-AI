@@ -928,16 +928,14 @@ async function adaptScriptLocally(row: any, user: { secondsLimit: number }, inpu
     const split = halves === 2 && acts.length >= 2 ? Math.ceil(acts.length / 2) : acts.length;
     const firstActs = acts.slice(0, split), laterActs = acts.slice(split);
     const doing = (acts.length ? firstActs.join(' ') : cues.length ? `${who[0] || 'The speaker'} is ${cues[0]}` : `${who[0] || 'The character'} performs one simple, readable action in place while speaking; keep movements controlled and grounded`).replace(/[.\\s]+$/, '');
-    const firstActs = acts.slice(0, split), laterActs = acts.slice(split);
-    const doing = (acts.length ? firstActs.join(' ') : cues.length ? `${who[0] || 'The speaker'} is ${cues[0]}` : `${who[0] || 'The character'} moves urgently through the place, grabbing, pushing or reaching for things, and speaks while moving`).replace(/[.\s]+$/, '');
     rawScenes.push({
       lines,
-      visualPrompt: `${shot}. ${setting && k !== 0 ? `Setting: ${setting}. ` : ''}${people ? `${people}. ` : ''}${doing}. Mood: ${mood}. Photorealistic live-action film, real human proportions, natural skin texture and expressions, realistic fabric and hair movement, motivated natural lighting, shallow depth of field, shot on a 35mm cinema camera.`.replace(/\s+/g, ' '),
+      visualPrompt: `${shot}. ${setting && k !== 0 ? `Setting: ${setting}. ` : ''}${people ? `${people}. ` : ''}${doing}. Mood: ${mood}. Photorealistic live-action film, real human proportions, natural skin texture and expressions, realistic fabric and hair movement, motivated natural lighting, shallow depth of field, shot on a 35mm cinema camera.`.replace(/\\s+/g, ' '),
       secondHalfAction: (() => {
-        if (laterActs.length) return `${laterActs.join(' ')} The camera stays in the same place, no cut and no repeat of what already happened.`;
-        return talker && talker !== 'Narrator' ? `${talker} completes one small, readable physical action while speaking${listener ? `; ${listener} remains clearly separated and gives one restrained reaction` : ''}. Preserve the same camera position, screen direction, faces, wardrobe and prop positions; no sudden lunges, spins, cuts or new people.` : 'The same people remain in the same positions and perform one simple, readable action; no sudden movement, camera change or new people.';
+        if (laterActs.length) return `${laterActs.join(' ')} Keep the camera fixed in the same position, preserve screen direction and character positions, and do not introduce a new person.`;
+        const talker = lines[lines.length - 1]?.speaker;
         const listener = who.find((x) => x !== talker);
-        return talker && talker !== 'Narrator' ? `The action escalates: ${talker} keeps moving and speaking${listener ? ` while ${listener} reacts physically, lunging, ducking or blocking the way` : ', pushing forward through the danger'}. The camera stays in the same place, no cut and no repeat of what already happened.` : 'The action escalates with the same people in the same place: a sudden movement, a crash or a new danger, no cut and no repeat of what already happened.';
+        return talker && talker !== 'Narrator' ? `${talker} completes one small, readable physical action while speaking${listener ? `; ${listener} remains clearly separated and gives one restrained reaction` : ''}. Preserve the same camera position, screen direction, faces, wardrobe and prop positions; no sudden lunges, spins, cuts or new people.` : 'The same people remain in the same positions and perform one simple, readable action; no sudden movement, camera change or new people.';
       })(),
     });
   }
