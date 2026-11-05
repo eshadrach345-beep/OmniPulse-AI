@@ -1099,8 +1099,9 @@ function finishStory(ctx: StoryCtx, d: any, input: StoryInput) {
     const continuesPrevious = sc?.continuesPrevious === true;
     const visualBase = shownText ? `${visualCore} ${shownText}` : visualCore;
     const soundText = str(sc?.sound, 160);
-    const modelCam = str(sc?.cameraMotion, 220);
-    const cameraMotion = modelCam.length >= 8 ? modelCam : cam.direct;
+    // The selected camera profile is the hard constraint. A model-written per-scene move
+    // must not silently replace it (for example, adding a zoom to a locked-off shot).
+    const cameraMotion = cam.direct;
     const second = str(sc?.secondHalfAction, 400);
 
     const parts = assembleParts({ presentation, brief: { genre: brief.genre, intensity: brief.intensity }, mood: { render: mood.render }, look, aspect, cameraMotion, halves, lines, visualBase, second, soundText, characters, continuesPrevious });
