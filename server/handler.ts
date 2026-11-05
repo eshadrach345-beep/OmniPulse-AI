@@ -918,7 +918,7 @@ async function adaptScriptLocally(row: any, user: { secondsLimit: number }, inpu
     const cues = here.map((u) => u.cue).filter(Boolean);
     const who = [...new Set(here.map((u) => u.speaker).filter((x) => x !== 'Narrator' && lookOf.has(x)))].slice(0, 2);
     const first = here.find((u) => u.text) || here[0];
-    const mood = /!/.test(first.text) ? 'intense, charged emotion, raised energy' : /\\?/.test(first.text) ? 'uncertain, searching, tense' : 'quiet, restrained, believable emotion';
+    const mood = /!/.test(first.text) ? 'intense, charged emotion, raised energy' : /\?/.test(first.text) ? 'uncertain, searching, tense' : 'quiet, restrained, believable emotion';
     // Conservative fallback blocking reduces identity drift caused by crowded frames and complex camera movement.
     const shot = k === 0 && !ctx.continuity ? `Stable medium-wide establishing shot${setting ? ` of ${setting}` : ''}, then a gentle settle on ${who.length ? who.join(' and ') : 'the scene'}`
       : who.length >= 2 ? `Stable medium two-shot of ${who[0]} and ${who[1]}, clearly separated left and right, facing each other across the same space`
@@ -927,12 +927,12 @@ async function adaptScriptLocally(row: any, user: { secondsLimit: number }, inpu
     const people = who.map((n) => `${n} is ${lookOf.get(n)}`).join('. ');
     const split = halves === 2 && acts.length >= 2 ? Math.ceil(acts.length / 2) : acts.length;
     const firstActs = acts.slice(0, split), laterActs = acts.slice(split);
-    const doing = (acts.length ? firstActs.join(' ') : cues.length ? `${who[0] || 'The speaker'} is ${cues[0]}` : `${who[0] || 'The character'} performs one simple, readable action in place while speaking; keep movements controlled and grounded`).replace(/[.\\s]+$/, '');
+    const doing = (acts.length ? firstActs.join(' ') : cues.length ? `${who[0] || 'The speaker'} is ${cues[0]}` : `${who[0] || 'The character'} performs one simple, readable action in place while speaking; keep movements controlled and grounded`).replace(/[.\s]+$/, '');
     rawScenes.push({
       lines,
       visualPrompt: `${shot}. ${setting && k !== 0 ? `Setting: ${setting}. ` : ''}${people ? `${people}. ` : ''}${doing}. Mood: ${mood}. Photorealistic live-action film, real human proportions, natural skin texture and expressions, realistic fabric and hair movement, motivated natural lighting, shallow depth of field, shot on a 35mm cinema camera.`.replace(/\\s+/g, ' '),
       secondHalfAction: (() => {
-        if (laterActs.length) return `${laterActs.join(' ')} Keep the camera fixed in the same position, preserve screen direction and character positions, and do not introduce a new person.`;
+      visualPrompt: `${shot}. ${setting && k !== 0 ? `Setting: ${setting}. ` : ''}${people ? `${people}. ` : ''}${doing}. Mood: ${mood}. Photorealistic live-action film, real human proportions, natural skin texture and expressions, realistic fabric and hair movement, motivated natural lighting, shallow depth of field, shot on a 35mm cinema camera.`.replace(/\s+/g, ' '),
         const talker = lines[lines.length - 1]?.speaker;
         const listener = who.find((x) => x !== talker);
         return talker && talker !== 'Narrator' ? `${talker} completes one small, readable physical action while speaking${listener ? `; ${listener} remains clearly separated and gives one restrained reaction` : ''}. Preserve the same camera position, screen direction, faces, wardrobe and prop positions; no sudden lunges, spins, cuts or new people.` : 'The same people remain in the same positions and perform one simple, readable action; no sudden movement, camera change or new people.';
