@@ -678,7 +678,8 @@ export async function falSubmit(prompt: string, resolution: '480P' | '768P' | '1
   if (!r.ok || !d.request_id) {
     console.error('fal submit failed', r.status, d);
     const detail = typeof d?.detail === 'string' ? d.detail : d?.detail ? JSON.stringify(d.detail) : '';
-    const msg = r.status === 401 || r.status === 403 ? 'Video engine credentials were rejected. Check FAL_KEY and your fal.ai balance.' : r.status === 402 ? 'Video engine credits are exhausted.' : `Video engine rejected the request (${r.status}${detail ? `: ${detail.slice(0, 160)}` : ''}).`;
+    const exhausted = /exhausted balance|user is locked/i.test(detail);
+    const msg = r.status === 401 ? 'fal.ai rejected the API key. Check FAL_KEY.' : exhausted || r.status === 402 ? 'fal.ai has locked generation because its account balance is exhausted. Add fal.ai credits or use the configured deAPI backup.' : r.status === 403 ? `fal.ai denied this request: ${detail.slice(0, 160) || 'access forbidden'}.` : `Video engine rejected the request (${r.status}${detail ? `: ${detail.slice(0, 160)}` : ''}).`;
     throw new HttpError(424, msg, 'FAL');
   }
   return { requestId: d.request_id as string, statusUrl: d.status_url as string, responseUrl: d.response_url as string };
@@ -701,7 +702,8 @@ export async function falContinueSubmit(prompt: string, imageUrl: string, resolu
   if (!r.ok || !d.request_id || !d.status_url || !d.response_url) {
     console.error('fal continuation submit failed', r.status, d);
     const detail = typeof d?.detail === 'string' ? d.detail : d?.detail ? JSON.stringify(d.detail) : '';
-    throw new HttpError(424, r.status === 401 || r.status === 403 ? 'fal.ai rejected the key. Check FAL_KEY and your balance.' : r.status === 402 ? 'fal.ai credits are exhausted.' : `The continuity render was rejected (${r.status}${detail ? `: ${detail.slice(0, 180)}` : ''}).`, 'FAL');
+    const exhausted = /exhausted balance|user is locked/i.test(detail);
+    throw new HttpError(424, r.status === 401 ? 'fal.ai rejected the API key. Check FAL_KEY.' : exhausted || r.status === 402 ? 'fal.ai has locked generation because its account balance is exhausted.' : r.status === 403 ? `fal.ai denied the continuity render: ${detail.slice(0, 180) || 'access forbidden'}.` : `The continuity render was rejected (${r.status}${detail ? `: ${detail.slice(0, 180)}` : ''}).`, 'FAL');
   }
   return { requestId: String(d.request_id), statusUrl: String(d.status_url), responseUrl: String(d.response_url) };
 }

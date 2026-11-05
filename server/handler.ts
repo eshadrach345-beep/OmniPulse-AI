@@ -1248,8 +1248,13 @@ async function submitToProvider(prompt: string, reso: '480P' | '768P' | '1080P',
   const viaDeapi = async () => { const j = await deapiSubmit(prompt, reso, seconds, aspect); return { statusUrl: `deapi:${j.requestId}`, responseUrl: 'deapi' }; };
   const viaFal = async () => { const j = await falSubmit(prompt, reso, seconds, aspect); return { statusUrl: j.statusUrl, responseUrl: j.responseUrl }; };
   if (provider === 'deapi') return viaDeapi();
-  if (provider === 'auto' && lookupEnv('DEAPI_API_KEY')) {
-    try { return await viaFal(); } catch (e: any) { console.error('fal failed, switching to deAPI:', e?.message); return viaDeapi(); }
+  // Keep fal as the preferred engine, but automatically use the configured
+  // deAPI backup when fal is out of credit, rate-limited, or temporarily down.
+  if (lookupEnv('DEAPI_API_KEY')) {
+    try { return await viaFal(); } catch (e: any) {
+      console.error('fal failed, switching to configured deAPI backup:', e?.message);
+      return viaDeapi();
+    }
   }
   return viaFal();
 }
