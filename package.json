@@ -9,7 +9,8 @@
     "build": "vite build",
     "build:api": "esbuild server/handler.ts --bundle --platform=node --format=esm --target=node20 --packages=external --outfile=api/index.js",
     "preview": "vite preview",
-    "build:api:ts": "node scripts/build-api.mjs"
+    "build:api:ts": "node scripts/build-api.mjs",
+    "typecheck": "tsc --noEmit --pretty false"
   },
   "dependencies": {
     "@neondatabase/serverless": "0.10.4",
@@ -26,7 +27,8 @@
     "@vercel/blob": "^2.4.0"
   },
   "devDependencies": {
-    "esbuild": "0.25.12"
+    "esbuild": "0.25.12",
+    "typescript": "^5.9.3"
   },
   "allowScripts": {
     "esbuild@0.25.12": true,

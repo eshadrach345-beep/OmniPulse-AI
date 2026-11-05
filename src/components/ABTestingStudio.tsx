@@ -36,7 +36,7 @@ export const ABTestingStudio: React.FC<Props> = ({ experiments, accounts, videos
     if (!target) { setError('Connect at least one social account first.'); return; }
     setBusy('gen'); setError(null);
     try {
-      const r = await api.post<any>('/gemini/ab-variations', { idea, platform: target, niche: activeNiche.name });
+      const r = await api.post<any>('/ai/ab-variations', { idea, platform: target, niche: activeNiche.name });
       setDraft({
         id: `ab-${Date.now()}`, name: idea.slice(0, 60), targetPlatform: target, createdAt: new Date().toISOString(),
         hypothesis: r.hypothesis, strategicReasoning: r.strategicReasoning, videoRefId: videoId || undefined, status: 'draft',

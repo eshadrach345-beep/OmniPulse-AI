@@ -15,9 +15,6 @@ export interface StudioVoice {
   qualityBadge: string;
 }
 
-// Backwards compatibility alias
-export type ElevenLabsVoice = StudioVoice;
-
 export const STUDIO_VOICES: StudioVoice[] = [
   {
     id: 'pNInz6obpgDQGcFmaJgB',

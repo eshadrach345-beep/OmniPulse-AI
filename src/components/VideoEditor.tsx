@@ -54,6 +54,7 @@ export const VideoEditor: React.FC<Props> = ({ video, onSave }) => {
 
   useEffect(() => { setScenes(video.scenes || []); setSelected(0); setUndoStack([]); setRedoStack([]); }, [video.id]);
   const totalSeconds = useMemo(() => scenes.reduce((sum, scene) => sum + Math.max(0, Number(scene.duration) || 0), 0), [scenes]);
+  const current = scenes[selected];
   const mainLayer = current?.mediaLayers?.find((layer) => layer.track === 'main');
   const overlayLayers = current?.mediaLayers?.filter((layer) => layer.track === 'overlay') || [];
   const audioLayers = current?.mediaLayers?.filter((layer) => layer.track === 'audio') || [];
@@ -228,7 +229,6 @@ export const VideoEditor: React.FC<Props> = ({ video, onSave }) => {
       setFilmProgress('');
     } finally { setRenderingFilm(false); }
   };
-  const current = scenes[selected];
 
   const commit = (next: VideoScene[]) => {
     // Keep scene numbering aligned with the actual edited join order after every operation.

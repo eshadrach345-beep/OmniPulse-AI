@@ -1,10 +1,11 @@
 {
-  "buildCommand": "npm run build:api && npm run build",
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "npm run typecheck && npm run build:api && npm run build",
   "outputDirectory": "dist",
   "functions": {
     "api/index.js": {
-      "maxDuration": 300,
-      "includeFiles": "node_modules/ffmpeg-static/**"
+      "maxDuration": 60,
+      "includeFiles": "{node_modules/ffmpeg-static/**,server/assets/fonts/**}"
     }
   },
   "rewrites": [

@@ -143,7 +143,7 @@ export const MoviePoster: React.FC<Props> = ({ title, tagline, cast, genre = 'au
 
   useEffect(() => {
     if (!ref.current) return;
-    try { drawPoster(ref.current, { title, tagline, cast, genre, genreLabel, partLabel }); setError(''); }
+    try { drawPoster(ref.current, { title, tagline, cast, genre: genre as GenreId, genreLabel, partLabel }); setError(''); }
     catch { setError('The poster could not be drawn in this browser.'); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [title, tagline, castKey, genre, genreLabel, partLabel]);

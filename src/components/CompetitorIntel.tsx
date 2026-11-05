@@ -28,13 +28,13 @@ export const CompetitorIntel: React.FC<Props> = ({ nicheName, onSendOutrankToSch
 
   const research = async (e: React.FormEvent) => {
     e.preventDefault(); setBusy('intel'); setError(null); setIntel(null);
-    try { setIntel(await api.post('/gemini/competitor-analysis', { target, platform, niche: nicheName })); setName(target); }
+    try { setIntel(await api.post('/ai/competitor-analysis', { target, platform, niche: nicheName })); setName(target); }
     catch (err) { fail(err); } finally { setBusy(null); }
   };
 
   const rewrite = async (e: React.FormEvent) => {
     e.preventDefault(); setBusy('rewrite'); setError(null); setResult(null);
-    try { setResult(await api.post('/gemini/outrank', { competitorName: name || 'a competitor', hook, caption, niche: nicheName })); }
+    try { setResult(await api.post('/ai/outrank', { competitorName: name || 'a competitor', hook, caption, niche: nicheName })); }
     catch (err) { fail(err); } finally { setBusy(null); }
   };
 

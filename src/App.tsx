@@ -29,6 +29,8 @@ import { Landing } from './components/Landing';
 import { LegalView, LegalPage } from './components/Legal';
 import { AccountSettings } from './components/AccountSettings';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { OwnerConsole } from './components/OwnerConsole';
+import { SupportCenter } from './components/SupportCenter';
 import { SystemCheck } from './components/SystemCheck';
 import { AutoPilotModal } from './components/AutoPilotModal';
 import { CheckCircle2, Loader2 } from 'lucide-react';
@@ -43,7 +45,7 @@ interface WorkspaceProps {
 function Workspace({ user: currentUser, initialDashboard, onLogout, onUserChange }: WorkspaceProps) {
   // Navigation
   const [activeTab, setActiveTab] = useState<
-    'dashboard' | 'accounts' | 'video-studio' | 'series' | 'trends-hashtags' | 'scheduler' | 'ab-testing' | 'analytics'
+    'dashboard' | 'accounts' | 'video-studio' | 'series' | 'trends-hashtags' | 'scheduler' | 'ab-testing' | 'analytics' | 'support' | 'owner'
   >('dashboard');
 
   // Set when the dashboard asks the Series tab to open one project on its next part.
@@ -129,6 +131,9 @@ function Workspace({ user: currentUser, initialDashboard, onLogout, onUserChange
   const [autoPilotActive, setAutoPilotActive] = useState(true);
   const [isPublishingPostId, setIsPublishingPostId] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [dashboardSaveState, setDashboardSaveState] = useState<'saved' | 'saving' | 'error'>('saved');
+  const [dashboardSaveError, setDashboardSaveError] = useState('');
+  const [dashboardSaveRetry, setDashboardSaveRetry] = useState(0);
 
   const toastTimer = useRef<number | undefined>(undefined);
   const showToast = (msg: string) => {
@@ -137,18 +142,32 @@ function Workspace({ user: currentUser, initialDashboard, onLogout, onUserChange
     toastTimer.current = window.setTimeout(() => setToastMessage(null), 5000);
   };
 
-  // Persist dashboard to the server (debounced)
+  // Persist dashboard to the server (debounced) and never hide a failed save from the user.
   const firstRender = useRef(true);
   const saveTimer = useRef<number | undefined>(undefined);
+  const saveVersion = useRef(0);
+  const saveQueue = useRef<Promise<unknown>>(Promise.resolve());
   useEffect(() => {
     if (firstRender.current) { firstRender.current = false; return; }
     window.clearTimeout(saveTimer.current);
+    const snapshot = { accounts, posts, videos, experiments, research, activeNicheId: activeNiche.id };
+    const version = ++saveVersion.current;
+    setDashboardSaveState('saving');
     saveTimer.current = window.setTimeout(() => {
-      Auth.saveDashboard({
-        accounts, posts, videos, experiments, research, activeNicheId: activeNiche.id,
-      }).catch(() => undefined);
-    }, 1200);
-  }, [accounts, posts, videos, experiments, research, activeNiche.id]);
+      // Serialize writes so a slow older request can never overwrite a newer workspace snapshot.
+      saveQueue.current = saveQueue.current.catch(() => undefined).then(() => Auth.saveDashboard(snapshot));
+      saveQueue.current.then(() => {
+        if (version !== saveVersion.current) return;
+        setDashboardSaveState('saved');
+        setDashboardSaveError('');
+      }).catch((error) => {
+        if (version !== saveVersion.current) return;
+        setDashboardSaveState('error');
+        setDashboardSaveError(error instanceof Error ? error.message : 'Your latest changes could not be saved. Check your connection and retry.');
+      });
+    }, 900);
+    return () => window.clearTimeout(saveTimer.current);
+  }, [accounts, posts, videos, experiments, research, activeNiche.id, dashboardSaveRetry]);
 
   const refreshUsage = useCallback(() => { Auth.usage().then(setUsage).catch(() => undefined); }, []);
   useEffect(() => { refreshUsage(); }, [videos.length, refreshUsage]);
@@ -533,6 +552,8 @@ function Workspace({ user: currentUser, initialDashboard, onLogout, onUserChange
 
       {/* Main Workspace Area */}
       <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8 pb-28 xl:pb-10 space-y-6">
+        {dashboardSaveState === 'saving' && <p role="status" aria-live="polite" className="text-[11px] text-slate-500">Saving your workspace changes…</p>}
+        {dashboardSaveState === 'error' && <div role="alert" className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-rose-500/30 bg-rose-950/25 px-3 py-2 text-xs text-rose-200"><span>Workspace save failed: {dashboardSaveError}</span><button type="button" onClick={() => setDashboardSaveRetry((value) => value + 1)} className="rounded-lg bg-rose-900/60 px-3 py-1.5 font-semibold hover:bg-rose-900">Retry save</button></div>}
         {/* Connected Social Accounts Bar with OAuth Login Trigger */}
         {activeTab === 'dashboard' && (
           <AccountsBar
@@ -662,6 +683,8 @@ function Workspace({ user: currentUser, initialDashboard, onLogout, onUserChange
         {activeTab === 'analytics' && (
           <AnalyticsReports accounts={accounts} posts={posts} />
         )}
+        {activeTab === 'support' && <SupportCenter />}
+        {activeTab === 'owner' && currentUser.isOwner && <OwnerConsole />}
         </div>
       </main>
 
@@ -813,7 +836,7 @@ export default function App() {
   if (!dashboard) return <Splash message="Loading your workspace..." />;
   return (
     <ErrorBoundary>
-      <Workspace key={user.id} user={user} initialDashboard={dashboard} onLogout={logout} onUserChange={setUser} />
+      <Workspace user={user} initialDashboard={dashboard} onLogout={logout} onUserChange={setUser} />
     </ErrorBoundary>
   );
 }

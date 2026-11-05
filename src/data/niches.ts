@@ -2,7 +2,7 @@ import { NicheCategory, SocialAccount } from '../types';
 
 /**
  * Niche catalogue shown in the searchable dropdown. Trends, hashtags, creators and best practices are
- * researched live (Gemini + Google Search) when the user scans a niche, never hardcoded here.
+ * researched live when the user scans a niche, never hardcoded here.
  */
 const RAW: [id: string, name: string, group: string][] = [
   ["ai-tools-automation", "AI Tools & Automation", "Tech & Business"],

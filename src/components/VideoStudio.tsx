@@ -560,6 +560,7 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
         </div>
       ) : null}
       {activeVideo.characters?.length ? <StoryPlayer key={activeVideo.id} video={activeVideo} /> : null}
+      {activeVideo.scenes.length > 0 && <div className="flex flex-col gap-3 rounded-2xl border border-indigo-500/25 bg-gradient-to-r from-indigo-950/70 via-slate-900 to-fuchsia-950/40 p-4 sm:flex-row sm:items-center sm:justify-between"><div><p className="text-[10px] font-bold uppercase tracking-[0.16em] text-indigo-300">Recommended final step</p><p className="mt-1 text-sm font-semibold text-white">Polish your scenes before you publish</p><p className="mt-1 text-xs text-slate-400">Trim clips, add brand visuals, fix subtitles and balance your audio in the timeline editor.</p></div><a href="#omnipulse-timeline-editor" className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 py-2.5 text-xs font-bold text-white shadow-lg shadow-indigo-950/40 transition hover:bg-indigo-500"><Wand2 className="h-4 w-4" />Open video editor</a></div>}
       {activeVideo.scenes.length > 0 && <VideoEditor key={activeVideo.id} video={activeVideo} onSave={(updated) => { setActiveVideo(updated); onSaveNewVideo(updated); }} />}
       {/* Main Studio Viewport: Left Player + Right Storyboard */}
       <div className={`grid grid-cols-1 lg:grid-cols-12 gap-6 items-start ${activeVideo.characters?.length ? 'hidden' : ''}`}>

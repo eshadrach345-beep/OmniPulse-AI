@@ -57,9 +57,13 @@ const secretKey = () => {
 
 export function parseCookies(req: Req): Record<string, string> {
   const out: Record<string, string> = {};
-  (req.headers.cookie || '').split(';').forEach((p) => {
-    const i = p.indexOf('=');
-    if (i > 0) out[p.slice(0, i).trim()] = decodeURIComponent(p.slice(i + 1).trim());
+  (req.headers.cookie || '').split(';').forEach((part) => {
+    const i = part.indexOf('=');
+    if (i <= 0) return;
+    const name = part.slice(0, i).trim();
+    const raw = part.slice(i + 1).trim();
+    // Malformed percent-encoding in an untrusted cookie must not crash request authentication.
+    try { out[name] = decodeURIComponent(raw); } catch { out[name] = raw; }
   });
   return out;
 }

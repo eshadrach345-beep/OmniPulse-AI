@@ -196,7 +196,14 @@ async function livePlan(id: string) {
   const hit = planCache.get(id);
   if (hit && Date.now() - hit.at < 10 * 60_000) return hit.v;
   let v: { amount: number; currency: string } | null = null;
-  try { const p = await flw(`/payment-plans/${encodeURIComponent(id)}`); if (p?.amount) v = { amount: Number(p.amount), currency: String(p.currency || BILLING_CURRENCY()) }; } catch { /* fall back to configured prices */ }
+  try {
+    const p = await flw(`/payment-plans/${encodeURIComponent(id)}`);
+    const amount = Number(p?.amount);
+    const status = String(p?.status || '').toLowerCase();
+    if (Number.isFinite(amount) && amount > 0 && (!status || status === 'active')) {
+      v = { amount, currency: String(p.currency || BILLING_CURRENCY()) };
+    }
+  } catch { /* unavailable or invalid plans are not offered; checkout validates again */ }
   planCache.set(id, { at: Date.now(), v });
   return v;
 }
@@ -209,7 +216,9 @@ const plans: Handler = async ({ res }) => {
     const m = mId ? await livePlan(mId) : null, a = aId ? await livePlan(aId) : null;
     if (m) { monthly = m.amount; currency = m.currency; }
     if (a) { annual = Math.round((a.amount / 12) * 100) / 100; currency = a.currency; }
-    out.push({ id: t, name: PLANS[t].name, monthly, annual, currency, channels: PLANS[t].channels, videosPerMonth: PLANS[t].videosPerMonth, secondsPerMonth: PLANS[t].secondsPerMonth, quality: PLANS[t].quality, available: !!(mId || aId), monthlyAvailable: !!mId, annualAvailable: !!aId });
+    const monthlyAvailable = !!mId && !!m;
+    const annualAvailable = !!aId && !!a;
+    out.push({ id: t, name: PLANS[t].name, monthly, annual, currency, channels: PLANS[t].channels, videosPerMonth: PLANS[t].videosPerMonth, secondsPerMonth: PLANS[t].secondsPerMonth, quality: PLANS[t].quality, monthlyAvailable, annualAvailable, available: monthlyAvailable || annualAvailable });
   }
   json(res, 200, { plans: out });
 };
@@ -217,8 +226,9 @@ const plans: Handler = async ({ res }) => {
 const checkout: Handler = async ({ req, res, body }) => {
   const row = await currentUser(req);
   if (row.sub_status === 'owner') throw new HttpError(400, 'Owner test access does not need a subscription.');
-  const tier = body.tier as Tier, cycle: Cycle = body.cycle === 'annual' ? 'annual' : 'monthly';
+  const tier = body.tier as Tier, cycle = body.cycle as Cycle;
   if (!TIERS.includes(tier)) throw new HttpError(400, 'Unknown plan.');
+  if (cycle !== 'monthly' && cycle !== 'annual') throw new HttpError(400, 'Choose a valid billing cycle.');
   const pid = planId(tier, cycle);
   if (!pid) throw new HttpError(424, `The ${PLANS[tier].name} ${cycle} plan isn't configured yet.`, 'CONFIG');
   await rateLimit(`checkout:${row.id}`, 20, 3600);
@@ -227,8 +237,14 @@ const checkout: Handler = async ({ req, res, body }) => {
   let amount = priceFor(tier, cycle), currency = BILLING_CURRENCY();
   try {
     const plan = await flw(`/payment-plans/${encodeURIComponent(pid)}`);
-    if (plan?.amount) amount = Number(plan.amount);
-    if (plan?.currency) currency = String(plan.currency);
+    // Never fall back to catalog pricing when a configured recurring plan omits its live amount.
+    // The stored payment record and checkout request must be based on Flutterwave's actual plan details.
+    const liveAmount = Number(plan?.amount);
+    if (!Number.isFinite(liveAmount) || liveAmount <= 0) throw new HttpError(424, `The ${PLANS[tier].name} plan has no valid amount in Flutterwave.`, 'CONFIG');
+    amount = liveAmount;
+    const liveCurrency = String(plan?.currency || '').trim();
+    if (!liveCurrency) throw new HttpError(424, `The ${PLANS[tier].name} plan has no billing currency in Flutterwave.`, 'CONFIG');
+    currency = liveCurrency;
     if (plan?.status && String(plan.status).toLowerCase() !== 'active') throw new HttpError(424, `The ${PLANS[tier].name} plan is not active in Flutterwave.`, 'CONFIG');
   } catch (e) {
     if (e instanceof HttpError && e.code === 'CONFIG') throw e;
@@ -322,30 +338,60 @@ async function settleTransaction(transactionId: string, req?: Req, expectedTxRef
   const d = await flw(`/transactions/${encodeURIComponent(transactionId)}/verify`);
   if (d.status !== 'successful') return null;
   if (expectedTxRef && d.tx_ref !== expectedTxRef) { console.error('tx_ref mismatch', expectedTxRef, d.tx_ref); return null; }
-  const pay = ((await sql()`SELECT * FROM payments WHERE tx_ref = ${d.tx_ref}`) as any[])[0];
+  const txRef = String(d.tx_ref || `flw-renewal-${transactionId}`).trim().slice(0, 100);
+  if (!txRef) return null;
+  const pay = ((await sql()`SELECT * FROM payments WHERE tx_ref = ${txRef}`) as any[])[0];
   let userRow: any, plan: { tier: Tier; cycle: Cycle } | null = null;
   if (pay) {
     if (String(d.currency).toUpperCase() !== String(pay.currency).toUpperCase()) {
-      console.error('Payment currency mismatch', d.tx_ref, d.amount, d.currency); return null;
+      console.error('Payment currency mismatch', txRef, d.currency, pay.currency); return null;
     }
     userRow = ((await sql()`SELECT * FROM users WHERE id = ${pay.user_id}`) as any[])[0];
+    if (!userRow) return null;
+    const paidAmount = Number(d.amount), expectedAmount = Number(pay.amount);
+    if (!Number.isFinite(paidAmount) || !Number.isFinite(expectedAmount) || expectedAmount <= 0 || paidAmount + 0.001 < expectedAmount) {
+      console.error('Payment amount mismatch', txRef, d.amount, pay.amount); return null;
+    }
+    // A verified payment is settled once. This also prevents a repeated browser return from extending access again.
+    if (pay.status === 'paid') return userRow.id as string;
     if (pay.tier === 'trial' || pay.tier === 'topup') {
-      if (!userRow) return null;
-      if (Number(d.amount) + 0.001 < Number(pay.amount)) { console.error('Amount too low', d.tx_ref, d.amount, pay.amount); return null; }
-      if (pay.status === 'paid') return userRow.id as string;
       return pay.tier === 'trial' ? settleTrial(d, pay, userRow) : settleTopup(d, pay, userRow);
     }
     plan = { tier: pay.tier as Tier, cycle: pay.cycle as Cycle };
-    await sql()`UPDATE payments SET status = 'paid' WHERE tx_ref = ${d.tx_ref}`;
   } else {
-    // Recurring renewal charged by Flutterwave: identify customer by email and plan.
+    // A recurring charge must identify one of our actual Flutterwave plan IDs. Never infer a plan from the email alone:
+    // that could turn an unrelated successful charge into a subscription upgrade.
     const email = normEmail(d.customer?.email);
     userRow = ((await sql()`SELECT * FROM users WHERE email = ${email}`) as any[])[0];
-    plan = tierFromPlanId(d.payment_plan ?? d.plan) || (userRow && userRow.sub_status !== 'none' ? { tier: userRow.tier as Tier, cycle: (userRow.sub_cycle || 'monthly') as Cycle } : null);
+    // Flutterwave's recurring-charge webhook/verify payload may omit the plan ID. In that case,
+    // only consider the account's already-active plan, then independently verify its actual amount/currency below.
+    const reportedPlan = d.payment_plan ?? d.paymentPlan ?? d.plan?.id ?? d.plan;
+    plan = tierFromPlanId(reportedPlan);
+    if (!plan && userRow && String(d.payment_type || '').toLowerCase() === 'card' && ['active', 'canceling'].includes(String(userRow.sub_status)) && TIERS.includes(userRow.tier) && ['monthly', 'annual'].includes(userRow.sub_cycle)) {
+      plan = { tier: userRow.tier as Tier, cycle: userRow.sub_cycle as Cycle };
+    }
+    if (!userRow || !plan) return null;
+    const pid = planId(plan.tier, plan.cycle);
+    if (!pid) return null;
+    const flwPlan = await flw(`/payment-plans/${encodeURIComponent(pid)}`);
+    const expectedAmount = Number(flwPlan?.amount);
+    const expectedCurrency = String(flwPlan?.currency || BILLING_CURRENCY()).toUpperCase();
+    if (String(d.currency).toUpperCase() !== expectedCurrency || !Number.isFinite(Number(d.amount)) || !Number.isFinite(expectedAmount) || expectedAmount <= 0 || Number(d.amount) + 0.001 < expectedAmount) {
+      console.error('Recurring payment amount/currency mismatch', txRef, d.amount, d.currency, expectedAmount, expectedCurrency); return null;
+    }
   }
   if (!userRow || !plan) return null;
   await activate(userRow, plan, req);
-  if (pay) { const pid = planId(plan.tier, plan.cycle); cancelSubscriptions(userRow.email, pid).catch(() => undefined); }
+  if (pay) {
+    await sql()`UPDATE payments SET status = 'paid' WHERE tx_ref = ${txRef} AND status <> 'paid'`;
+    const pid = planId(plan.tier, plan.cycle);
+    cancelSubscriptions(userRow.email, pid).catch(() => undefined);
+  } else {
+    // Keep recurring renewals in the same ledger so owner revenue/counts include them and retries are idempotent.
+    await sql()`INSERT INTO payments (tx_ref, user_id, tier, cycle, amount, currency, status)
+      VALUES (${txRef}, ${userRow.id}, ${plan.tier}, ${plan.cycle}, ${Number(d.amount)}, ${String(d.currency).toUpperCase()}, 'paid')
+      ON CONFLICT (tx_ref) DO NOTHING`;
+  }
   return userRow.id as string;
 }
 
@@ -385,15 +431,20 @@ const webhook: Handler = async ({ req, res, raw }) => {
   const fresh = (await sql()`INSERT INTO webhook_events (id) VALUES (${dedupe}) ON CONFLICT DO NOTHING RETURNING id`) as any[];
   if (!fresh.length) return json(res, 200, { ok: true, duplicate: true });
 
-  if (event === 'charge.completed') {
-    if (d.status === 'successful') await settleTransaction(String(d.id), req);
-    else if (d.status === 'failed' && d.customer?.email) {
-      const u = ((await sql()`SELECT * FROM users WHERE email = ${normEmail(d.customer.email)}`) as any[])[0];
-      if (u && u.sub_status === 'active') mail.paymentFailed(u.email, u.name, appUrl(req)).catch((e) => console.error(e));
+  try {
+    if (event === 'charge.completed') {
+      if (d.status === 'successful') await settleTransaction(String(d.id), req);
+      else if (d.status === 'failed' && d.customer?.email) {
+        const u = ((await sql()`SELECT * FROM users WHERE email = ${normEmail(d.customer.email)}`) as any[])[0];
+        if (u && u.sub_status === 'active') mail.paymentFailed(u.email, u.name, appUrl(req)).catch((e) => console.error(e));
+      }
+    } else if (event === 'subscription.cancelled') {
+      const email = normEmail(d.customer?.customer_email || d.customer?.email);
+      if (email) await sql()`UPDATE users SET sub_status='canceling' WHERE email=${email} AND sub_status='active'`;
     }
-  } else if (event === 'subscription.cancelled') {
-    const email = normEmail(d.customer?.customer_email || d.customer?.email);
-    if (email) await sql()`UPDATE users SET sub_status='canceling' WHERE email=${email} AND sub_status='active'`;
+  } catch (error) {
+    await sql()`DELETE FROM webhook_events WHERE id=${dedupe}`.catch(() => undefined);
+    throw error;
   }
   json(res, 200, { ok: true });
 };
@@ -446,7 +497,7 @@ const deleteAccount: Handler = async ({ req, res, body }) => {
   await cancelSubscriptions(row.email).catch((e) => console.error('cancel on delete', e));
   const id = row.id;
   const mediaRows = (await sql()`SELECT blob_url FROM media_assets WHERE user_id=${id}`) as any[];
-  await Promise.all(mediaRows.map((asset: any) => del(asset.blob_url, { access: 'private' }).catch((e: any) => console.error('media cleanup on delete', e?.message))));
+  await Promise.all(mediaRows.map((asset: any) => del(asset.blob_url).catch((e: any) => console.error('media cleanup on delete', e?.message))));
   await sql()`DELETE FROM media_assets WHERE user_id=${id}`;
   if (zernioConfigured()) await zernioDeleteCustomer(id).catch((e) => console.error('Zernio account cleanup on delete', e));
   await sql()`DELETE FROM zernio_connections WHERE user_id=${id}`;
@@ -472,7 +523,7 @@ const putDashboard: Handler = async ({ req, res, body }) => {
   const { row } = await requireAccess(req);
   if (!body?.data || typeof body.data !== 'object') throw new HttpError(400, 'Invalid dashboard data.');
   const s = JSON.stringify(body.data);
-  if (s.length > 1_500_000) throw new HttpError(413, 'Dashboard data is too large.');
+  if (s.length > 3_500_000) throw new HttpError(413, 'Your workspace has reached its 3.5 MB save limit. Export your data or remove unused old drafts, then retry.');
   await sql()`INSERT INTO dashboards (user_id, data, updated_at) VALUES (${row.id}, ${s}::jsonb, now())
     ON CONFLICT (user_id) DO UPDATE SET data = EXCLUDED.data, updated_at = now()`;
   json(res, 200, { ok: true });
@@ -486,9 +537,9 @@ const genScript: Handler = async ({ req, res, body }) => {
     idea: str(body.idea || 'Automated viral marketing for creator business', 600), niche: str(body.niche || 'Tech & AI SaaS', 80),
     videoType: str(body.videoType || 'explainer_video', 40), aspectRatio: str(body.aspectRatio || '9:16', 10),
     targetPlatforms: Array.isArray(body.targetPlatforms) ? body.targetPlatforms.slice(0, 7).map((x: any) => str(x, 20)) : ['tiktok', 'youtube', 'instagram'],
-    directorStyle: str(body.directorStyle || 'dynamic_viral', 40), hookFormula: str(body.hookFormula || 'witty_provocative', 40), voiceName: str(body.voiceName || 'No voice-over', 60), seconds: Number(body.seconds) === 10 ? 10 : 5, variationSeed: str(body.variationSeed || crypto.randomUUID(), 80),
+    directorStyle: str(body.directorStyle || 'dynamic_viral', 40), hookFormula: str(body.hookFormula || 'witty_provocative', 40), voiceName: str(body.voiceName || 'No voice-over', 60), seconds: Number(body.seconds) === 10 ? 10 : 5,
   }));
-  if (!Array.isArray(data.scenes) || !data.scenes.length) throw new HttpError(424, 'The AI returned an incomplete script. Please try again.', 'GEMINI');
+  if (!Array.isArray(data.scenes) || !data.scenes.length) throw new HttpError(424, 'The AI returned an incomplete script. Please try again.', 'AI_PROVIDER_UNAVAILABLE');
   json(res, 200, { success: true, ...data });
 };
 
@@ -502,7 +553,7 @@ const adConcepts: Handler = async ({ req, res, body }) => {
     brief: str(body.brief || '', 1200), aspect: ['9:16', '16:9', '1:1'].includes(String(body.aspect)) ? String(body.aspect) : '9:16',
     seconds: Number(body.seconds) === 10 ? 10 : 5,
   }));
-  if (!Array.isArray(data?.concepts) || !data.concepts.length) throw new HttpError(424, 'The creative director returned no ad concepts. Please try again.', 'GEMINI');
+  if (!Array.isArray(data?.concepts) || !data.concepts.length) throw new HttpError(424, 'The creative director returned no ad concepts. Please try again.', 'AI_PROVIDER_UNAVAILABLE');
   json(res, 200, { success: true, ...data });
 };
 
@@ -620,7 +671,7 @@ const generateStory: Handler = async ({ req, res, body }) => {
   const { row, user } = await requireAccess(req);
   await rateLimit(`ai:${row.id}`, 120, 3600);
   const out = await writeStoryboard(row, user, parseStoryInput(body), undefined, true);
-  if ('draft' in out) throw new HttpError(424, 'The script is not ready yet. Please try again.', 'GEMINI');
+  if ('draft' in out) throw new HttpError(424, 'The script is not ready yet. Please try again.', 'AI_PROVIDER_UNAVAILABLE');
   json(res, 200, (out as { sb: any }).sb);
 };
 
@@ -632,7 +683,8 @@ const generateStoryStep: Handler = async ({ req, res, body }) => {
   const input = parseStoryInput(body);
   const draft = body.draft && typeof body.draft === 'object' ? body.draft : undefined;
   const out = await writeStoryboard(row, user, input, draft, false);
-  json(res, 200, out.done ? { done: true, sb: out.sb } : { done: false, draft: out.draft });
+  if (out.done === true) json(res, 200, { done: true, sb: out.sb });
+  else { const incomplete = out as Extract<typeof out, { done: false }>; json(res, 200, { done: false, draft: incomplete.draft }); }
 };
 
 const sumSeconds = (a: number[]) => a.reduce((x, y) => x + y, 0);
@@ -685,7 +737,7 @@ async function writeStoryboard(row: any, user: { secondsLimit: number }, input: 
   if (!draft?.outline) {
     const o: any = (await geminiRaw(outlinePrompt({ ...base, castMin }), { timeoutMs: 40_000, deadlineMs: 50_000, maxTokens: 7_000 })).data || {};
     const outline = (Array.isArray(o.outline) ? o.outline : []).map((x: any, i: number) => ({ sceneNumber: Number(x?.sceneNumber) || i + 1, summary: str(x?.summary, 300) })).filter((x: any) => x.summary);
-    if (outline.length !== plan.scenes.length || !Array.isArray(o.characters) || !o.characters.length) throw new HttpError(424, `The story plan returned ${outline.length} of ${plan.scenes.length} scene beats. Retrying so the requested duration is preserved.`, 'GEMINI');
+    if (outline.length !== plan.scenes.length || !Array.isArray(o.characters) || !o.characters.length) throw new HttpError(424, `The story plan returned ${outline.length} of ${plan.scenes.length} scene beats. Retrying so the requested duration is preserved.`, 'AI_PROVIDER_UNAVAILABLE');
     // Keep the outline in exact scene order; a missing or duplicated beat would break continuity in later chunks.
     outline.forEach((beat: any, i: number) => { beat.sceneNumber = i + 1; });
     return { done: false, draft: { ...o, outline, scenes: [] } };
@@ -701,7 +753,7 @@ async function writeStoryboard(row: any, user: { secondsLimit: number }, input: 
   outs.forEach((o, i) => {
     const got: any[] = Array.isArray((o.data as any)?.scenes) ? (o.data as any).scenes : [];
     const want = ranges[i][1] - ranges[i][0] + 1;
-    if (got.length !== want) throw new HttpError(424, `Scenes ${ranges[i][0]}–${ranges[i][1]} returned ${got.length} of ${want} requested scenes. Retrying this chunk instead of silently shortening the video.`, 'GEMINI');
+    if (got.length !== want) throw new HttpError(424, `Scenes ${ranges[i][0]}–${ranges[i][1]} returned ${got.length} of ${want} requested scenes. Retrying this chunk instead of silently shortening the video.`, 'AI_PROVIDER_UNAVAILABLE');
     scenes.push(...got);
   });
   const next = { ...draft, scenes };
@@ -945,8 +997,8 @@ function packLines(lines: PackLine[], halves: number): (PackLine & { half: 1 | 2
   const inHalf = (h: number) => out.filter((l) => l.half === h);
   // Never truncate dialogue to make it fit: preserve every approved word, or ask the writer to shorten/rewrite the scene.
   const queue: PackLine[] = lines.map((l) => ({ ...l, text: String(l.text || '').trim() }));
-  if (queue.some((l) => wordCount(l.text) > MAX_WORDS_PER_CLIP * halves)) {
-    throw new HttpError(424, `A dialogue line is too long for this ${halves * PART_SECONDS}-second scene. Retrying with the complete line preserved and a shorter delivery.`, 'GEMINI');
+  if (queue.some((l) => words(l.text).length > MAX_WORDS_PER_CLIP * halves)) {
+    throw new HttpError(424, `A dialogue line is too long for this ${halves * PART_SECONDS}-second scene. Retrying with the complete line preserved and a shorter delivery.`, 'AI_PROVIDER_UNAVAILABLE');
   }
   let droppedLines = 0;
   while (queue.length) {
@@ -965,7 +1017,7 @@ function packLines(lines: PackLine[], halves: number): (PackLine & { half: 1 | 2
     if (fitWords >= 3 && !inHalf(half).length) out.push({ ...l, text: fitText(l.text, Math.min(MAX_WORDS_PER_CLIP, fitWords)), half });
     else droppedLines++;
   }
-  if (droppedLines) throw new HttpError(424, `The dialogue did not fit cleanly into the ${halves * PART_SECONDS}-second scene. Retrying with shorter, complete lines instead of silently removing dialogue.`, 'GEMINI');
+  if (droppedLines) throw new HttpError(424, `The dialogue did not fit cleanly into the ${halves * PART_SECONDS}-second scene. Retrying with shorter, complete lines instead of silently removing dialogue.`, 'AI_PROVIDER_UNAVAILABLE');
   if (halves === 2 && !inHalf(2).length && inHalf(1).length >= 2) out[out.length - 1].half = 2;
   return out;
 }
@@ -1035,16 +1087,16 @@ function finishStory(ctx: StoryCtx, d: any, input: StoryInput) {
     });
   }
   const need = Math.max(1, Math.ceil(plan.scenes.length * (script ? 0.34 : 1)));
-  if (scenes.length < Math.min(need, plan.scenes.length)) throw new HttpError(424, `The script came back with ${scenes.length} usable scenes instead of ${plan.scenes.length}. Retrying.`, 'GEMINI');
+  if (scenes.length < Math.min(need, plan.scenes.length)) throw new HttpError(424, `The script came back with ${scenes.length} usable scenes instead of ${plan.scenes.length}. Retrying.`, 'AI_PROVIDER_UNAVAILABLE');
   // AI-written productions must match the requested scene plan exactly. Pasted scripts may intentionally continue in remainingScript.
-  if (!script && scenes.length !== plan.scenes.length) throw new HttpError(424, `The writer produced ${scenes.length} of ${plan.scenes.length} scenes. Retrying to preserve the full requested duration.`, 'GEMINI');
+  if (!script && scenes.length !== plan.scenes.length) throw new HttpError(424, `The writer produced ${scenes.length} of ${plan.scenes.length} scenes. Retrying to preserve the full requested duration.`, 'AI_PROVIDER_UNAVAILABLE');
   const total = sumSeconds(scenes.map((s) => s.clipSeconds));
 
   const used = new Set(scenes.flatMap((s) => s.lines.map((l: any) => l.speaker.toLowerCase())));
   if (protagonist) used.add(protagonist.name.toLowerCase());
   const cast = characters.filter((c) => silentCast || c.kind !== 'human' || used.has(c.name.toLowerCase())).map((c, i) => ({ ...c, id: `c${i + 1}` }));
   // A small cast makes every script sound the same, so a part with too few voices is written again.
-  if (!silentCast && !script && !continuity && scenes.length >= 2 && cast.length < Math.max(2, castMin - 1)) throw new HttpError(424, `The script only had ${cast.length} speaking characters, fewer than the ${castMin} it needs. Retrying with a bigger cast.`, 'GEMINI');
+  if (!silentCast && !script && !continuity && scenes.length >= 2 && cast.length < Math.max(2, castMin - 1)) throw new HttpError(424, `The script only had ${cast.length} speaking characters, fewer than the ${castMin} it needs. Retrying with a bigger cast.`, 'AI_PROVIDER_UNAVAILABLE');
   return {
     success: true, title: str(d.title, 100) || 'Untitled production', logline: str(d.logline, 300), storySoFar: str(d.storySoFar, 900), format,
     remainingScript: script ? str(d.remainingScript, 20000) : '',
@@ -1063,7 +1115,7 @@ const abVariations: Handler = async ({ req, res, body }) => {
   const { row } = await requireAccess(req);
   await rateLimit(`ai:${row.id}`, 120, 3600);
   const data = await geminiJson(abPrompt({ idea: str(body.idea, 400), platform: str(body.platform || 'tiktok', 20), niche: str(body.niche || 'general', 80) }));
-  if (!data?.variantA?.hook || !data?.variantB?.hook) throw new HttpError(424, 'The AI returned incomplete variants. Please try again.', 'GEMINI');
+  if (!data?.variantA?.hook || !data?.variantB?.hook) throw new HttpError(424, 'The AI returned incomplete variants. Please try again.', 'AI_PROVIDER_UNAVAILABLE');
   json(res, 200, { success: true, ...data });
 };
 
@@ -1863,11 +1915,18 @@ async function advanceEpisode(row: any, user: ReturnType<typeof toUser>, ep: any
     console.error(`episode ${ep.id} (${cur.status}) step failed:`, e?.message);
     const attempts = (cur.attempts || 0) + 1;
     const permanent = e instanceof HttpError && [400, 402, 403, 409].includes(e.status);
-    const reason = e instanceof HttpError ? String(e.message).slice(0, 400) : 'Something went wrong, so it is trying again.';
+    // Keep the actual failure reason visible for diagnosis instead of hiding every non-HTTP error
+    // behind a generic retry message. Redact common provider-key formats before saving it.
+    const rawReason = e instanceof HttpError ? String(e.message) : String(e?.message || e?.name || 'Unexpected server error');
+    const safeReason = rawReason
+      .replace(/\b(gsk_[A-Za-z0-9_-]{8,}|csk-[A-Za-z0-9_-]{8,}|sk-or-[A-Za-z0-9_-]{8,}|AIza[\w-]{20,})\b/g, '[redacted key]')
+      .replace(/Bearer\s+\S+/gi, 'Bearer [redacted]')
+      .replace(/https?:\/\/[^\s]+/g, '[provider URL]');
+    const reason = safeReason.slice(0, 400);
     // every AI writer is at its free limit: that is not a failure. Wait without using up retries, and keep the real reason on screen.
-    const resting = e instanceof HttpError && e.code === 'GEMINI' && /free allowance|usage limit|limit right now/i.test(e.message);
+    const resting = e instanceof HttpError && e.code === 'AI_PROVIDER_UNAVAILABLE' && /free allowance|usage limit|limit right now/i.test(e.message);
     if (resting) await sql()`UPDATE episodes SET error = ${reason}, locked_until = now() + 90 * interval '1 second', updated_at = now() WHERE id = ${ep.id} AND status = 'PROCESSING'`;
-    else if (permanent || attempts >= MAX_SCRIPT_ATTEMPTS) await failEpisode(ep.id, String(e?.message || 'Something went wrong while making this part.'));
+    else if (permanent || attempts >= MAX_SCRIPT_ATTEMPTS) await failEpisode(ep.id, reason);
     else { const pause = Math.min(45, 4 * 2 ** (attempts - 1)); await sql()`UPDATE episodes SET attempts = ${attempts}, error = ${reason}, locked_until = now() + ${pause}::int * interval '1 second' WHERE id = ${ep.id}`; } // growing pause, then the next poll tries again
   }
   return reload();
@@ -2272,6 +2331,7 @@ const videoEditorAssemble: Handler = async ({ req, res, body }) => {
 };
 
 
+/** Render one editor scene with its private source, visual overlays, audio layers and timestamped captions. */
 const mediaSignedUrl: Handler = async ({ req, res, query }) => {
   const { row } = await requireAccess(req);
   const id = str(query.get('id'), 80);
@@ -2307,7 +2367,7 @@ const mediaTranscribe: Handler = async ({ req, res, body }) => {
     throw new HttpError(413, 'This upload is larger than the 100 MB speech-to-text limit. Use a smaller audio/video file for now.');
   }
   const groqKey = process.env.GROQ_API_KEY?.trim();
-  if (!groqKey) throw new HttpError(503, 'Speech transcription is not configured. Add GROQ_API_KEY to the server environment.');
+  if (!groqKey) throw new HttpError(503, 'Speech transcription is temporarily unavailable. Please try again later or contact support if the problem continues.');
   const token = await issueSignedToken({ operations: ['get'] });
   const signed = await presignUrl(token, { pathname: asset.pathname, operation: 'get', access: 'private', validUntil: Date.now() + 15 * 60 * 1000 });
   const form = new FormData();
@@ -2342,34 +2402,126 @@ const mediaTranscribe: Handler = async ({ req, res, body }) => {
   });
 };
 
+// ---------------------------------------------------------------- private support and owner operations
+async function requireOwner(req: Req) {
+  const row = await currentUser(req);
+  if (row.sub_status !== 'owner') throw new HttpError(403, 'Owner access is required.', 'FORBIDDEN');
+  return row;
+}
+
+const supportThreads: Handler = async ({ req, res }) => {
+  const row = await currentUser(req);
+  const rows = await sql()`SELECT t.id, t.subject, t.status, t.created_at, t.updated_at,
+    (SELECT m.body FROM support_messages m WHERE m.thread_id=t.id ORDER BY m.created_at DESC LIMIT 1) AS last_message,
+    (SELECT m.sender_role FROM support_messages m WHERE m.thread_id=t.id ORDER BY m.created_at DESC LIMIT 1) AS last_sender
+    FROM support_threads t WHERE t.user_id=${row.id} ORDER BY t.updated_at DESC LIMIT 50`;
+  json(res, 200, { threads: rows });
+};
+
+const supportMessages: Handler = async ({ req, res, query }) => {
+  const row = await currentUser(req);
+  const threadId = String(query.get('threadId') || '').trim().slice(0, 100);
+  if (!threadId) throw new HttpError(400, 'A support conversation is required.');
+  const threads = await sql()`SELECT id FROM support_threads WHERE id=${threadId} AND user_id=${row.id} LIMIT 1`;
+  if (!threads.length) throw new HttpError(404, 'Support conversation not found.');
+  const messages = await sql()`SELECT id, sender_role, body, created_at FROM support_messages WHERE thread_id=${threadId} ORDER BY created_at ASC LIMIT 200`;
+  json(res, 200, { messages });
+};
+
+const sendSupportMessage: Handler = async ({ req, res, body }) => {
+  const row = await currentUser(req);
+  await rateLimit(`support:${row.id}`, 20, 3600);
+  const message = str(body.message, 4000).trim();
+  if (!message) throw new HttpError(400, 'Write a message before sending.');
+  let threadId = String(body.threadId || '').trim().slice(0, 100);
+  if (threadId) {
+    const owned = await sql()`SELECT id, status FROM support_threads WHERE id=${threadId} AND user_id=${row.id} LIMIT 1`;
+    if (!owned.length) throw new HttpError(404, 'Support conversation not found.');
+    if (owned[0].status === 'closed') throw new HttpError(409, 'This conversation is closed. Start a new support conversation.');
+  } else {
+    threadId = newId('sup');
+    const subject = str(body.subject || 'Support request', 120).split(String.fromCharCode(13)).join(' ').split(String.fromCharCode(10)).join(' ').split(String.fromCharCode(9)).join(' ').replace(/ +/g, ' ').trim() || 'Support request';
+    await sql()`INSERT INTO support_threads (id, user_id, subject) VALUES (${threadId}, ${row.id}, ${subject})`;
+  }
+  await sql()`INSERT INTO support_messages (id, thread_id, sender_id, sender_role, body) VALUES (${newId('msg')}, ${threadId}, ${row.id}, 'user', ${message})`;
+  await sql()`UPDATE support_threads SET updated_at=now(), status='open' WHERE id=${threadId}`;
+  json(res, 201, { ok: true, threadId });
+};
+
+const ownerSupportInbox: Handler = async ({ req, res }) => {
+  await requireOwner(req);
+  const threads = await sql()`SELECT t.id, t.subject, t.status, t.created_at, t.updated_at, u.id AS user_id, u.name AS user_name, u.email AS user_email,
+    (SELECT m.body FROM support_messages m WHERE m.thread_id=t.id ORDER BY m.created_at DESC LIMIT 1) AS last_message,
+    (SELECT m.sender_role FROM support_messages m WHERE m.thread_id=t.id ORDER BY m.created_at DESC LIMIT 1) AS last_sender
+    FROM support_threads t JOIN users u ON u.id=t.user_id ORDER BY t.updated_at DESC LIMIT 100`;
+  json(res, 200, { threads });
+};
+
+const ownerSupportMessages: Handler = async ({ req, res, query }) => {
+  await requireOwner(req);
+  const threadId = String(query.get('threadId') || '').trim().slice(0, 100);
+  if (!threadId) throw new HttpError(400, 'A support conversation is required.');
+  const threads = await sql()`SELECT t.id, t.subject, t.status, u.id AS user_id, u.name AS user_name, u.email AS user_email FROM support_threads t JOIN users u ON u.id=t.user_id WHERE t.id=${threadId} LIMIT 1`;
+  if (!threads.length) throw new HttpError(404, 'Support conversation not found.');
+  const messages = await sql()`SELECT id, sender_id, sender_role, body, created_at FROM support_messages WHERE thread_id=${threadId} ORDER BY created_at ASC LIMIT 200`;
+  json(res, 200, { thread: threads[0], messages });
+};
+
+const ownerSupportReply: Handler = async ({ req, res, body }) => {
+  const owner = await requireOwner(req);
+  await rateLimit(`owner-support:${owner.id}`, 60, 3600);
+  const threadId = String(body.threadId || '').trim().slice(0, 100);
+  const message = str(body.message, 4000).trim();
+  if (!threadId || !message) throw new HttpError(400, 'A conversation and reply are required.');
+  const threads = await sql()`SELECT t.id, t.subject, u.email, u.name FROM support_threads t JOIN users u ON u.id=t.user_id WHERE t.id=${threadId} LIMIT 1`;
+  if (!threads.length) throw new HttpError(404, 'Support conversation not found.');
+  await sql()`INSERT INTO support_messages (id, thread_id, sender_id, sender_role, body) VALUES (${newId('msg')}, ${threadId}, ${owner.id}, 'owner', ${message})`;
+  await sql()`UPDATE support_threads SET updated_at=now(), status='open' WHERE id=${threadId}`;
+  await mail.supportReply(threads[0].email, threads[0].name, threads[0].subject).catch((e) => console.error('support reply email failed', e?.message));
+  json(res, 201, { ok: true });
+};
+
+const ownerOverview: Handler = async ({ req, res }) => {
+  await requireOwner(req);
+  const [users, payments, support] = await Promise.all([
+    sql()`SELECT COUNT(*)::int AS total, COUNT(*) FILTER (WHERE sub_status='owner')::int AS owners,
+      COUNT(*) FILTER (WHERE sub_status='trial' AND period_end > now())::int AS active_trials,
+      COUNT(*) FILTER (WHERE sub_status='trial' AND (period_end IS NULL OR period_end <= now()))::int AS expired_trials,
+      COUNT(*) FILTER (WHERE sub_status IN ('active','canceling') AND period_end > now())::int AS paid_active,
+      COUNT(*) FILTER (WHERE sub_status IN ('none','canceled','past_due'))::int AS free_or_inactive,
+      COUNT(*) FILTER (WHERE created_at >= now() - interval '7 days')::int AS new_last_7_days FROM users`,
+    sql()`SELECT COUNT(*) FILTER (WHERE status='paid')::int AS successful_count,
+      CASE WHEN COUNT(DISTINCT currency) FILTER (WHERE status='paid') <= 1 THEN COALESCE(SUM(amount) FILTER (WHERE status='paid'),0)::numeric ELSE NULL END AS successful_total,
+      CASE WHEN COUNT(DISTINCT currency) FILTER (WHERE status='paid') <= 1 THEN MAX(currency) FILTER (WHERE status='paid') ELSE NULL END AS currency,
+      COUNT(DISTINCT currency) FILTER (WHERE status='paid')::int AS currency_count FROM payments`,
+    sql()`SELECT COUNT(*)::int AS open_threads FROM support_threads WHERE status='open'`
+  ]);
+  json(res, 200, { users: users[0] || {}, payments: payments[0] || {}, support: support[0] || {} });
+};
 
 // ---------------------------------------------------------------- router
 const routes: Record<string, Handler> = {
   'POST /auth/register': register, 'POST /auth/verify': verifyEmail, 'POST /auth/resend': resend, 'POST /auth/login': login,
   'POST /auth/reset': resetPassword, 'POST /auth/owner-access': ownerAccess, 'GET /auth/me': me,
+  'GET /support/threads': supportThreads, 'GET /support/messages': supportMessages, 'POST /support/messages': sendSupportMessage,
+  'GET /owner/overview': ownerOverview, 'GET /owner/support': ownerSupportInbox, 'GET /owner/support/messages': ownerSupportMessages, 'POST /owner/support/reply': ownerSupportReply,
   'POST /auth/logout': async ({ res }) => { endSession(res); json(res, 200, { ok: true }); },
-  'GET /billing/plans': plans, 'POST /gemini/generate-story': generateStory, 'POST /gemini/generate-story-step': generateStoryStep, 'POST /video/render-batch': videoRenderBatch, 'POST /billing/checkout': checkout, 'POST /billing/trial': trialCheckout, 'POST /billing/topup': topupCheckout, 'GET /billing/extras': billingExtras, 'GET /billing/verify': billingVerify,
+  'GET /billing/plans': plans, 'POST /ai/generate-story': generateStory, 'POST /ai/generate-story-step': generateStoryStep, 'POST /video/render-batch': videoRenderBatch, 'POST /billing/checkout': checkout, 'POST /billing/trial': trialCheckout, 'POST /billing/topup': topupCheckout, 'GET /billing/extras': billingExtras, 'GET /billing/verify': billingVerify,
   'POST /billing/cancel': cancelBilling, 'POST /billing/webhook': webhook,
   'GET /account/usage': usage, 'PUT /account/profile': updateProfile, 'POST /account/password': changePassword,
   'GET /account/export': exportData, 'POST /account/delete': deleteAccount,
   'GET /dashboard': getDashboard, 'PUT /dashboard': putDashboard,
   'POST /video/director/plan': videoDirectorPlan, 'POST /video/director/match': videoDirectorMatch, 'POST /media/upload': mediaUpload, 'GET /media/list': mediaList, 'GET /media/url': mediaSignedUrl, 'POST /media/transcribe': mediaTranscribe,
-  'POST /gemini/generate-script': genScript, 'POST /gemini/research-trends': researchTrends, 'POST /gemini/ad-concepts': adConcepts, 'POST /ad/brand-images': adBrandImages, 'POST /ad/render-image': adImageRender, 'POST /tts': tts,
-  'POST /gemini/ab-variations': abVariations, 'POST /gemini/competitor-analysis': competitorAnalysis, 'POST /gemini/outrank': outrank,
+  'POST /ai/generate-script': genScript, 'POST /ai/research-trends': researchTrends, 'POST /ai/ad-concepts': adConcepts, 'POST /ad/brand-images': adBrandImages, 'POST /ad/render-image': adImageRender, 'POST /tts': tts,
+  'POST /ai/ab-variations': abVariations, 'POST /ai/competitor-analysis': competitorAnalysis, 'POST /ai/outrank': outrank,
   'POST /video/render': videoRender, 'GET /video/status': videoStatus,
   'GET /social/accounts': socialAccounts, 'POST /social/sync': socialSync, 'GET /video/download': videoDownload, 'GET /video/merge': videoMerge, 'POST /video/editor/render': videoEditorRender, 'POST /video/editor/assemble': videoEditorAssemble, 'GET /social/connect': socialConnect, 'GET /social/callback': socialCallback, 'GET /social/zernio-callback': socialZernioCallback,
   'POST /social/disconnect': socialDisconnect, 'GET /social/metrics': socialMetricsRoute, 'POST /social/publish': socialPublish,
   'POST /episodes/create': episodeCreate, 'POST /episodes/retry': episodeRetry, 'GET /episodes/status': episodeStatus, 'POST /episodes/pause': episodePause, 'POST /episodes/resume': episodeResume, 'POST /episodes/edit': episodeEdit, 'GET /episodes/video': episodeVideo, 'GET /projects': projectsList, 'GET /projects/get': projectGet,
   'GET /cron/dispatch': cronDispatch, 'POST /cron/dispatch': cronDispatch,
   'GET /system/check': systemCheck,
-  'GET /health': async ({ res }) => json(res, 200, {
-    ok: true, build: (process.env.VERCEL_GIT_COMMIT_SHA || 'local').slice(0, 7),
-    configured: {
-      database: !!(process.env.DATABASE_URL || process.env.POSTGRES_URL), sessionSecret: (process.env.SESSION_SECRET || '').length >= 32,
-      gemini: !!lookupEnv('GEMINI_API_KEY'), groq: !!lookupEnv('GROQ_API_KEY'), tavily: !!lookupEnv('TAVILY_API_KEY'), brave: !!lookupEnv('BRAVE_SEARCH_API_KEY'), youtubeData: !!lookupEnv('YOUTUBE_API_KEY') || !!lookupEnv('YOUTUBE_DATA_API_KEY'), fal: !!lookupEnv('FAL_KEY'), zernio: zernioConfigured(), deapi: !!lookupEnv('DEAPI_API_KEY'), resend: !!lookupEnv('RESEND_API_KEY'),
-      flutterwave: !!process.env.FLW_SECRET_KEY, flutterwaveHash: !!process.env.FLW_SECRET_HASH, social: Object.fromEntries(PLATFORM_IDS.map((p) => [p, isConfigured(p)])), cron: !!process.env.CRON_SECRET, ownerCode: !!process.env.OWNER_ACCESS_CODE,
-    },
-  }),
+  // Public liveness endpoint intentionally reveals no deployment, provider, or secret-configuration details.
+  'GET /health': async ({ res }) => json(res, 200, { ok: true }),
 };
 
 export default async function handler(req: Req, res: Res) {

@@ -35,11 +35,12 @@ const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&
 
 export async function sendEmail(to: string, subject: string, html: string) {
   const key = need('RESEND_API_KEY');
+  const safeSubject = String(subject || BRAND).replace(/[\r\n\t]+/g, ' ').trim().slice(0, 180) || BRAND;
   const from = process.env.EMAIL_FROM || `${BRAND} <onboarding@resend.dev>`;
   const r = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ from, to: [to], subject, html }),
+    body: JSON.stringify({ from, to: [to], subject: safeSubject, html }),
   });
   if (!r.ok) {
     const t = await r.text().catch(() => '');
@@ -73,6 +74,9 @@ export const mail = {
   published: (to: string, name: string, title: string, channels: string[]) =>
     sendEmail(to, `Published: ${title}`, layout('Your post was published',
       `<p style="font-size:14px;line-height:1.6">Hi ${esc(name)}, <b>${esc(title)}</b> was sent to: ${esc(channels.join(', '))}.</p>`)),
+  supportReply: (to: string, name: string, subject: string) =>
+    sendEmail(to, `A reply from OmniPulse Support: ${subject}`, layout('You have a support reply',
+      `<p style="font-size:14px;line-height:1.6">Hi ${esc(name)}, the OmniPulse team has replied to your support conversation <b>${esc(subject)}</b>. Sign in to your account and open Support Center to read the private reply.</p>`)),
 };
 
 // =====================================================================
@@ -105,7 +109,7 @@ export function verifyFlwSignature(header: string | undefined) {
 // Gemini
 // =====================================================================
 // Stable models first. Newer "preview" models are often paid-only, so they only run when GEMINI_MODEL names them.
-const PREFERRED_MODELS = () => [...new Set([(process.env.GEMINI_MODEL || '').trim(), 'gemini-3.8-flash', 'gemini-3.5-flash-lite'].filter(Boolean))] as string[];
+const PREFERRED_MODELS = () => ['gemini-3.8-flash', 'gemini-3.5-flash-lite'];
 
 export interface GeminiResult { data: any; model: string; grounded: boolean; sources: { title: string; url: string }[] }
 
@@ -179,15 +183,15 @@ async function callGemini(key: string, model: string, prompt: string, o: { groun
   return { text, sources, searched: !!(sources.length || gm?.webSearchQueries?.length) };
 }
 
-function geminiError(status: number, msg: string, keyBad: boolean): HttpError {
+function geminiError(status: number, _msg: string, keyBad: boolean): HttpError {
   let out: string;
-  if (keyBad) out = 'Gemini rejected the API key. Check GEMINI_API_KEY in Vercel (it must be a Google AI Studio key) and redeploy.';
-  else if (status === 429 || /quota|rate limit|RESOURCE_EXHAUSTED/i.test(msg)) out = 'The AI service has reached its usage limit (Gemini quota). Please try again in a minute, or raise the quota on your Google AI Studio key.';
-  else if (status === 404 || /not found|not supported/i.test(msg)) out = 'No available Gemini model accepted the request. Set GEMINI_MODEL in Vercel to a current model such as gemini-3.5-flash and redeploy.';
-  else if (status === 403) out = `Gemini denied access for this key (${msg.slice(0, 120)}). Check that the Generative Language API is enabled for the key's project.`;
-  else if (status === 503 || /overloaded|unavailable/i.test(msg)) out = 'Gemini is overloaded right now. Please try again in a moment.';
-  else out = `The AI service is temporarily unavailable (${status || 'error'}: ${msg.slice(0, 140)}). Please try again.`;
-  return new HttpError(424, out, 'GEMINI');
+  if (keyBad) out = 'AI generation is temporarily unavailable. Please try again later or contact support if the problem continues.';
+  else if (status === 429) out = 'AI generation is busy right now. Please wait a moment and try again.';
+  else if (status === 404) out = 'The AI service is temporarily unavailable. Please try again later.';
+  else if (status === 403) out = 'AI generation could not complete this request. Please try again later.';
+  else if (status === 503) out = 'The AI service is temporarily busy. Please try again in a moment.';
+  else out = 'AI generation could not complete this request. Please try again.';
+  return new HttpError(424, out, 'AI_PROVIDER_UNAVAILABLE');
 }
 
 /** Tries models in order until one answers, staying inside the serverless time limit. */
@@ -240,9 +244,9 @@ const geminiBlockedMs = () => { const ks = geminiKeyList(); return ks.length ? M
 // ---- backup writers (any OpenAI-compatible service, plus Anthropic) --------------------------------------
 export interface LlmBackup { id: string; label: string; kind: 'openai' | 'anthropic'; key: string; base: string; model: string }
 const SERVICES: { id: string; label: string; env: string; base: string; model: string; prefix?: string }[] = [
-  { id: 'cerebras', label: 'Cerebras', env: 'CEREBRAS_API_KEY', base: 'https://api.cerebras.ai/v1', model: 'llama-3.3-70b', prefix: 'csk-' },
-  { id: 'groq', label: 'Groq', env: 'GROQ_API_KEY', base: 'https://api.groq.com/openai/v1', model: 'llama-3.3-70b-versatile', prefix: 'gsk_' },
-  { id: 'openrouter', label: 'OpenRouter', env: 'OPENROUTER_API_KEY', base: 'https://openrouter.ai/api/v1', model: 'meta-llama/llama-3.3-70b-instruct:free', prefix: 'sk-or-' },
+  { id: 'groq', label: 'Groq', env: 'GROQ_API_KEY', base: 'https://api.groq.com/openai/v1', model: 'openai/gpt-oss-20b', prefix: 'gsk_' },
+  { id: 'cerebras', label: 'Cerebras', env: 'CEREBRAS_API_KEY', base: 'https://api.cerebras.ai/v1', model: 'llama3.1-8b', prefix: 'csk-' },
+  { id: 'openrouter', label: 'OpenRouter', env: 'OPENROUTER_API_KEY', base: 'https://openrouter.ai/api/v1', model: 'qwen/qwen3.8-27b:free', prefix: 'sk-or-' },
   { id: 'openai', label: 'OpenAI', env: 'OPENAI_API_KEY', base: 'https://api.openai.com/v1', model: 'gpt-4o-mini' },
   { id: 'deepseek', label: 'DeepSeek', env: 'DEEPSEEK_API_KEY', base: 'https://api.deepseek.com/v1', model: 'deepseek-chat' },
   { id: 'mistral', label: 'Mistral', env: 'MISTRAL_API_KEY', base: 'https://api.mistral.ai/v1', model: 'mistral-small-latest' },
@@ -379,6 +383,9 @@ export async function llmGenerate(prompt: string, o: { json?: boolean; timeoutMs
       if (Date.now() >= budget - 4_000) break;
       try {
         const { out, model } = await withModels(key, budget, (m) => callGemini(key, m, prompt, { grounded: false, json, timeoutMs: Math.max(8_000, Math.min(o.timeoutMs || 40_000, budget - Date.now())), maxTokens: o.maxTokens }));
+        // Validate structured output before accepting a provider. A 200 response with malformed JSON
+        // must not block the next configured writer from completing the user's request.
+        if (json) extractJson(out.text);
         return { text: out.text, provider: 'gemini' as const, model };
       } catch (e: any) {
         const f = e instanceof HttpError ? new GeminiFail(/usage limit|quota/i.test(e.message) ? 429 : 0, e.message) : new GeminiFail(e?.status || 0, e?.message || 'Gemini failed', !!e?.keyBad);
@@ -393,7 +400,12 @@ export async function llmGenerate(prompt: string, o: { json?: boolean; timeoutMs
       if ((blockedBackups.get(b.id) || 0) > Date.now()) { errs.push({ who: b.label, f: new GeminiFail(429, 'at its free limit', false, (blockedBackups.get(b.id) || 0) - Date.now()) }); continue; }
       const left = deadline - Date.now();
       if (left < 6_000) { errs.push({ who: b.label, f: new GeminiFail(0, 'no time left to try it') }); break; }
-      try { return { text: await callBackup(b, prompt, { json, timeoutMs: Math.min(o.timeoutMs || 40_000, left), maxTokens: o.maxTokens }), provider: 'backup' as const, model: `${b.id}:${b.model}` }; }
+      try {
+        const text = await callBackup(b, prompt, { json, timeoutMs: Math.min(o.timeoutMs || 40_000, left), maxTokens: o.maxTokens });
+        // Treat malformed JSON as a provider failure and continue through the remaining backups.
+        if (json) extractJson(text);
+        return { text, provider: 'backup' as const, model: `${b.id}:${b.model}` };
+      }
       catch (e: any) {
         const f = e instanceof GeminiFail ? e : new GeminiFail(0, e?.message || 'failed');
         if (f.status === 429) blockedBackups.set(b.id, Date.now() + (f.retryMs || 60_000));
@@ -592,7 +604,7 @@ export async function webTrendResearch(niche: string, customQuery: string): Prom
     const rawImage = typeof x.imageUrl === 'string' ? x.imageUrl : '';
     const imageUrl = /^https?:\/\//i.test(rawImage) ? rawImage : (youtubeImage || undefined);
     const platform = isYouTube ? 'YouTube' : host.includes('tiktok') ? 'TikTok' : host.includes('instagram') ? 'Instagram' : host.includes('facebook') ? 'Facebook' : host.includes('linkedin') ? 'LinkedIn' : host.includes('x.com') || host.includes('twitter') ? 'X' : undefined;
-    const sourceType = isYouTube && videoId ? 'video' : /news|bbc|cnn|reuters|guardian|forbes|techcrunch|wired|nytimes/i.test(domain) ? 'news' : 'article';
+    const sourceType: 'video' | 'news' | 'article' = isYouTube && videoId ? 'video' : /news|bbc|cnn|reuters|guardian|forbes|techcrunch|wired|nytimes/i.test(domain) ? 'news' : 'article';
     return { title: x.title || x.url, url: x.url, domain, faviconUrl: String(x.faviconUrl || '').startsWith('http') ? String(x.faviconUrl) : 'https://www.google.com/s2/favicons?domain=' + encodeURIComponent(domain) + '&sz=64', imageUrl, snippet: String(x.content || '').slice(0, 360), publishedAt: x.date || undefined, sourceType, platform };
   });
   const text = 'Search provider: ' + provider + '. Research date: ' + new Date().toISOString() + '. Web sources: ' + sources.length + '.\n\n' + searchText + '\n\n' + youtubeText;
