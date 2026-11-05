@@ -7,7 +7,7 @@ type MediaAsset = { id: string; name: string; contentType: string; size: number;
 const ACCEPT = 'video/mp4,video/quicktime,video/webm,video/x-matroska,audio/mpeg,audio/mp4,audio/wav,audio/x-wav,image/jpeg,image/png,image/webp';
 const prettySize = (bytes: number) => bytes >= 1024 ** 3 ? `${(bytes / 1024 ** 3).toFixed(1)} GB` : bytes >= 1024 ** 2 ? `${(bytes / 1024 ** 2).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
 
-export const CreatorUploadStudio: React.FC = () => {
+export const CreatorUploadStudio: React.FC<{ onEditVideo?: (asset: MediaAsset) => void }> = ({ onEditVideo }) => {
   const input = useRef<HTMLInputElement>(null);
   const [assets, setAssets] = useState<MediaAsset[]>([]);
   const [loading, setLoading] = useState(true);
@@ -109,12 +109,12 @@ export const CreatorUploadStudio: React.FC = () => {
             return <div key={asset.id} className="flex min-w-0 items-center gap-3 rounded-lg border border-slate-800 bg-slate-900/60 p-3">
               <div className="rounded-lg bg-slate-800 p-2 text-indigo-300"><Icon className="h-4 w-4" /></div>
               <div className="min-w-0 flex-1"><p className="truncate text-xs font-medium text-slate-200">{asset.name}</p><p className="mt-0.5 text-[10px] text-slate-500">{prettySize(Number(asset.size) || 0)} · {new Date(asset.createdAt).toLocaleDateString()}</p></div>
-              <button type="button" onClick={() => void openPreview(asset)} disabled={previewing === asset.id} className="shrink-0 rounded-md border border-slate-700 px-2 py-1 text-[10px] text-indigo-200 hover:border-indigo-500 disabled:opacity-50">{previewing === asset.id ? 'Opening…' : 'Preview'}</button>
+              <div className="flex shrink-0 items-center gap-1.5">{video && onEditVideo && <button type="button" onClick={() => onEditVideo(asset)} className="rounded-md bg-indigo-600 px-2 py-1 text-[10px] font-semibold text-white hover:bg-indigo-500">Edit video</button>}<button type="button" onClick={() => void openPreview(asset)} disabled={previewing === asset.id} className="rounded-md border border-slate-700 px-2 py-1 text-[10px] text-indigo-200 hover:border-indigo-500 disabled:opacity-50">{previewing === asset.id ? 'Opening…' : 'Preview'}</button></div>
             </div>;
           })}
         </div>
       ) : <div className="rounded-lg border border-dashed border-slate-800 px-4 py-6 text-center"><CloudUpload className="mx-auto h-6 w-6 text-slate-600" /><p className="mt-2 text-xs text-slate-400">No creator media uploaded yet</p><p className="mt-1 text-[10px] text-slate-600">Your files will appear here after upload.</p></div>}
-      <p className="text-[10px] leading-relaxed text-slate-600">Uploads are private and linked to your signed-in account. The AI Director's analysis, timeline placement and export workflow will build on this media library next.</p>
+      <p className="text-[10px] leading-relaxed text-slate-600">Uploads are private and linked to your signed-in account. Select Edit video to open an uploaded clip in the AI Director timeline, add your own supporting media, transcribe speech and render an edited MP4.</p>
     </section>
   );
 };
