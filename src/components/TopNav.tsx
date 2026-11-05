@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { AppUser } from '../types/auth';
 import { Zap, Video, Clapperboard, Calendar, TrendingUp, Split, BarChart3, Radio, Crown, LogOut, Settings, Activity, CreditCard, ImagePlus, Share2, MessageSquare } from 'lucide-react';
 
-export type TabId = 'dashboard' | 'accounts' | 'video-studio' | 'series' | 'trends-hashtags' | 'scheduler' | 'ab-testing' | 'analytics' | 'support' | 'owner';
+export type TabId = 'dashboard' | 'accounts' | 'video-studio' | 'creator-studio' | 'series' | 'trends-hashtags' | 'scheduler' | 'ab-testing' | 'analytics' | 'support' | 'owner';
 
 interface TopNavProps {
   activeTab: TabId;
@@ -23,6 +23,7 @@ const NAV: { id: TabId; label: string; short: string; icon: React.ElementType }[
   { id: 'dashboard', label: 'Dashboard', short: 'Home', icon: Activity },
   { id: 'accounts', label: 'Social Accounts', short: 'Accounts', icon: Share2 },
   { id: 'video-studio', label: 'Video Studio', short: 'Videos', icon: Video },
+  { id: 'creator-studio', label: 'Creator Studio', short: 'Creator', icon: Clapperboard },
   { id: 'series', label: 'Series', short: 'Series', icon: Clapperboard },
   { id: 'trends-hashtags', label: 'Trends & Hashtags', short: 'Trends', icon: TrendingUp },
   { id: 'scheduler', label: 'Post Scheduler', short: 'Posts', icon: Calendar },
