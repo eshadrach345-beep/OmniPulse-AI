@@ -60,7 +60,7 @@ export const VideoEditor: React.FC<Props> = ({ video, onSave }) => {
   const audioLayers = current?.mediaLayers?.filter((layer) => layer.track === 'audio') || [];
   const activeCaption = current?.captions?.find((cue) => previewTime >= cue.start && previewTime <= cue.end);
 
-  useEffect(() => { setPreviewTime(0); }, [current?.id]);
+  useEffect(() => { setPreviewTime(0); }, [current?.id, mainLayer?.sourceIn]);
 
   useEffect(() => {
     let active = true;
@@ -363,7 +363,7 @@ export const VideoEditor: React.FC<Props> = ({ video, onSave }) => {
             <div className="relative mx-auto aspect-video max-h-64 w-full bg-slate-950">
               {mainLayer?.kind === 'image' && mediaUrls[mainLayer.assetId]
                 ? <img src={mediaUrls[mainLayer.assetId]} alt={mainLayer.name} className="h-full w-full object-contain" />
-                : <video key={mainLayer?.assetId || current.clipUrl || current.id} src={(mainLayer && mainLayer.kind === 'video' ? mediaUrls[mainLayer.assetId] : '') || current.clipUrl || undefined} controls playsInline preload="metadata" onTimeUpdate={(event) => setPreviewTime(event.currentTarget.currentTime)} className="h-full w-full object-contain" aria-label="Selected scene preview" />}
+                : <video key={`${mainLayer?.assetId || current.clipUrl || current.id}-${mainLayer?.sourceIn || 0}`} src={(mainLayer && mainLayer.kind === 'video' ? mediaUrls[mainLayer.assetId] : '') || current.clipUrl || undefined} controls playsInline preload="metadata" onLoadedMetadata={(event) => { const start = Math.max(0, Number(mainLayer?.sourceIn) || 0); if (start > 0) event.currentTarget.currentTime = Math.min(start, Math.max(0, event.currentTarget.duration - 0.05)); }} onTimeUpdate={(event) => { const start = Math.max(0, Number(mainLayer?.sourceIn) || 0); const elapsed = Math.max(0, event.currentTarget.currentTime - start); const limit = Math.max(1, Number(current.duration) || 1); if (elapsed >= limit) { event.currentTarget.currentTime = start + limit; event.currentTarget.pause(); } setPreviewTime(Math.min(limit, elapsed)); }} className="h-full w-full object-contain" aria-label="Selected scene preview" />}
               {overlayLayers.filter((layer) => previewTime >= layer.startAt && previewTime <= layer.startAt + layer.duration).map((layer) => mediaUrls[layer.assetId] ? <div key={layer.id} className="pointer-events-none absolute" style={{ left: `${layer.x}%`, top: `${layer.y}%`, width: `${Math.max(10, Math.min(100, layer.scale))}%`, opacity: layer.opacity, transform: 'translate(-50%, -50%)' }}>
                 {layer.kind === 'image' ? <img src={mediaUrls[layer.assetId]} alt={layer.name} className="w-full rounded-md shadow-xl" /> : <video src={mediaUrls[layer.assetId]} muted loop autoPlay playsInline className="w-full rounded-md shadow-xl" />}
               </div> : null)}
