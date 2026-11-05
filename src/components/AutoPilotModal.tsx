@@ -52,6 +52,7 @@ export const AutoPilotModal: React.FC<AutoPilotModalProps> = ({
   );
   const [autoResearchTrending, setAutoResearchTrending] = useState(currentSettings.autoResearchTrending ?? true);
   const [showRunSuccess, setShowRunSuccess] = useState(false);
+  const [runError, setRunError] = useState<string | null>(null);
 
   if (!isOpen) return null;
 
@@ -91,17 +92,22 @@ export const AutoPilotModal: React.FC<AutoPilotModalProps> = ({
       autoResearchTrending,
       lastAutonomousRun: new Date().toISOString(),
     };
-    await onTriggerImmediateAutonomousRun(runSettings);
-    setShowRunSuccess(true);
-    setTimeout(() => {
-      setShowRunSuccess(false);
-      onClose();
-    }, 2000);
+    setRunError(null);
+    try {
+      await onTriggerImmediateAutonomousRun(runSettings);
+      setShowRunSuccess(true);
+      window.setTimeout(() => {
+        setShowRunSuccess(false);
+        onClose();
+      }, 2000);
+    } catch (error) {
+      setRunError(error instanceof Error ? error.message : 'Auto-Pilot could not complete this run. Please try again.');
+    }
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
-      <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-2xl shadow-2xl p-5 sm:p-6 space-y-5 my-8 animate-in fade-in zoom-in-95 duration-200">
+    <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-xs flex items-start justify-center p-2 sm:p-4 overflow-y-auto overscroll-contain" onClick={onClose}>
+      <div role="dialog" aria-modal="true" aria-label="Auto-Pilot settings" className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-2xl shadow-2xl p-4 sm:p-6 space-y-5 my-2 sm:my-4" onClick={(e) => e.stopPropagation()}>
         
         {/* Header */}
         <div className="flex items-center justify-between pb-3 border-b border-slate-800">
@@ -128,6 +134,8 @@ export const AutoPilotModal: React.FC<AutoPilotModalProps> = ({
             <X className="w-5 h-5" />
           </button>
         </div>
+
+        {runError && <div role="alert" className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs leading-relaxed text-rose-200">{runError}</div>}
 
         {/* Master Power Toggle */}
         <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-between">

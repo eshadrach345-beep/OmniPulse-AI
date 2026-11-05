@@ -55,7 +55,8 @@ import {
   Maximize2,
   Camera,
   ImagePlus,
-  Lock
+  Lock,
+  X
 } from 'lucide-react';
 
 interface VideoStudioProps {
@@ -921,9 +922,10 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
                   setIsCreating(false);
                   StudioAudioService.stop();
                 }}
-                className="text-slate-400 hover:text-slate-200"
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-slate-300 hover:bg-slate-800 hover:text-white"
+                aria-label="Close video creator"
               >
-                ✕
+                <X className="h-4 w-4" />
               </button>
             </div>
 
@@ -1307,9 +1309,10 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
                   setIsVoiceSettingsOpen(false);
                   StudioAudioService.stop();
                 }}
-                className="text-slate-400 hover:text-slate-200"
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-slate-300 hover:bg-slate-800 hover:text-white"
+                aria-label="Close voice settings"
               >
-                ✕
+                <X className="h-4 w-4" />
               </button>
             </div>
 

@@ -54,11 +54,11 @@ export const TopNav: React.FC<TopNavProps> = ({
             </span>
           </div>
 
-          <nav className="hidden xl:flex items-center gap-0.5" aria-label="Main">
+          <nav className="hidden xl:flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto scrollbar-none px-2" aria-label="Main">
             {NAV.filter(({ id }) => id !== 'owner' || currentUser.isOwner).map(({ id, label, icon: Icon }) => (
               <button
                 key={id} onClick={() => setActiveTab(id)} aria-current={activeTab === id ? 'page' : undefined}
-                className={`flex items-center gap-1 px-2 py-2 text-xs font-medium transition-colors border-b-2 ${activeTab === id ? 'border-indigo-400 text-white' : 'border-transparent text-slate-400 hover:text-slate-100'}`}
+                className={`flex shrink-0 items-center gap-1 px-2 py-2 text-xs font-medium transition-colors border-b-2 ${activeTab === id ? 'border-indigo-400 text-white' : 'border-transparent text-slate-400 hover:text-slate-100'}`}
               >
                 <Icon className="w-4 h-4" /><span>{label}</span>
               </button>

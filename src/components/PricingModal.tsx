@@ -94,7 +94,7 @@ export const PricingModal: React.FC<PricingModalProps> = ({ currentUser, isOpen,
         {blocking ? (
           <button onClick={onLogout} className="text-xs text-slate-400 hover:text-slate-200 flex items-center gap-1 shrink-0"><LogOut className="w-3.5 h-3.5" /> Sign out</button>
         ) : (
-          <button onClick={onClose} aria-label="Close" className="text-slate-400 hover:text-slate-200"><X className="w-5 h-5" /></button>
+          <button onClick={onClose} aria-label="Close" className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-slate-300 hover:bg-slate-800 hover:text-white" aria-label="Close plans and billing"><X className="w-5 h-5" /></button>
         )}
       </div>
 
@@ -223,8 +223,8 @@ export const PricingModal: React.FC<PricingModalProps> = ({ currentUser, isOpen,
 
   if (blocking) return <div className="min-h-full bg-slate-950 p-4 sm:p-8 overflow-y-auto">{body}</div>;
   return (
-    <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-sm p-4 overflow-y-auto" onClick={onClose}>
-      <div className="bg-slate-900 border border-slate-700 rounded-2xl p-6 my-6 max-w-5xl mx-auto" onClick={(e) => e.stopPropagation()}>{body}</div>
+    <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-sm p-2 sm:p-4 overflow-y-auto overscroll-contain" onClick={onClose}>
+      <div role="dialog" aria-modal="true" aria-label="Plans and billing" className="bg-slate-900 border border-slate-700 rounded-2xl p-4 sm:p-6 my-2 sm:my-4 w-full max-w-5xl mx-auto" onClick={(e) => e.stopPropagation()}>{body}</div>
     </div>
   );
 };
