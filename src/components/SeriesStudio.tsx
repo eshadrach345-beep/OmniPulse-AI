@@ -197,6 +197,7 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
   const [animalsTalk, setAnimalsTalk] = useState(false);
   const [trope, setTrope] = useState<TropeId>('none');
   const [reviewFirst, setReviewFirst] = useState(true);
+  const [characterReferences, setCharacterReferences] = useState(false);
   const [notice, setNotice] = useState('');
   const applyPreset = (id: string) => {
     const p = PRESETS.find((x) => x.id === id); if (!p) return;
@@ -323,7 +324,7 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
     try {
       const r = await Series.create({
         projectId: detail?.project.id, title: title.trim() || undefined, idea: idea.trim(), mode: writer, script: writer === 'paste' ? script.trim() : undefined,
-        format, look, aspectRatio: ratio, niche: nicheName, brief: built.brief, reviewFirst,
+        format, look, aspectRatio: ratio, niche: nicheName, brief: built.brief, reviewFirst, characterReferences,
         series: !continuing && kind === 'series' ? { parts, deliver } : undefined,
       });
       setEpisode(null); setEpisodeId(r.episodeId); setView('progress'); usageRef.current?.();
