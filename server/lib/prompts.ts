@@ -429,7 +429,7 @@ export function storyPrompt(a: {
   continuity?: SeriesContinuity;
 }): string {
   const guide: Record<string, string> = {
-    drama: 'A short cinematic drama played out like a movie: physical conflict, danger, chases or confrontations, with brief charged dialogue spoken during the action. 2 to 4 characters, a clear arc (setup, escalation, turn).',
+    drama: 'A focused short cinematic drama played out like a movie: physical conflict, danger, chases or confrontations, with brief charged dialogue spoken during the action. Prefer 1 or 2 principal characters; never create crowds or decorative background people. A clear arc (setup, escalation, turn).',
     documentary: 'A short documentary. A "Narrator" character guides the viewer, plus 1 to 3 other speakers (experts or people involved, all fictional or generic roles, never real named people). Calm, factual tone. Only use widely established facts. Never invent statistics, studies or quotes from real people or organisations.',
     animation: 'A short animated story with expressive cartoon characters, humour and heart, suitable for all ages. 2 to 4 characters, a simple clear plot with a payoff.',
   };
@@ -456,7 +456,7 @@ ${plan}
 
 Rules:
 - Characters: each has a short name (or "Narrator"), a role, a gender ("male" or "female") and a concrete visual description of 25 to 45 words (age, face, hair, clothes, build, one distinctive detail). Narrator has no visual description.
-- "visualPrompt": describe only what the camera sees, in 60 to 100 words. START with the shot type and the physical action in progress (a chase, a fight, a fall, a crash, an escape), then name who is in frame and REPEAT each visible character's full visual description word for word, then the physics (how fabric, hair, smoke, water, dust and objects move), the setting, and the lighting. Characters must be physically doing something, never just standing and speaking to the camera. No dialogue, no subtitles, no captions, no logos, no readable text.
+- "visualPrompt": describe only what the camera sees, in 60 to 100 words. START with the shot type and physical action, then name who is in frame and REPEAT each visible character's full visual description word for word, then physical motion, setting and lighting. Use only the 1 or 2 principal characters needed for this beat; no crowds, extras or duplicate people. Keep the protagonist's face, apparent age, skin tone, hair, build and wardrobe identical in every shot. Avoid face close-ups immediately after a wide action shot; use medium or over-the-shoulder framing to preserve identity. Keep one stable location layout and fixed architectural proportions; no corridor stretching, shrinking or rearranging. Characters must perform one simple, physically plausible action with grounded feet and clear cause and effect. No dialogue, subtitles, captions, logos or readable text.
 - "cameraMotion": one sentence in film language that applies the camera profile to THIS shot. It must keep the profile's movement type (${cam.label}) and may add the subject, direction and speed for this scene.
 - "lines": 0 to 3 SHORT lines per scene, spoken during the action. Every "speaker" must exactly match a character name. Respect each scene's word limit above.
 - Dialogue must sound like overheard human conversation, not an AI-written speech: use contractions, specific vocabulary, interruptions, hesitation and subtext when natural. Give each character a distinct rhythm and vocabulary. Avoid generic filler, motivational slogans, over-explaining the plot, repeating what the camera already shows, or stock phrases such as "What is going on?", "We need to talk", "I can't believe this" and "Let's do this" unless the exact situation genuinely calls for them.
@@ -466,7 +466,7 @@ Rules:
 - Keep continuity: the same characters, wardrobe, places and time of day carry from scene to scene unless the story changes them. Repeat each character's visual description exactly, word for word.
 - Track body position, facing, screen direction, momentum, injuries, clothing, held objects and which hand holds each prop. A person moving screen-left must not suddenly move screen-right unless the turn is shown physically.
 - Every action must have a cause and visible result. Never teleport, reverse movement, reset a chase, change the hand holding an object or undo an action between adjacent shots.
-- Keep the camera on a consistent action axis. Use motivated shot changes and match-on-action; never add arbitrary montage cuts.
+- Keep the camera on a consistent action axis. Use motivated shot changes and match-on-action; never add arbitrary montage cuts. Prefer continuous medium or wide shots over rapid reframing. Do not cut from a distant running figure to a newly invented face; preserve the same face and wardrobe. Lock corridor, doorway, console and wall geometry to one fixed layout and perspective; camera movement must not alter set dimensions. Avoid crowds and background extras unless the plot explicitly requires one.
 - Everything must be about the idea above. Do not invent statistics or claims. Keep it safe: no real people, no sexual content, no graphic violence, no hate.
 - Write all dialogue in English.
 
