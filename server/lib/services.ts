@@ -295,7 +295,9 @@ async function discoverModel(b: LlmBackup, current: string): Promise<string | nu
     const list: any[] = Array.isArray(d?.data) ? d.data : Array.isArray(d) ? d : [];
     let models = list.map((m) => ({ id: String(m?.id || ''), free: m?.pricing ? Number(m.pricing.prompt) === 0 && Number(m.pricing.completion) === 0 : false })).filter((m) => m.id && !/embed|whisper|tts|vision|\bvl\b|guard|moderation|image|audio|rerank|safety/i.test(m.id));
     if (b.id === 'openrouter') models = models.filter((m) => m.free || m.id.endsWith(':free'));
-    for (const re of [/llama-?3\.3-?70b/i, /gpt-oss-?120b/i, /qwen.*(235b|32b)/i, /llama.*70b/i, /gpt-oss/i, /deepseek/i, /gemma.*(27b|12b)/i, /llama.*8b/i]) {
+    // Prefer currently supported Groq models. llama-3.3-70b-versatile was retired
+    // and has appeared in stale model lists, so never select it as a fallback.
+    for (const re of [/gpt-oss-?20b/i, /gpt-oss-?120b/i, /qwen.*(235b|32b)/i, /llama.*70b/i, /gpt-oss/i, /deepseek/i, /gemma.*(27b|12b)/i, /llama.*8b/i]) {
       const hit = models.find((m) => re.test(m.id) && m.id !== current);
       if (hit) return hit.id;
     }
