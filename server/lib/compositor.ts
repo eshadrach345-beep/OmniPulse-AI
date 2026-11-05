@@ -14,6 +14,11 @@ export interface CompositionInput {
   width: number;
   height: number;
   output: string;
+  audioGain?: number;
+  brightness?: number;
+  contrast?: number;
+  saturation?: number;
+  quality?: 'high' | 'standard' | 'small';
 }
 
 async function ffmpegPath(): Promise<string> {
@@ -50,9 +55,14 @@ export async function renderComposition(input: CompositionInput): Promise<void> 
   const width = Math.max(480, Math.min(1920, Math.round(input.width / 2) * 2));
   const height = Math.max(480, Math.min(1920, Math.round(input.height / 2) * 2));
   const args = ['-hide_banner', '-y'];
+  const audioGain = Math.max(0, Math.min(2.5, Number(input.audioGain ?? 1)));
+  const brightness = Math.max(-0.15, Math.min(0.15, Number(input.brightness ?? 0)));
+  const contrast = Math.max(0.5, Math.min(1.8, Number(input.contrast ?? 1)));
+  const saturation = Math.max(0, Math.min(2, Number(input.saturation ?? 1)));
+  const qualityCrf = input.quality === 'high' ? 18 : input.quality === 'small' ? 28 : 23;
   if (input.baseIsImage) args.push('-loop', '1', '-t', String(duration), '-i', input.base);
   else args.push('-ss', String(Math.max(0, input.baseSourceIn || 0)), '-t', String(duration), '-i', input.base);
-  const filter: string[] = [`[0:v]tpad=stop_mode=clone:stop_duration=${duration},trim=duration=${duration},setpts=PTS-STARTPTS,scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30,format=yuv420p[v0]`];
+  const filter: string[] = [`[0:v]tpad=stop_mode=clone:stop_duration=${duration},trim=duration=${duration},setpts=PTS-STARTPTS,scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30,eq=brightness=${brightness}:contrast=${contrast}:saturation=${saturation},format=yuv420p[v0]`];
   let videoLabel = 'v0';
   let nextInput = 1;
 
@@ -107,7 +117,7 @@ export async function renderComposition(input: CompositionInput): Promise<void> 
   });
   const hasBaseAudio = /Audio:\s/.test(probe);
   const audioLabels: string[] = [];
-  if (hasBaseAudio) { filter.push(`[0:a]atrim=duration=${duration},apad=pad_dur=${duration},atrim=duration=${duration},asetpts=PTS-STARTPTS[abase]`); audioLabels.push('[abase]'); }
+  if (hasBaseAudio) { filter.push(`[0:a]atrim=duration=${duration},apad=pad_dur=${duration},atrim=duration=${duration},asetpts=PTS-STARTPTS,volume=${audioGain}[abase]`); audioLabels.push('[abase]'); }
   for (const { index, layer } of audioInputs) {
     const label = `a${index}`;
     const startMs = Math.round(Math.max(0, Math.min(duration, layer.startAt || 0)) * 1000);
@@ -121,6 +131,6 @@ export async function renderComposition(input: CompositionInput): Promise<void> 
   args.push('-filter_complex', filter.join(';'), '-map', `[${videoLabel}]`);
   if (audioLabels.length) args.push('-map', '[aout]');
   else if (hasBaseAudio) args.push('-map', '0:a?');
-  args.push('-t', String(duration), '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '160k', '-movflags', '+faststart', '-max_muxing_queue_size', '2048', input.output);
+  args.push('-t', String(duration), '-c:v', 'libx264', '-preset', 'veryfast', '-crf', String(qualityCrf), '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '160k', '-movflags', '+faststart', '-max_muxing_queue_size', '2048', input.output);
   await run(bin, args, 240_000);
 }
