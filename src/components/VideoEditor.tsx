@@ -108,6 +108,8 @@ export const VideoEditor: React.FC<Props> = ({ video, onSave }) => {
       sourceIn: 0,
       duration: Math.max(1, Number(current.duration) || 5),
       volume: 1,
+      fadeIn: 0,
+      fadeOut: 0,
       opacity: 1,
       scale: 55,
       x: 50,
@@ -197,6 +199,8 @@ export const VideoEditor: React.FC<Props> = ({ video, onSave }) => {
       sourceIn: 0,
       duration: Math.max(0.5, match.duration),
       volume: 0.8,
+      fadeIn: 0,
+      fadeOut: 0,
       opacity: 1,
       scale: 55,
       x: 50,
@@ -413,7 +417,7 @@ export const VideoEditor: React.FC<Props> = ({ video, onSave }) => {
                   <label className="space-y-1 text-[10px] text-slate-400">Duration (sec)<input type="number" min="0.5" step="0.5" value={layer.duration} onChange={(event) => patchMediaLayer(layer.id, { duration: Math.max(0.5, Number(event.target.value) || 0.5) })} className="w-full rounded border border-slate-700 bg-slate-950 px-2 py-1.5 text-xs text-white" /></label>
                 </div>
                 {layer.track === 'overlay' && <><div className="grid grid-cols-2 gap-2"><label className="text-[10px] text-slate-400">Overlay size {layer.scale}%<input type="range" min="15" max="100" step="1" value={layer.scale} onChange={(event) => patchMediaLayer(layer.id, { scale: Number(event.target.value) })} className="w-full" /></label><label className="text-[10px] text-slate-400">Opacity {Math.round(layer.opacity * 100)}%<input type="range" min="0.1" max="1" step="0.05" value={layer.opacity} onChange={(event) => patchMediaLayer(layer.id, { opacity: Number(event.target.value) })} className="w-full" /></label></div><div className="grid grid-cols-2 gap-2"><label className="text-[10px] text-slate-400">Horizontal {layer.x}%<input type="range" min="0" max="100" step="1" value={layer.x} onChange={(event) => patchMediaLayer(layer.id, { x: Number(event.target.value) })} className="w-full" /></label><label className="text-[10px] text-slate-400">Vertical {layer.y}%<input type="range" min="0" max="100" step="1" value={layer.y} onChange={(event) => patchMediaLayer(layer.id, { y: Number(event.target.value) })} className="w-full" /></label></div></>}
-                {layer.track === 'audio' && <label className="block text-[10px] text-slate-400">Audio volume {Math.round(layer.volume * 100)}%<input type="range" min="0" max="1.5" step="0.05" value={layer.volume} onChange={(event) => patchMediaLayer(layer.id, { volume: Number(event.target.value) })} className="w-full" /></label>}
+                {layer.track === 'audio' && <div className="space-y-2"><label className="block text-[10px] text-slate-400">Audio volume {Math.round(layer.volume * 100)}%<input type="range" min="0" max="1.5" step="0.05" value={layer.volume} onChange={(event) => patchMediaLayer(layer.id, { volume: Number(event.target.value) })} className="w-full" /></label><div className="grid grid-cols-2 gap-2"><label className="block text-[10px] text-slate-400">Fade in {(layer.fadeIn || 0).toFixed(1)}s<input type="range" min="0" max="3" step="0.1" value={layer.fadeIn || 0} onChange={(event) => patchMediaLayer(layer.id, { fadeIn: Number(event.target.value) })} className="w-full" /></label><label className="block text-[10px] text-slate-400">Fade out {(layer.fadeOut || 0).toFixed(1)}s<input type="range" min="0" max="3" step="0.1" value={layer.fadeOut || 0} onChange={(event) => patchMediaLayer(layer.id, { fadeOut: Number(event.target.value) })} className="w-full" /></label></div></div>}
               </div>)}
             </div>}
             <div className="border-t border-slate-800 pt-3 space-y-2">
