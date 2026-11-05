@@ -147,13 +147,25 @@ export const VideoEditor: React.FC<Props> = ({ video, onSave }) => {
 
   const applyTranscript = () => {
     if (!current || !transcript?.segments?.length) return;
-    const captions = transcript.segments.map((segment) => ({
-      start: Math.max(0, segment.start),
-      end: Math.max(segment.start, segment.end),
-      text: segment.text,
-    }));
-    const duration = Math.max(Number(current.duration) || 0, transcript.duration || 0);
-    patchCurrent({ captions, voiceoverText: transcript.text, duration: duration || current.duration });
+    // Transcription timestamps refer to the complete uploaded file. Convert them
+    // to this scene's local timeline and keep every cue inside the render window.
+    const duration = Math.max(1, Math.min(90, Number(current.duration) || 30));
+    const sourceIn = transcript.assetId === mainLayer?.assetId ? Math.max(0, Number(mainLayer?.sourceIn) || 0) : 0;
+    const windowEnd = sourceIn + duration;
+    const captions = transcript.segments
+      .filter((segment) => segment.end > sourceIn && segment.start < windowEnd)
+      .map((segment) => ({
+        start: Math.max(0, segment.start - sourceIn),
+        end: Math.min(duration, segment.end - sourceIn),
+        text: segment.text,
+      }))
+      .filter((cue) => cue.end > cue.start);
+    if (!captions.length) {
+      setMediaError('No speech was found inside this scene segment. Adjust the source in-point or edit duration, then transcribe again.');
+      return;
+    }
+    patchCurrent({ captions, voiceoverText: transcript.text });
+    setMediaError('');
   };
 
   const requestMediaMatches = async () => {
@@ -417,7 +429,7 @@ export const VideoEditor: React.FC<Props> = ({ video, onSave }) => {
             </div>
           </div>
           </>}
-          <p className="text-[10px] leading-relaxed text-slate-500">Reordering and removing clips changes the scene sequence used by the film joiner. Text overlays and subtitle edits are saved and previewed in the studio; they do not alter the original generated audio or burn into the exported MP4 yet.</p>
+          <p className="text-[10px] leading-relaxed text-slate-500">Edits are non-destructive until you render. Scene exports burn in text overlays and timed captions, composite visual layers, and mix added audio; the original uploaded files remain unchanged.</p>
         </div>
       <div className="space-y-2 rounded-xl border border-slate-800 bg-slate-950/70 p-3">
         <div className="flex items-center justify-between gap-2"><div><h3 className="text-xs font-semibold text-white">Multitrack timeline</h3><p className="text-[10px] text-slate-500">Select any block to inspect and edit that scene's layers.</p></div><span className="text-[10px] text-slate-500">{scenes.length} scene lanes</span></div>
