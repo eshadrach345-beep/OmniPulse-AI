@@ -53,7 +53,14 @@ export const CreatorUploadStudio: React.FC<{ onEditVideo?: (asset: MediaAsset) =
   };
 
   const handleFiles = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(event.target.files || []);
+    const files: File[] = [];
+    const selectedFiles = event.target.files;
+    if (selectedFiles) {
+      for (let index = 0; index < selectedFiles.length; index++) {
+        const file = selectedFiles.item(index);
+        if (file) files.push(file);
+      }
+    }
     event.target.value = '';
     if (!files.length) return;
     setError('');
