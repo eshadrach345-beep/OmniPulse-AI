@@ -1083,7 +1083,19 @@ function finishStory(ctx: StoryCtx, d: any, input: StoryInput) {
 
     const vp = str(sc?.visualPrompt, 900) || str(sc?.setting, 300);
     if (vp.length < 10) continue;
-    const visualCore = brief.characterLock && !vp.toLowerCase().includes(lockKey) ? `Main character, identical in every scene: ${brief.characterLock.descriptor}. ${vp}` : vp;
+    // Freeze the approved cast descriptions into every scene prompt. This is a text identity anchor;
+    // image-reference generation can be layered on later without silently spending credits during script creation.
+    const castIdentity = characters
+      .filter((c) => c.kind !== 'animal' || brief.cast === 'animals')
+      .map((c) => `${c.name}: ${str(c.description, 260) || 'Keep the exact appearance established in the first approved scene'}`)
+      .join(' | ');
+    const identityAnchor = castIdentity
+      ? `CAST IDENTITY LOCK (do not redesign): ${castIdentity}. Only show a character when the scene action explicitly requires them; never add a new face, substitute actor, duplicate, or background version of a named character. `
+      : '';
+    const lockedProtagonist = brief.characterLock && !vp.toLowerCase().includes(lockKey)
+      ? `Main character, identical in every scene: ${brief.characterLock.descriptor}. `
+      : '';
+    const visualCore = `${identityAnchor}${lockedProtagonist}${vp}`;
     const continuesPrevious = sc?.continuesPrevious === true;
     const visualBase = shownText ? `${visualCore} ${shownText}` : visualCore;
     const soundText = str(sc?.sound, 160);
