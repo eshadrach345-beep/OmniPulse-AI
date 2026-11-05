@@ -1915,7 +1915,8 @@ async function stageRender(row: any, user: ReturnType<typeof toUser>, ep: any): 
     if (started >= MAX_STARTS_PER_STEP || left() < 14_000) break outer;
     try {
       const scene = scenes[en.index];
-      const sceneText = [scene.visualPrompt, ...(scene.lines || []).map((l: any) => l.speaker)].join(' ').toLowerCase();
+      const visualForMatch = String(scene.visualPrompt || '').replace(/^CAST IDENTITY LOCK \\(do not redesign\\):[\\s\\S]*?named character\\.\\s*/i, '');
+      const sceneText = [visualForMatch, ...(scene.lines || []).map((l: any) => l.speaker)].join(' ').toLowerCase();
       const cast: any[] = Array.isArray(ep.storyboard_json?.characters) ? ep.storyboard_json.characters : [];
       const relevant = cast.filter((c) => c.referenceImageUrl && /^https:\/\//i.test(c.referenceImageUrl) && (sceneText.includes(String(c.name || '').toLowerCase()) || (scene.lines || []).some((l: any) => String(l.speaker || '').toLowerCase() === String(c.name || '').toLowerCase())));
       const selected = (relevant.length ? relevant : cast.filter((c) => c.referenceImageUrl && /^https:\/\//i.test(c.referenceImageUrl)).slice(0, 2)).slice(0, 4).map((c) => ({ name: str(c.name, 30), url: String(c.referenceImageUrl) }));
