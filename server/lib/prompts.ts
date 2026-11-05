@@ -195,7 +195,7 @@ export const STORY_MOODS: Record<StoryMoodKey, { label: string; write: string; r
 
 /** `direct` is the camera instruction in plain film language; the writer adapts it to each shot, the render prompt always carries it. */
 export const CAMERA_PROFILES: Record<CameraProfileKey, { label: string; direct: string }> = {
-  slow_dramatic_zoom: { label: 'Slow Dramatic Zoom', direct: 'slow, smooth push-in zoom that gradually tightens on the subject over the whole clip, no cuts' },
+  slow_dramatic_zoom: { label: 'Slow Dramatic Push-In', direct: 'slow, smooth physical dolly-in toward the subject at a constant speed; keep lens focal length fixed, no optical or digital zoom, no orbit, no roll and no cuts' },
   steady_pan: { label: 'Steady Pan', direct: 'steady, even horizontal pan across the scene at constant speed, gimbal-smooth, no cuts' },
   static_narrative: { label: 'Static Narrative', direct: 'locked-off tripod shot, no camera movement, subject movement and composition carry the scene' },
   kinetic_tracking: { label: 'Kinetic Tracking', direct: 'smooth, controlled gimbal tracking at a moderate constant speed, following one subject in a fixed screen direction; no handheld shake, orbit, roll, sudden zoom or reversal' },
