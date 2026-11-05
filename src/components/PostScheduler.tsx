@@ -1,5 +1,4 @@
-import { placeholderThumb } from '../services/aiService';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { 
   ScheduledPost, 
   PlatformId, 
@@ -25,8 +24,17 @@ import {
   Smartphone,
   ExternalLink,
   Zap,
-  Check
+  Check,
+  X
 } from 'lucide-react';
+
+const defaultScheduleDateTime = () => {
+  const date = new Date();
+  date.setDate(date.getDate() + 1);
+  date.setHours(18, 30, 0, 0);
+  const pad = (value: number) => String(value).padStart(2, '0');
+  return date.getFullYear() + '-' + pad(date.getMonth() + 1) + '-' + pad(date.getDate()) + 'T' + pad(date.getHours()) + ':' + pad(date.getMinutes());
+};
 
 interface PostSchedulerProps {
   posts: ScheduledPost[];
@@ -53,6 +61,7 @@ export const PostScheduler: React.FC<PostSchedulerProps> = ({
 }) => {
   const [viewMode, setViewMode] = useState<'queue' | 'calendar'>('queue');
   const [isComposing, setIsComposing] = useState(false);
+  const [formError, setFormError] = useState('');
 
   // Compose form state
   const [title, setTitle] = useState('');
@@ -61,8 +70,12 @@ export const PostScheduler: React.FC<PostSchedulerProps> = ({
   const [selectedPlatforms, setSelectedPlatforms] = useState<PlatformId[]>(['tiktok', 'youtube', 'instagram']);
   const [mediaType, setMediaType] = useState<'video' | 'image'>('video');
   const [selectedVideoId, setSelectedVideoId] = useState<string>(videos[0]?.id || '');
-  const [scheduledDateTime, setScheduledDateTime] = useState('2026-10-07T18:30');
+  const [scheduledDateTime, setScheduledDateTime] = useState(defaultScheduleDateTime);
   const [autoPeakOptimized, setAutoPeakOptimized] = useState(true);
+
+  useEffect(() => {
+    if (!selectedVideoId && videos.length) setSelectedVideoId(videos[0].id);
+  }, [videos, selectedVideoId]);
 
   const togglePlatform = (p: PlatformId) => {
     if (selectedPlatforms.includes(p)) {
@@ -91,35 +104,48 @@ export const PostScheduler: React.FC<PostSchedulerProps> = ({
 
   const handleCreatePost = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!title.trim() || !caption.trim()) return;
-
-    const tags = hashtagsInput
-      .split(/[\s,]+/)
-      .filter(t => t.trim().length > 0)
-      .map(t => t.startsWith('#') ? t : `#${t}`);
-
+    setFormError('');
+    if (!title.trim() || !caption.trim()) {
+      setFormError('Add a headline and caption before scheduling this post.');
+      return;
+    }
+    const needsVideo = selectedPlatforms.some((platform) => ['youtube', 'tiktok', 'instagram'].includes(platform));
+    const chosenVideo = videos.find((video) => video.id === selectedVideoId);
+    const hasFinishedVideo = !!chosenVideo?.videoUrl && /^https:\/\//i.test(chosenVideo.videoUrl);
+    if (mediaType === 'image') {
+      setFormError('Image attachments are not connected to this scheduler yet. Choose a finished video or schedule to a text-friendly channel.');
+      return;
+    }
+    if (needsVideo && !hasFinishedVideo) {
+      setFormError('YouTube, TikTok and Instagram need a finished video file. Select a completed video with an MP4 link, or remove those channels from this post.');
+      return;
+    }
+    const scheduledAt = new Date(scheduledDateTime);
+    if (!Number.isFinite(scheduledAt.getTime()) || scheduledAt.getTime() <= Date.now()) {
+      setFormError('Choose a future date and time before scheduling.');
+      return;
+    }
+    const tags = hashtagsInput.split(/[\s,]+/).filter((tag) => tag.trim().length > 0).map((tag) => tag.startsWith('#') ? tag : '#' + tag);
     const newPost: ScheduledPost = {
-      id: `post-${Date.now()}`,
+      id: 'post-' + Date.now(),
       title: title.trim(),
       caption: caption.trim(),
-      hashtags: tags.length > 0 ? tags : activeNiche.viralHashtags.viral.slice(0, 4).map(h => h.tag),
+      hashtags: tags.length > 0 ? tags : activeNiche.viralHashtags.viral.slice(0, 4).map((h) => h.tag),
       platforms: selectedPlatforms,
-      mediaType,
-      videoRefId: mediaType === 'video' ? selectedVideoId : undefined,
-      mediaUrl: mediaType === 'video' 
-        ? videos.find(v => v.id === selectedVideoId)?.thumbnailUrl || placeholderThumb('Post')
-        : placeholderThumb('Post'),
-      scheduledTime: new Date(scheduledDateTime).toISOString(),
+      mediaType: 'video',
+      videoRefId: hasFinishedVideo ? chosenVideo!.id : undefined,
+      mediaUrl: hasFinishedVideo ? (chosenVideo!.thumbnailUrl || undefined) : undefined,
+      scheduledTime: scheduledAt.toISOString(),
       status: 'scheduled',
       autoPeakOptimized,
     };
-
     onSavePost(newPost);
     setIsComposing(false);
-    // Reset form
+    setFormError('');
     setTitle('');
     setCaption('');
     setHashtagsInput('');
+    setScheduledDateTime(defaultScheduleDateTime());
   };
 
   const selectedVideoObj = videos.find(v => v.id === selectedVideoId) || videos[0];
@@ -165,7 +191,7 @@ export const PostScheduler: React.FC<PostSchedulerProps> = ({
             </div>
 
             <button
-              onClick={() => setIsComposing(true)}
+              onClick={() => { setFormError(""); setIsComposing(true); }}
               className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-semibold shadow-sm transition-colors whitespace-nowrap"
             >
               <Plus className="w-4 h-4" />
@@ -332,12 +358,17 @@ export const PostScheduler: React.FC<PostSchedulerProps> = ({
             </span>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-7 gap-3">
-            {['Mon (Oct 5)', 'Tue (Oct 6)', 'Wed (Oct 7)', 'Thu (Oct 8)', 'Fri (Oct 9)', 'Sat (Oct 10)', 'Sun (Oct 11)'].map((day, dIdx) => {
-              // Filter posts scheduled on this relative day
-              const dayPosts = posts.filter(p => {
-                const pDate = new Date(p.scheduledTime);
-                return pDate.getDate() === (5 + dIdx);
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-7 gap-3">
+            {Array.from({ length: 7 }, (_, dayIndex) => {
+              const weekStart = new Date();
+              weekStart.setHours(0, 0, 0, 0);
+              weekStart.setDate(weekStart.getDate() - ((weekStart.getDay() + 6) % 7) + dayIndex);
+              const day = weekStart.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+              const dayPosts = posts.filter((post) => {
+                const postDate = new Date(post.scheduledTime);
+                return postDate.getFullYear() === weekStart.getFullYear()
+                  && postDate.getMonth() === weekStart.getMonth()
+                  && postDate.getDate() === weekStart.getDate();
               });
 
               return (
@@ -349,7 +380,7 @@ export const PostScheduler: React.FC<PostSchedulerProps> = ({
                     <div className="text-xs font-semibold text-slate-300 pb-1.5 border-b border-slate-900 mb-2 flex items-center justify-between">
                       <span>{day}</span>
                       <span className="text-[10px] text-indigo-400 font-mono">
-                        {dIdx === 1 || dIdx === 3 ? '🔥 Peak Day' : ''}
+                        {dayPosts.length ? dayPosts.length + ' post' + (dayPosts.length === 1 ? '' : 's') : ''}
                       </span>
                     </div>
 
@@ -393,8 +424,8 @@ export const PostScheduler: React.FC<PostSchedulerProps> = ({
 
       {/* Compose & Schedule Modal */}
       {isComposing && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-700 rounded-xl p-5 sm:p-6 w-full max-w-xl shadow-2xl space-y-4">
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-xs flex items-start justify-center overflow-y-auto overscroll-contain p-2 sm:p-4" onClick={() => setIsComposing(false)}>
+          <div role="dialog" aria-modal="true" aria-label="Compose and schedule a post" className="bg-slate-900 border border-slate-700 rounded-xl p-4 sm:p-6 my-2 sm:my-4 w-full max-w-xl shadow-2xl space-y-4" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between pb-3 border-b border-slate-800">
               <div className="flex items-center gap-2">
                 <Calendar className="w-5 h-5 text-indigo-400" />
@@ -404,12 +435,14 @@ export const PostScheduler: React.FC<PostSchedulerProps> = ({
               </div>
               <button
                 onClick={() => setIsComposing(false)}
-                className="text-slate-400 hover:text-slate-200 text-sm"
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-slate-300 hover:bg-slate-800 hover:text-white"
+                aria-label="Close post composer"
               >
-                ✕
+                <X className="h-4 w-4" />
               </button>
             </div>
 
+            {formError && <div role="alert" className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs leading-relaxed text-rose-200">{formError}</div>}
             <form onSubmit={handleCreatePost} className="space-y-4">
               <div>
                 <label className="block text-xs font-medium text-slate-300 mb-1">
@@ -481,13 +514,7 @@ export const PostScheduler: React.FC<PostSchedulerProps> = ({
                       >
                         Video
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => setMediaType('image')}
-                        className={`px-1.5 py-0.5 rounded ${mediaType === 'image' ? 'bg-indigo-600 text-white font-bold' : 'text-slate-400'}`}
-                      >
-                        Graphic
-                      </button>
+                      <button type="button" disabled title="Image attachments are not connected to this scheduler yet" className="px-1.5 py-0.5 rounded text-slate-600 cursor-not-allowed">Graphic · soon</button>
                     </div>
                   </div>
                   {mediaType === 'video' ? (

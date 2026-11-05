@@ -116,6 +116,10 @@ export async function zernioPublish(userId:string,platform:string,post:{text:str
   if(!rows[0]?.account_id) throw new HttpError(409,`${platform} is not connected. Connect it from Social Accounts first.`,'SOCIAL_NOT_CONNECTED');
   const targetPlatform=TO_Z[platform];
   if(!targetPlatform) throw new HttpError(422,'Unsupported social platform.','SOCIAL_POST');
+  if(['youtube','tiktok','instagram'].includes(platform) && !post.videoUrl){
+    const name=platform==='youtube'?'YouTube':platform==='tiktok'?'TikTok':'Instagram';
+    throw new HttpError(422,`${name} requires a finished video. Select a completed MP4 before scheduling or publishing.`,'SOCIAL_MEDIA_REQUIRED');
+  }
   const body:any={content:post.text,platforms:[{platform:targetPlatform,accountId:String(rows[0].account_id)}]};
   if(post.videoUrl) body.mediaItems=[{type:'video',url:post.videoUrl}];
   if(scheduledAt){body.scheduledFor=scheduledAt.toISOString();body.timezone='UTC';}

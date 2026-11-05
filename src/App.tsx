@@ -529,7 +529,7 @@ function Workspace({ user: currentUser, initialDashboard, onLogout, onUserChange
       showToast(`Auto-Pilot made ${made} ${settings.preferredStyle.replace(/_/g, ' ')} videos for ${settings.targetPlatforms.join(', ')}.`);
     } catch (err) {
       console.error('Autonomous run error:', err);
-      showToast(err instanceof Error ? err.message : 'Auto-Pilot run failed. Please try again.');
+      throw err instanceof Error ? err : new Error('Auto-Pilot run failed. Please try again.');
     } finally {
       setIsExecutingAutonomousRun(false);
     }
