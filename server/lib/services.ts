@@ -346,9 +346,10 @@ async function callBackup(b: LlmBackup, prompt: string, o: { json: boolean; time
   // useful output as possible instead of repeatedly sending an oversized request.
   for (let retry = 0; retry < 2 && !a.r.ok; retry++) {
     const detail = errText(a.d);
-    const tpmLimit = /tokens per minute|\bTPM\b/i.test(detail);
-    const shrinkable = ([400, 413].includes(a.r.status) && /context|max_tokens|too (large|long|many)|maximum|exceed|request size/i.test(detail))
-      || (a.r.status === 429 && tpmLimit);
+    // A 429 belongs to the provider's current rate-limit window. Do not retry it
+    // immediately; llmGenerate records the provider cooldown and tries the next writer.
+    const shrinkable = [400, 413].includes(a.r.status)
+      && /context|max_tokens|too (large|long|many)|maximum|exceed|request size/i.test(detail);
     if (!shrinkable || maxTok <= 700) break;
     const requested = Number(detail.match(/requested[:\s]+([\d,]+)/i)?.[1]?.replace(/,/g, '') || 0);
     const limit = Number(detail.match(/limit[:\s]+([\d,]+)/i)?.[1]?.replace(/,/g, '') || 0);
@@ -465,7 +466,7 @@ export async function testAiWriters(): Promise<{ name: string; ok: boolean; mess
       catch (e: any) { const f = new GeminiFail(e?.status || 0, e?.message || 'failed', !!e?.keyBad); noteGeminiFailure(f, k); out.push({ name, ok: false, message: tidy(e?.message || 'failed') }); }
     }),
     ...llmBackups().map(async (b) => {
-      try { await callBackup(b, 'Reply with the single word OK.', { json: false, timeoutMs: 15_000, maxTokens: 20 }); out.push({ name: `${b.label} (${modelCache.get(`${b.id}|${b.base}`) || b.model})`, ok: true, message: 'Working.' }); }
+      try { await callBackup(b, 'Reply with the single word OK.', { json: false, timeoutMs: 15_000, maxTokens: 20 }); out.push({ name: `${b.label} (${modelCache.get(`${b.id}|${b.base}|${discoveryKey(b.key)}`) || b.model})`, ok: true, message: 'Working.' }); }
       catch (e: any) { out.push({ name: `${b.label} (${b.model})`, ok: false, message: e?.keyBad ? 'The key was rejected. Check that it is copied correctly and is still active.' : e?.status === 429 ? `The key works, but its free allowance is used up. Ready again in about ${niceWait(e.retryMs || 60_000)}.` : tidy(e?.message || 'failed') }); }
     }),
   ]);

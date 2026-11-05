@@ -67,7 +67,7 @@ export const PostScheduler: React.FC<PostSchedulerProps> = ({
   const [title, setTitle] = useState('');
   const [caption, setCaption] = useState('');
   const [hashtagsInput, setHashtagsInput] = useState('');
-  const [selectedPlatforms, setSelectedPlatforms] = useState<PlatformId[]>(['tiktok', 'youtube', 'instagram']);
+  const [selectedPlatforms, setSelectedPlatforms] = useState<PlatformId[]>([]);
   const [mediaType, setMediaType] = useState<'video' | 'image'>('video');
   const [selectedVideoId, setSelectedVideoId] = useState<string>(videos[0]?.id || '');
   const [scheduledDateTime, setScheduledDateTime] = useState(defaultScheduleDateTime);
@@ -76,6 +76,13 @@ export const PostScheduler: React.FC<PostSchedulerProps> = ({
   useEffect(() => {
     if (!selectedVideoId && videos.length) setSelectedVideoId(videos[0].id);
   }, [videos, selectedVideoId]);
+
+  useEffect(() => {
+    if (selectedPlatforms.length === 0) {
+      const connectedPlatforms = accounts.filter((account) => account.connected).map((account) => account.id);
+      if (connectedPlatforms.length) setSelectedPlatforms(connectedPlatforms);
+    }
+  }, [accounts, selectedPlatforms.length]);
 
   const togglePlatform = (p: PlatformId) => {
     if (selectedPlatforms.includes(p)) {
@@ -107,6 +114,15 @@ export const PostScheduler: React.FC<PostSchedulerProps> = ({
     setFormError('');
     if (!title.trim() || !caption.trim()) {
       setFormError('Add a headline and caption before scheduling this post.');
+      return;
+    }
+    if (selectedPlatforms.length === 0) {
+      setFormError('Select at least one connected social channel before scheduling.');
+      return;
+    }
+    const unconnectedPlatforms = selectedPlatforms.filter((platform) => !accounts.some((account) => account.id === platform && account.connected));
+    if (unconnectedPlatforms.length) {
+      setFormError('Connect these channels before scheduling: ' + unconnectedPlatforms.join(', ') + '. Use Connect Now below.');
       return;
     }
     const needsVideo = selectedPlatforms.some((platform) => ['youtube', 'tiktok', 'instagram'].includes(platform));

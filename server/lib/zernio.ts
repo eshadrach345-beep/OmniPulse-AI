@@ -21,6 +21,7 @@ async function zernioRequest(path:string, init:RequestInit = {}):Promise<any> {
     console.error('Zernio API error',path,response.status,raw.slice(0,400));
     const detail=String(data?.error?.message||data?.message||data?.error||data?.detail||'').slice(0,220);
     const msg=response.status===401||response.status===403?'Zernio rejected the API key or its permissions. Check ZERNIO_API_KEY.':
+      response.status===402 && (data?.reason==='free_tier_exceeded' || data?.details?.free_tier_account_limit)?`Zernio's free plan allows ${Number(data.details?.free_tier_account_limit)||2} connected social accounts; this profile already has ${Number(data.details?.current_account_count)||'its account limit'}. Disconnect one in Zernio or add a payment method in Zernio Billing, then reconnect.`:
       response.status===402?'Zernio requires a billing action. Check your Zernio dashboard.':
       response.status===429?'Zernio rate limit reached. Wait briefly and retry.':
       `Zernio request failed (${response.status})${detail?`: ${detail}`:''}.`;
