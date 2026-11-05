@@ -2393,9 +2393,14 @@ const mediaTranscribe: Handler = async ({ req, res, body }) => {
   const token = await issueSignedToken({ operations: ['get'] });
   const signed = await presignUrl(token, { pathname: asset.pathname, operation: 'get', access: 'private', validUntil: Date.now() + 15 * 60 * 1000 });
   const form = new FormData();
-  form.set('model', 'whisper-large-v3-turbo');
+  form.set('model', 'whisper-large-v3');
   form.set('url', signed.presignedUrl);
   form.set('response_format', 'verbose_json');
+  // OmniPulse-generated dialogue is English; fixing language reduces transcription drift.
+  form.set('language', 'en');
+  form.set('temperature', '0');
+  const transcriptHint = str(body.prompt || '', 800).trim();
+  if (transcriptHint) form.set('prompt', transcriptHint);
   form.append('timestamp_granularities[]', 'segment');
   const response = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
     method: 'POST',
