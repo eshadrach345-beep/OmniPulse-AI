@@ -120,10 +120,27 @@ const ClipSequence: React.FC<{ clips: string[]; captions?: CaptionCue[][] }> = (
   useEffect(() => {
     const cur = refs[i % 2].current, other = refs[(i + 1) % 2].current;
     attach(cur, clips[i]);
-    if (i > 0 && cur) { try { cur.currentTime = 0; } catch { /* not ready yet */ } cur.play().catch(() => undefined); }
     other?.pause();
     attach(other, clips[i + 1]);
     setPlayhead(0);
+    if (i > 0 && cur) {
+      // The next clip is preloaded in the inactive player. Do not call play()
+      // until its decoder can actually present a frame; this avoids a black
+      // pause at every scene boundary on slower mobile connections.
+      let cancelled = false;
+      const start = () => {
+        if (cancelled || !cur) return;
+        cur.removeEventListener('canplay', start);
+        cur.play().then(() => setBuffering(false)).catch(() => setBuffering(false));
+      };
+      if (cur.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA) start();
+      else {
+        setBuffering(true);
+        cur.addEventListener('canplay', start, { once: true });
+        cur.load();
+      }
+      return () => { cancelled = true; cur.removeEventListener('canplay', start); };
+    }
   }, [i, clipKey]);
   if (!clips.length) return null;
   const caption = (captions[i] || []).find((cue) => playhead >= cue.start && playhead <= cue.end);
