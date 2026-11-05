@@ -7,7 +7,7 @@ import {
 } from './lib/core.js';
 import { sql, ensureSchema } from './lib/db.js';
 import { PLANS, TIERS, Tier, Cycle, planId, tierFromPlanId, priceFor, BILLING_CURRENCY, TRIAL, TOPUPS, trialPrice } from './lib/plans.js';
-import { mail, flw, verifyFlwSignature, lookupEnv, geminiJson, geminiRaw, geminiFormat, webTrendResearch, aiWriterStatus, testAiWriters, falSubmit, falContinueSubmit, falStatus, falImageVideoSubmit, falGenerateBrandImages, deapiSubmit, deapiStatus, deapiAnimate, RateLimited, synthesize } from './lib/services.js';
+import { mail, flw, verifyFlwSignature, lookupEnv, geminiJson, geminiRaw, geminiFormat, webTrendResearch, aiWriterStatus, testAiWriters, falSubmit, falContinueSubmit, falReferenceVideoSubmit, falGenerateCharacterReference, falStatus, falImageVideoSubmit, falGenerateBrandImages, deapiSubmit, deapiStatus, deapiAnimate, RateLimited, synthesize } from './lib/services.js';
 import { trendsFormatPrompt, scriptPrompt, adConceptPrompt, abPrompt, competitorPrompt, outrankPrompt, parseStoryBrief, type SeriesContinuity, type StoryBriefInput, storyBeats, STORY_MOODS, CAMERA_PROFILES, GENRES, INTENSITIES, ENDINGS, PRESENTATIONS, CASTS, TROPES, styleBlock, STORY_LIMITS, planScenes, castMinimum, storyboardPrompt, outlinePrompt, chunkPrompt, adaptPrompt, PART_SECONDS, SCENES_PER_WRITER_CALL, MAX_WORDS_PER_CLIP } from './lib/prompts.js';
 import { assembleParts } from './lib/assemble.js';
 import { refineScene, shownInstruction, proseToUnits, thoughtToVisual, type SpokenLine } from './lib/screenplay.js';
@@ -1036,17 +1036,17 @@ function packLines(lines: PackLine[], halves: number): (PackLine & { half: 1 | 2
 /** Turns the writer's raw JSON into a checked storyboard: cast, scenes split into 10 second clips, and a ready render prompt for every clip. */
 function finishStory(ctx: StoryCtx, d: any, input: StoryInput) {
   const { format, look, aspect, brief, continuity, plan, mood, cam, notes, available, script, castMin, presentation, silentCast } = ctx;
-  const characters: { id: string; name: string; role: string; gender: 'male' | 'female'; voice: string; description: string; kind: 'human' | 'animal' | 'creature' }[] = [];
+  const characters: { id: string; name: string; role: string; gender: 'male' | 'female'; voice: string; description: string; kind: 'human' | 'animal' | 'creature'; referenceImageUrl?: string }[] = [];
   const byName = new Map<string, number>();
-  const addChar = (name: string, role = '', gender: string = 'male', description = '', voice = '', kind = '') => {
-    const clean = str(name, 30); if (!clean || characters.length >= 6) return;
+  const addChar = (name: string, role = '', gender: string = 'male', description = '', voice = '', kind = '', referenceImageUrl = '') => {
+    const clean = str(name, 30); if (!clean || characters.length >= 4) return;
     const key = clean.toLowerCase(); if (byName.has(key)) return;
     byName.set(key, characters.length);
-    characters.push({ id: `c${characters.length + 1}`, name: clean, role: str(role, 60), gender: gender === 'female' ? 'female' : 'male', voice: str(voice, 90), description: str(description, 400), kind: kind === 'animal' || kind === 'creature' ? kind : 'human' });
+    characters.push({ id: `c${characters.length + 1}`, name: clean, role: str(role, 60), gender: gender === 'female' ? 'female' : 'male', voice: str(voice, 90), description: str(description, 400), kind: kind === 'animal' || kind === 'creature' ? kind : 'human', referenceImageUrl: /^https:\/\//i.test(String(referenceImageUrl || '')) ? referenceImageUrl : undefined });
   };
   const modelChars: any[] = Array.isArray(d.characters) ? d.characters : [];
   if (continuity?.characters.length) {
-    continuity.characters.forEach((c) => addChar(c.name, c.role, c.gender, c.description, (c as any).voice));
+    continuity.characters.forEach((c) => addChar(c.name, c.role, c.gender, c.description, (c as any).voice, '', (c as any).referenceImageUrl || ''));
     modelChars.forEach((c: any) => addChar(c?.name, c?.role, c?.gender, c?.description, c?.voice, c?.kind));
   } else if (brief.characterLock) {
     const first = modelChars[0] || {};
@@ -1083,7 +1083,19 @@ function finishStory(ctx: StoryCtx, d: any, input: StoryInput) {
 
     const vp = str(sc?.visualPrompt, 900) || str(sc?.setting, 300);
     if (vp.length < 10) continue;
-    const visualCore = brief.characterLock && !vp.toLowerCase().includes(lockKey) ? `Main character, identical in every scene: ${brief.characterLock.descriptor}. ${vp}` : vp;
+    // Freeze the approved cast descriptions into every scene prompt. This is a text identity anchor;
+    // image-reference generation can be layered on later without silently spending credits during script creation.
+    const castIdentity = characters
+      .filter((c) => c.kind !== 'animal' || brief.cast === 'animals')
+      .map((c) => `${c.name}: ${str(c.description, 260) || 'Keep the exact appearance established in the first approved scene'}`)
+      .join(' | ');
+    const identityAnchor = castIdentity
+      ? `CAST IDENTITY LOCK (do not redesign): ${castIdentity}. Only show a character when the scene action explicitly requires them; never add a new face, substitute actor, duplicate, or background version of a named character. `
+      : '';
+    const lockedProtagonist = brief.characterLock && !vp.toLowerCase().includes(lockKey)
+      ? `Main character, identical in every scene: ${brief.characterLock.descriptor}. `
+      : '';
+    const visualCore = `${identityAnchor}${lockedProtagonist}${vp}`;
     const continuesPrevious = sc?.continuesPrevious === true;
     const visualBase = shownText ? `${visualCore} ${shownText}` : visualCore;
     const soundText = str(sc?.sound, 160);
@@ -1701,7 +1713,7 @@ async function buildContinuity(project: any, partNumber: number): Promise<Series
     partNumber,
     previousTitle: String(sb.title || ''), previousLogline: String(sb.logline || ''), storySoFar: String(sb.storySoFar || ''),
     endingScene: { visualPrompt: String(last.visualPrompt || ''), voiceoverText: String(last.voiceoverText || '') },
-    characters: stored.map((c) => ({ name: str(c?.name, 30), role: str(c?.role, 60), gender: c?.gender === 'female' ? 'female' : 'male', voice: str(c?.voice, 90), description: str(c?.description, 400) })).filter((c) => c.name),
+    characters: stored.map((c) => ({ name: str(c?.name, 30), role: str(c?.role, 60), gender: c?.gender === 'female' ? 'female' : 'male', voice: str(c?.voice, 90), description: str(c?.description, 400), referenceImageUrl: /^https:\/\//i.test(String(c?.referenceImageUrl || '')) ? String(c.referenceImageUrl) : undefined })).filter((c) => c.name),
   };
 }
 
@@ -1736,7 +1748,7 @@ const episodeCreate: Handler = async ({ req, res, body }) => {
   }
 
   const episodeId = newId('ep');
-  const settings = { format: input.format, look: input.look, aspect: input.aspect, niche: input.niche, brief: input.brief, variationSeed: input.variationSeed, mode, script, direction, reviewFirst: body.reviewFirst === true, approved: false };
+  const settings = { format: input.format, look: input.look, aspect: input.aspect, niche: input.niche, brief: input.brief, variationSeed: input.variationSeed, mode, script, direction, reviewFirst: body.reviewFirst === true, characterReferences: body.characterReferences === true, approved: false };
   try {
     await sql()`INSERT INTO episodes (id, project_id, part_number, prompt_input, status, brief) VALUES (${episodeId}, ${projectId}, ${partNumber}, ${input.idea}, 'PROCESSING', ${jsonb(settings)}::jsonb)`;
   } catch (e: any) {
@@ -1778,6 +1790,21 @@ async function stageScript(row: any, user: ReturnType<typeof toUser>, ep: any) {
     return;
   }
   const sb = (out as { sb: any }).sb;
+  // Character portraits are opt-in: never spend image credits during script creation unless requested.
+  if (cfg.characterReferences === true && (process.env.VIDEO_PROVIDER || 'fal').trim().toLowerCase() !== 'deapi' && Array.isArray(sb.characters) && sb.characters.length) {
+    await rateLimit(`cast-reference:${row.id}`, 8, 3600);
+    const refs = await Promise.all(sb.characters.slice(0, 4).map(async (c: any) => {
+      if (c.referenceImageUrl && /^https:\/\//i.test(c.referenceImageUrl)) return c;
+      try {
+        const referenceImageUrl = await falGenerateCharacterReference(str(c.name, 30), str(c.role, 60), str(c.gender, 12), str(c.description, 400));
+        return { ...c, referenceImageUrl };
+      } catch (e: any) {
+        console.error(`character reference skipped for ${str(c.name, 30)}:`, e?.message);
+        return c;
+      }
+    }));
+    sb.characters = refs;
+  }
   const next = cfg.reviewFirst && !cfg.approved ? 'REVIEW' : 'RENDERING';
   await sql()`UPDATE episodes SET storyboard_json = ${jsonb(sb)}::jsonb, status = CASE WHEN status = 'PROCESSING' THEN ${next} ELSE status END, render_jobs = NULL, error = NULL, attempts = 0, locked_until = NULL, created_at = now(), updated_at = now() WHERE id = ${ep.id} AND status IN ('PROCESSING', 'PAUSED')`;
   await sql()`UPDATE projects SET title = CASE WHEN title = '' THEN ${str(sb.title, 100)} ELSE title END, updated_at = now() WHERE id = ${ep.project_id}`;
@@ -1796,13 +1823,13 @@ async function reserveSource(row: any, user: ReturnType<typeof toUser>, seconds:
  * Starts one 10 second clip. The second half of a 20 second scene starts from the last picture of the first half (image-to-video),
  * so the scene carries on without a jump; if that is not possible it falls back to a normal clip with a "continue" prompt.
  */
-async function startPart(row: any, user: ReturnType<typeof toUser>, spec: { prompt: string; aspect: string; kind: 'text' | 'continue'; prevUrl?: string }) {
+async function startPart(row: any, user: ReturnType<typeof toUser>, spec: { prompt: string; aspect: string; kind: 'text' | 'continue'; prevUrl?: string; referenceImages?: { name: string; url: string }[] }) {
   const source = await reserveSource(row, user, PART_SECONDS);
   await rateLimit(`render:${row.id}`, 300, 3600);
   const reso = PLANS[user.tier]?.resolution || '480P';
+  const provider = (process.env.VIDEO_PROVIDER || 'fal').trim().toLowerCase();
   let job: { statusUrl: string; responseUrl: string } | undefined;
   if (spec.kind === 'continue' && spec.prevUrl) {
-    const provider = (process.env.VIDEO_PROVIDER || 'fal').trim().toLowerCase();
     const frame = await lastFrameJpeg(spec.prevUrl);
     if (provider === 'deapi') {
       const j = await deapiAnimate(spec.prompt, frame, reso, PART_SECONDS, spec.aspect);
@@ -1810,18 +1837,36 @@ async function startPart(row: any, user: ReturnType<typeof toUser>, spec: { prom
     } else {
       const imageUrl = `data:image/jpeg;base64,${frame.toString('base64')}`;
       try {
-        const j = await falContinueSubmit(spec.prompt, imageUrl, reso, PART_SECONDS, spec.aspect);
+        const refs = (spec.referenceImages || []).filter((x) => /^https:\/\//i.test(x.url)).slice(0, 4);
+        const prompt = refs.length ? `${refs.map((x, i) => `Image ${i + 1} is ${x.name}, the same established character shown in the previous scenes. Preserve this exact face, age, hair, skin tone and wardrobe. `).join('')}${spec.prompt}` : spec.prompt;
+        const j = refs.length
+          ? await falReferenceVideoSubmit(prompt, refs.map((x) => x.url), reso, PART_SECONDS, spec.aspect, imageUrl)
+          : await falContinueSubmit(spec.prompt, imageUrl, reso, PART_SECONDS, spec.aspect);
         job = { statusUrl: j.statusUrl, responseUrl: j.responseUrl };
       } catch (e: any) {
         if (e instanceof RateLimited) throw e;
-        if (provider === 'auto' && lookupEnv('DEAPI_API_KEY')) {
+        if (lookupEnv('DEAPI_API_KEY')) {
           const j = await deapiAnimate(spec.prompt, frame, reso, PART_SECONDS, spec.aspect);
           job = { statusUrl: `deapi:${j.requestId}`, responseUrl: 'deapi' };
         } else throw e;
       }
     }
   }
-  if (!job) job = await submitToProvider(spec.prompt, reso, PART_SECONDS, spec.aspect);
+  if (!job) {
+    const refs = (spec.referenceImages || []).filter((x) => /^https:\/\//i.test(x.url)).slice(0, 4);
+    if (refs.length && provider !== 'deapi') {
+      const prompt = `${refs.map((x, i) => `Image ${i + 1} is ${x.name}, the established cast member. Preserve this exact identity and wardrobe. `).join('')}${spec.prompt}`;
+      try {
+        const j = await falReferenceVideoSubmit(prompt, refs.map((x) => x.url), reso, PART_SECONDS, spec.aspect);
+        job = { statusUrl: j.statusUrl, responseUrl: j.responseUrl };
+      } catch (e: any) {
+        if (provider === 'auto' && lookupEnv('DEAPI_API_KEY')) {
+          const j = await deapiSubmit(spec.prompt, reso, PART_SECONDS, spec.aspect);
+          job = { statusUrl: `deapi:${j.requestId}`, responseUrl: 'deapi' };
+        } else throw e;
+      }
+    } else job = await submitToProvider(spec.prompt, reso, PART_SECONDS, spec.aspect);
+  }
   const id = newId('job');
   await sql()`INSERT INTO video_jobs (id, user_id, status_url, response_url, seconds, source) VALUES (${id}, ${row.id}, ${job.statusUrl}, ${job.responseUrl}, ${PART_SECONDS}, ${source})`;
   return { jobId: id };
@@ -1869,7 +1914,13 @@ async function stageRender(row: any, user: ReturnType<typeof toUser>, ep: any): 
     if (k === 0 && scenes[en.index].continuesPrevious === true && !previousUrl) continue; // connected action waits for the previous scene's final frame
     if (started >= MAX_STARTS_PER_STEP || left() < 14_000) break outer;
     try {
-      const { jobId } = await startPart(row, user, { prompt: scenes[en.index].parts[k].prompt, aspect, kind: previousUrl ? 'continue' : 'text', prevUrl: previousUrl });
+      const scene = scenes[en.index];
+      const visualForMatch = String(scene.visualPrompt || '').replace(/^CAST IDENTITY LOCK \(do not redesign\):[\s\S]*?named character\.\s*/i, '');
+      const sceneText = [visualForMatch, ...(scene.lines || []).map((l: any) => l.speaker)].join(' ').toLowerCase();
+      const cast: any[] = Array.isArray(ep.storyboard_json?.characters) ? ep.storyboard_json.characters : [];
+      const relevant = cast.filter((c) => c.referenceImageUrl && /^https:\/\//i.test(c.referenceImageUrl) && (sceneText.includes(String(c.name || '').toLowerCase()) || (scene.lines || []).some((l: any) => String(l.speaker || '').toLowerCase() === String(c.name || '').toLowerCase())));
+      const selected = (relevant.length ? relevant : cast.filter((c) => c.referenceImageUrl && /^https:\/\//i.test(c.referenceImageUrl)).slice(0, 2)).slice(0, 4).map((c) => ({ name: str(c.name, 30), url: String(c.referenceImageUrl) }));
+      const { jobId } = await startPart(row, user, { prompt: scene.parts[k].prompt, aspect, kind: previousUrl ? 'continue' : 'text', prevUrl: previousUrl, referenceImages: selected });
       p.jobId = jobId; p.tries += 1; p.checkAt = Date.now() + FIRST_CHECK_MS; delete p.error; started++;
     } catch (e: any) {
       if (e instanceof RateLimited) {
@@ -1900,7 +1951,7 @@ async function completeEpisode(ep: any, _entries: RenderEntry[]) {
   const known: any[] = Array.isArray(project?.character_db?.characters) ? project.character_db.characters : [];
   const cast = [...known];
   for (const c of (Array.isArray(ep.storyboard_json?.characters) ? ep.storyboard_json.characters : [])) {
-    if (c?.name && !cast.some((k) => String(k.name).toLowerCase() === String(c.name).toLowerCase())) cast.push({ name: c.name, role: c.role || '', gender: c.gender === 'female' ? 'female' : 'male', voice: c.voice || '', description: c.description || '' });
+    if (c?.name && !cast.some((k) => String(k.name).toLowerCase() === String(c.name).toLowerCase())) cast.push({ name: c.name, role: c.role || '', gender: c.gender === 'female' ? 'female' : 'male', voice: c.voice || '', description: c.description || '', referenceImageUrl: /^https:\/\//i.test(String(c.referenceImageUrl || '')) ? c.referenceImageUrl : undefined });
   }
   await sql()`UPDATE projects SET character_db = ${jsonb({ characters: cast })}::jsonb, updated_at = now() WHERE id = ${ep.project_id}`;
   const done = (await sql()`UPDATE episodes SET status = 'COMPLETED', final_video_url = ${`/api/episodes/video?id=${ep.id}`}, error = NULL, locked_until = NULL, updated_at = now() WHERE id = ${ep.id} AND status = 'RENDERING' RETURNING id`) as any[];
@@ -2185,6 +2236,8 @@ const videoEditorRender: Handler = async ({ req, res, body }) => {
         startAt,
         duration: clampNumber(layer.duration, duration - startAt, 0.1, duration - startAt),
         volume: clampNumber(layer.volume, 1, 0, 2),
+        fadeIn: clampNumber(layer.fadeIn, 0, 0, 3),
+        fadeOut: clampNumber(layer.fadeOut, 0, 0, 3),
         opacity: clampNumber(layer.opacity, 1, 0, 1),
         scale: clampNumber(layer.scale, 55, 10, 100),
         // The editor stores overlay positions as percentages (0–100), not fractions.
@@ -2393,9 +2446,14 @@ const mediaTranscribe: Handler = async ({ req, res, body }) => {
   const token = await issueSignedToken({ operations: ['get'] });
   const signed = await presignUrl(token, { pathname: asset.pathname, operation: 'get', access: 'private', validUntil: Date.now() + 15 * 60 * 1000 });
   const form = new FormData();
-  form.set('model', 'whisper-large-v3-turbo');
+  form.set('model', 'whisper-large-v3');
   form.set('url', signed.presignedUrl);
   form.set('response_format', 'verbose_json');
+  // OmniPulse-generated dialogue is English; fixing language reduces transcription drift.
+  form.set('language', 'en');
+  form.set('temperature', '0');
+  const transcriptHint = str(body.prompt || '', 800).trim();
+  if (transcriptHint) form.set('prompt', transcriptHint);
   form.append('timestamp_granularities[]', 'segment');
   const response = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
     method: 'POST',

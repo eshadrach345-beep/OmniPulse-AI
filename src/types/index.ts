@@ -193,6 +193,9 @@ export interface VideoMediaLayer {
   sourceIn: number;
   duration: number;
   volume: number;
+  /** Optional audio envelope fades, in seconds. */
+  fadeIn?: number;
+  fadeOut?: number;
   opacity: number;
   scale: number;
   x: number;

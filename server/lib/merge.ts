@@ -153,12 +153,12 @@ async function mergeClipsFresh(urls: string[]): Promise<MergeResult> {
 
     const same = info.every((c) => c.video && c.video === info[0].video && c.size === info[0].size && c.audio === info[0].audio);
 
-    // Fast path: the clips share the same format, so they can be joined without re-encoding.
-    // The manifest (list.txt) is the file list read by ffmpeg's concat demuxer ("-f concat").
+    // Keep the zero-audio fast path. When generated clips contain audio, re-encode
+    // the joined soundtrack so clip boundaries are softened and loudness is consistent.
     const fluent = await loadFluent(bin);
-    if (same) {
+    if (same && info.every((c) => !c.audio)) {
       const list = path.join(dir, 'list.txt');
-      await fs.writeFile(list, files.map((f) => `file '${f.replace(/'/g, "'\\''")}'`).join('\n'));
+      await fs.writeFile(list, files.map((f) => `file '${f.replace(/'/g, "'\\''")}'`).join('\\n'));
       let ok = false;
       if (fluent) {
         try { await fluentRun(fluent().input(list).inputOptions(['-f concat', '-safe 0']).outputOptions(['-c copy', ...WEB_FLAGS]), out, 45_000); ok = true; }
@@ -171,32 +171,48 @@ async function mergeClipsFresh(urls: string[]): Promise<MergeResult> {
       if (ok && st && st.size > 2000) return { file: out, cleanup };
     }
 
-    // Safe path: make every clip the same size and sound layout, then join (re-encodes, a little slower).
+    // Standardize video streams and audio layout. Short equal-power crossfades
+    // soften abrupt soundtrack cuts; mild loudness normalization reduces jumps
+    // between clips without changing the spoken words.
     const [W, H] = (info[0].size || '512x896').split('x').map(Number);
     const parts: string[] = [];
-    const labels: string[] = [];
+    const videoLabels: string[] = [];
+    const audioLabels: string[] = [];
+    const totalDuration = info.reduce((sum, clip) => sum + Math.max(0.1, clip.seconds), 0);
     info.forEach((c, i) => {
-      parts.push(`[${i}:v]scale=${W}:${H}:force_original_aspect_ratio=decrease,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=24,format=yuv420p[v${i}]`);
-      if (c.audio) parts.push(`[${i}:a]aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo[a${i}]`);
-      else parts.push(`anullsrc=r=44100:cl=stereo,atrim=duration=${c.seconds.toFixed(2)}[a${i}]`);
-      labels.push(`[v${i}][a${i}]`);
+      parts.push(`[${i}:v]scale=${W}:${H}:force_original_aspect_ratio=decrease,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=24,format=yuv420p,setpts=PTS-STARTPTS[v${i}]`);
+      videoLabels.push(`[v${i}]`);
+      if (c.audio) {
+        parts.push(`[${i}:a]aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo,dynaudnorm=f=150:g=7:p=0.8[a${i}]`);
+      } else {
+        parts.push(`anullsrc=r=44100:cl=stereo,atrim=duration=${c.seconds.toFixed(2)},asetpts=PTS-STARTPTS[a${i}]`);
+      }
+      audioLabels.push(`[a${i}]`);
     });
-    parts.push(`${labels.join('')}concat=n=${files.length}:v=1:a=1[v][a]`);
+    parts.push(`${videoLabels.join('')}concat=n=${files.length}:v=1:a=0[v]`);
+    let audioChain = audioLabels[0];
+    const crossfade = 0.16;
+    for (let i = 1; i < audioLabels.length; i++) {
+      const next = `ax${i}`;
+      parts.push(`${audioChain}${audioLabels[i]}acrossfade=d=${crossfade}:c1=tri:c2=tri[${next}]`);
+      audioChain = `[${next}]`;
+    }
+    parts.push(`${audioChain}loudnorm=I=-16:TP=-1.5:LRA=11,apad,atrim=duration=${totalDuration.toFixed(2)}[aout]`);
     const graph = parts.join(';');
-    const encodeOpts = ['-c:v libx264', '-preset ultrafast', '-crf 26', '-c:a aac', '-b:a 128k', ...WEB_FLAGS];
+    const encodeOpts = ['-c:v libx264', '-preset ultrafast', '-crf 24', '-c:a aac', '-b:a 160k', ...WEB_FLAGS];
     let r2ok = false;
     if (fluent) {
       try {
         const cmd = fluent();
         files.forEach((f) => cmd.input(f));
-        await fluentRun(cmd.complexFilter([graph], ['v', 'a']).outputOptions(encodeOpts), out, 45_000);
+        await fluentRun(cmd.complexFilter([graph], ['v', 'aout']).outputOptions(encodeOpts), out, 50_000);
         r2ok = true;
-      } catch (e: any) { console.error('fluent re-encode failed:', e?.message); }
+      } catch (e: any) { console.error('fluent audio crossfade failed:', e?.message); }
     } else {
       const args: string[] = ['-y'];
       files.forEach((f) => args.push('-i', f));
-      args.push('-filter_complex', graph, '-map', '[v]', '-map', '[a]', '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '26', '-c:a', 'aac', '-b:a', '128k', '-movflags', '+faststart', out);
-      r2ok = (await run(bin, args, 45_000)).code === 0;
+      args.push('-filter_complex', graph, '-map', '[v]', '-map', '[aout]', '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '24', '-c:a', 'aac', '-b:a', '160k', '-movflags', '+faststart', out);
+      r2ok = (await run(bin, args, 50_000)).code === 0;
     }
     const st2 = await fs.stat(out).catch(() => null);
     if (!r2ok || !st2 || st2.size < 2000) throw new Error('The scenes could not be joined.');

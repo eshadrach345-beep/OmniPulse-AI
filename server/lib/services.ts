@@ -926,6 +926,61 @@ export async function falImageVideoSubmit(imageUrl: string, prompt: string, seco
   return { requestId: String(d.request_id), statusUrl: String(d.status_url), responseUrl: String(d.response_url) };
 }
 
+/** Generates one reusable cast portrait. Called only when the creator opts into character references. */
+export async function falGenerateCharacterReference(name: string, role: string, gender: string, description: string) {
+  const identity = [name, role, gender, description].filter(Boolean).join(', ');
+  const prompt = `Create a premium live-action casting reference portrait for a fictional film character. Character identity: ${identity}. One person only, head and upper torso visible, looking slightly toward camera, neutral calm expression, natural relaxed posture. Photorealistic human skin with natural pores and fine texture, realistic eyes, hair strands and fabric detail, cinematic but neutral soft studio lighting, simple uncluttered warm grey background, accurate anatomy, no props, no text, no logos, no watermark. This is a clean identity reference image, not a movie scene. Preserve the exact age, facial structure, skin tone, hairstyle, build and wardrobe described.`;
+  let r: Response;
+  try {
+    r = await fetch('https://fal.run/fal-ai/flux/dev', {
+      method: 'POST', headers: falHeaders(),
+      body: JSON.stringify({ prompt, image_size: 'portrait_4_3', num_images: 1, num_inference_steps: 28, enable_safety_checker: true, output_format: 'jpeg' }),
+      signal: AbortSignal.timeout(25_000),
+    });
+  } catch (e: any) {
+    throw new HttpError(424, e?.name === 'TimeoutError' ? 'Character portrait generation timed out.' : 'Could not reach the character portrait generator.', 'FAL');
+  }
+  const d: any = await r.json().catch(() => ({}));
+  const url = String(d?.images?.[0]?.url || '');
+  if (!r.ok || !/^https:\/\//i.test(url)) {
+    console.error('fal character reference failed', r.status, d);
+    const detail = typeof d?.detail === 'string' ? d.detail : '';
+    throw new HttpError(424, r.status === 402 ? 'fal.ai image credits are exhausted.' : `Character portrait generation failed (${r.status}${detail ? `: ${detail.slice(0, 140)}` : ''}).`, 'FAL');
+  }
+  return url;
+}
+
+/** H3 Max reference-to-video. Reference images preserve cast identity; image_url optionally fixes the first frame. */
+export async function falReferenceVideoSubmit(prompt: string, referenceImageUrls: string[], resolution: '480P' | '768P' | '1080P' = '480P', seconds = 10, aspect = '9:16', imageUrl?: string) {
+  const refs = referenceImageUrls.filter((u) => /^https:\/\//i.test(String(u))).slice(0, 4);
+  if (!refs.length) throw new HttpError(400, 'At least one valid character reference image is required.');
+  const model = 'minimax/h3-max/reference-to-video';
+  const body = {
+    prompt,
+    reference_image_urls: refs,
+    ...(imageUrl ? { image_url: imageUrl } : {}),
+    duration: seconds,
+    resolution,
+    aspect_ratio: aspect,
+    prompt_expansion_mode: process.env.FAL_PROMPT_EXPANSION || 'balanced',
+    enable_safety_checker: true,
+  };
+  let r: Response;
+  try {
+    r = await fetch(`https://queue.fal.run/${model}`, { method: 'POST', headers: falHeaders(), body: JSON.stringify(body), signal: AbortSignal.timeout(30_000) });
+  } catch (e: any) {
+    throw new HttpError(424, e?.name === 'TimeoutError' ? 'The reference video engine did not respond in time.' : 'Could not reach the reference video engine.', 'FAL');
+  }
+  const d: any = await r.json().catch(() => ({}));
+  if (!r.ok || !d.request_id || !d.status_url || !d.response_url) {
+    console.error('fal reference video submit failed', r.status, d);
+    const detail = typeof d?.detail === 'string' ? d.detail : d?.detail ? JSON.stringify(d.detail) : '';
+    const exhausted = /exhausted balance|user is locked/i.test(detail);
+    throw new HttpError(424, r.status === 401 ? 'fal.ai rejected the API key. Check FAL_KEY.' : exhausted || r.status === 402 ? 'fal.ai video credits are exhausted.' : `Reference video request failed (${r.status}${detail ? `: ${detail.slice(0, 160)}` : ''}).`, 'FAL');
+  }
+  return { requestId: String(d.request_id), statusUrl: String(d.status_url), responseUrl: String(d.response_url) };
+}
+
 /** Generates two optional brand campaign stills; the FAL key stays server-side. */
 export async function falGenerateBrandImages(prompt: string, aspect: '9:16' | '16:9' | '1:1') {
   const imageSize = aspect === '9:16' ? 'portrait_16_9' : aspect === '16:9' ? 'landscape_16_9' : 'square_hd';

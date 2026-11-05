@@ -91,6 +91,8 @@ export interface ProjectDetail {
 export interface CreateEpisodeRequest {
   /** Stop after the script is written so the person can read and edit it before any video is made. */
   reviewFirst?: boolean;
+  /** Generate reusable fal.ai cast portraits for reference-conditioned video (uses image credits). */
+  characterReferences?: boolean;
   /** Leave out to start a new series (Part 1). */
   projectId?: string;
   title?: string;
@@ -115,7 +117,7 @@ export const Series = {
   create: (r: CreateEpisodeRequest) => api.post<{ projectId: string; episodeId: string; partNumber: number; status: EpisodeStatus }>('/episodes/create', {
     projectId: r.projectId, title: r.title, idea: r.idea, mode: r.mode, script: r.script, series: r.series, format: r.format, look: r.look, aspectRatio: r.aspectRatio, niche: r.niche,
     durationMode: r.brief.durationMode, requestedSeconds: r.brief.requestedSeconds, sceneSeconds: r.brief.sceneSeconds, mood: r.brief.mood, cameraProfile: r.brief.cameraProfile, characterLock: r.brief.characterLock,
-    presentation: r.brief.presentation, genre: r.brief.genre, intensity: r.brief.intensity, dialogue: r.brief.dialogue, ending: r.brief.ending, cast: r.brief.cast, animalsTalk: r.brief.animalsTalk, trope: r.brief.trope, reviewFirst: r.reviewFirst,
+    presentation: r.brief.presentation, genre: r.brief.genre, intensity: r.brief.intensity, dialogue: r.brief.dialogue, ending: r.brief.ending, cast: r.brief.cast, animalsTalk: r.brief.animalsTalk, trope: r.brief.trope, reviewFirst: r.reviewFirst, characterReferences: r.characterReferences,
   }),
   /** Pauses a part. Clips already sent to the video provider keep rendering there. */
   pause: (id: string) => api.post<{ ok: boolean }>('/episodes/pause', { id }),

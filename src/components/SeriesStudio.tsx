@@ -197,6 +197,7 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
   const [animalsTalk, setAnimalsTalk] = useState(false);
   const [trope, setTrope] = useState<TropeId>('none');
   const [reviewFirst, setReviewFirst] = useState(true);
+  const [characterReferences, setCharacterReferences] = useState(false);
   const [notice, setNotice] = useState('');
   const applyPreset = (id: string) => {
     const p = PRESETS.find((x) => x.id === id); if (!p) return;
@@ -323,7 +324,7 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
     try {
       const r = await Series.create({
         projectId: detail?.project.id, title: title.trim() || undefined, idea: idea.trim(), mode: writer, script: writer === 'paste' ? script.trim() : undefined,
-        format, look, aspectRatio: ratio, niche: nicheName, brief: built.brief, reviewFirst,
+        format, look, aspectRatio: ratio, niche: nicheName, brief: built.brief, reviewFirst, characterReferences,
         series: !continuing && kind === 'series' ? { parts, deliver } : undefined,
       });
       setEpisode(null); setEpisodeId(r.episodeId); setView('progress'); usageRef.current?.();
@@ -744,6 +745,10 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
         <label className="flex items-start gap-2 text-xs text-slate-300 cursor-pointer">
           <input type="checkbox" checked={reviewFirst} onChange={(e) => setReviewFirst(e.target.checked)} className="mt-0.5 accent-indigo-500" />
           <span><span className="font-semibold">Review and edit the screenplay first (recommended).</span> The script is written, then waits for you. Check every scene and line before any video seconds are spent. No video seconds are used until you approve it.</span>
+        </label>
+        <label className="flex items-start gap-2 text-xs text-slate-300 cursor-pointer rounded-lg border border-indigo-500/30 bg-indigo-950/20 p-3">
+          <input type="checkbox" checked={characterReferences} onChange={(e) => setCharacterReferences(e.target.checked)} className="mt-0.5 accent-indigo-500" />
+          <span><span className="font-semibold text-indigo-200">Generate character reference portraits.</span> Creates reusable cast images and uses fal.ai H3 Max reference-to-video to help keep faces consistent. This uses additional fal.ai credits. If portrait generation fails, the film continues with normal prompts.</span>
         </label>
         {errorBox}
         <button type="button" onClick={submit} disabled={busy} className="w-full py-3 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-xs font-semibold flex items-center justify-center gap-2">

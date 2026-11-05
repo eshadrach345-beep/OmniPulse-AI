@@ -388,7 +388,7 @@ export interface SeriesContinuity {
   /** Rolling summary of the whole series up to and including the previous part. */
   storySoFar: string;
   endingScene: { visualPrompt: string; voiceoverText: string };
-  characters: { name: string; role: string; gender: string; description: string; voice?: string }[];
+  characters: { name: string; role: string; gender: string; description: string; voice?: string; referenceImageUrl?: string }[];
 }
 
 /** The opening block of the writer prompt for Part 2 and later. Empty for a first part. */
@@ -429,11 +429,15 @@ export function storyPrompt(a: {
   continuity?: SeriesContinuity;
 }): string {
   const guide: Record<string, string> = {
-    drama: 'A short cinematic drama played out like a movie: physical conflict, danger, chases or confrontations, with brief charged dialogue spoken during the action. 2 to 4 characters, a clear arc (setup, escalation, turn).',
+    drama: 'A focused short cinematic drama played out like a movie: physical conflict, danger, chases or confrontations, with brief charged dialogue spoken during the action. Prefer 1 or 2 principal characters; never create crowds or decorative background people. A clear arc (setup, escalation, turn).',
     documentary: 'A short documentary. A "Narrator" character guides the viewer, plus 1 to 3 other speakers (experts or people involved, all fictional or generic roles, never real named people). Calm, factual tone. Only use widely established facts. Never invent statistics, studies or quotes from real people or organisations.',
     animation: 'A short animated story with expressive cartoon characters, humour and heart, suitable for all ages. 2 to 4 characters, a simple clear plot with a payoff.',
   };
   const mood = STORY_MOODS[a.mood], cam = CAMERA_PROFILES[a.cameraProfile];
+  // Vertical short dramas need deliberate mobile-first coverage, not generic "cinematic" adjectives.
+  const verticalDrama = a.aspectRatio === '9:16' && a.format === 'drama'
+    ? `VERTICAL LIVE-ACTION DRAMA LOOK (9:16): Compose for a phone screen. Keep the principal face and essential action inside the central safe area; place eyes near the upper third for close and medium shots. Prefer medium close-ups, clean over-the-shoulder coverage and motivated reaction inserts; establish geography before tightening. Simulate a premium large-format cinema image with a natural 35mm or 50mm prime-lens perspective, restrained shallow depth of field, realistic highlight roll-off and natural 24fps motion blur resembling a 180-degree shutter. Use soft directional key light, subtle rim separation and motivated practical lights; choose a coherent palette suited to the emotion. Render natural skin with visible pores and fine texture, believable hair and detailed fabric. Avoid waxy skin, excessive sharpening, fake lens flares and overdone bokeh. Keep one consistent facial identity, age, skin tone, hair, build, wardrobe and props for each named character across every shot. Hands must remain anatomically plausible and interact with props with clear contact and weight. Keep architecture, perspective, horizon and object scale fixed; use physically possible blocking and grounded foot contact. Background people are omitted unless story-essential; if present, keep them few, distant and performing simple coherent actions. No random camera moves, snap zooms, mirror flips, morphing, limb distortions, duplicate faces, floating, sliding or frozen extras. These are quality targets, not a guarantee that a generative model can eliminate every artifact.`
+    : '';
   const beats = storyBeats(a.clips.length);
   const plan = a.clips.map((c, i) => `  Scene ${i + 1} | ${c} seconds | ${beats[i]} | spoken text at most ${maxWordsForClip(c)} words in total`).join('\n');
   const lock = a.characterLock
@@ -448,6 +452,7 @@ Frame: ${a.aspectRatio}
 
 GLOBAL MOOD: ${mood.label}. ${mood.write}
 Every "visualPrompt" must show this mood through lighting, colour, weather, texture and physical detail. Visual treatment to build on: ${mood.render}.
+${verticalDrama}
 CAMERA PROFILE: ${cam.label}. Base instruction: ${cam.direct}.
 PACING: ${a.pacing}
 ${lock}
@@ -456,7 +461,7 @@ ${plan}
 
 Rules:
 - Characters: each has a short name (or "Narrator"), a role, a gender ("male" or "female") and a concrete visual description of 25 to 45 words (age, face, hair, clothes, build, one distinctive detail). Narrator has no visual description.
-- "visualPrompt": describe only what the camera sees, in 60 to 100 words. START with the shot type and the physical action in progress (a chase, a fight, a fall, a crash, an escape), then name who is in frame and REPEAT each visible character's full visual description word for word, then the physics (how fabric, hair, smoke, water, dust and objects move), the setting, and the lighting. Characters must be physically doing something, never just standing and speaking to the camera. No dialogue, no subtitles, no captions, no logos, no readable text.
+- "visualPrompt": describe only what the camera sees, in 60 to 100 words. START with shot type and one clear physical action, then name who is in frame and REPEAT each visible character's full visual description word for word, then motion, setting and motivated lighting. Use only the 1 or 2 principal characters needed for this beat; no crowds, decorative extras or duplicate people. Keep each character's face, apparent age, skin tone, hair, build, wardrobe and carried props identical in every shot. For 9:16, compose mobile-first with the main face/action in the central safe area and eyes near the upper third for close/medium shots. Prefer stable medium or over-the-shoulder coverage; use a close-up only for a motivated reaction or insert. Use a coherent 35mm/50mm natural perspective, restrained depth of field and natural motion blur; avoid waxy skin, over-sharpening and artificial flares. Keep architecture, perspective and object scale fixed. Characters perform one simple, physically plausible action with grounded feet, correct contact with props and clear cause/effect. Background people only when story-essential and then few, distant and purposeful. No dialogue, subtitles, captions, logos, generated writing or readable text.
 - "cameraMotion": one sentence in film language that applies the camera profile to THIS shot. It must keep the profile's movement type (${cam.label}) and may add the subject, direction and speed for this scene.
 - "lines": 0 to 3 SHORT lines per scene, spoken during the action. Every "speaker" must exactly match a character name. Respect each scene's word limit above.
 - Dialogue must sound like overheard human conversation, not an AI-written speech: use contractions, specific vocabulary, interruptions, hesitation and subtext when natural. Give each character a distinct rhythm and vocabulary. Avoid generic filler, motivational slogans, over-explaining the plot, repeating what the camera already shows, or stock phrases such as "What is going on?", "We need to talk", "I can't believe this" and "Let's do this" unless the exact situation genuinely calls for them.
@@ -466,7 +471,7 @@ Rules:
 - Keep continuity: the same characters, wardrobe, places and time of day carry from scene to scene unless the story changes them. Repeat each character's visual description exactly, word for word.
 - Track body position, facing, screen direction, momentum, injuries, clothing, held objects and which hand holds each prop. A person moving screen-left must not suddenly move screen-right unless the turn is shown physically.
 - Every action must have a cause and visible result. Never teleport, reverse movement, reset a chase, change the hand holding an object or undo an action between adjacent shots.
-- Keep the camera on a consistent action axis. Use motivated shot changes and match-on-action; never add arbitrary montage cuts.
+- Keep the camera on a consistent action axis. Use motivated shot changes and match-on-action; never add arbitrary montage cuts. Prefer continuous medium or wide shots over rapid reframing. Do not cut from a distant running figure to a newly invented face; preserve the same face and wardrobe. Lock corridor, doorway, console and wall geometry to one fixed layout and perspective; camera movement must not alter set dimensions. Avoid crowds and background extras unless the plot explicitly requires one.
 - Everything must be about the idea above. Do not invent statistics or claims. Keep it safe: no real people, no sexual content, no graphic violence, no hate.
 - Write all dialogue in English.
 
@@ -508,8 +513,9 @@ export function planScenes(requestedSeconds: number, available: number, sceneSec
 
 /** Speakers needed so a script never feels like two people reading to each other. */
 export const castMinimum = (totalSeconds: number, format: string) => {
-  const base = totalSeconds >= 120 ? 4 : totalSeconds >= 40 ? 3 : 2;
-  return format === 'documentary' ? Math.min(base, 3) : base;
+  // A focused cast gives the video model fewer faces to invent and keeps every character story-relevant.
+  const base = totalSeconds >= 180 ? 3 : 2;
+  return format === 'documentary' ? Math.min(base, 2) : base;
 };
 
 /** Makes the video read as a movie scene (people DOING things) instead of people standing and talking to the camera. */
@@ -575,12 +581,12 @@ const sceneSpecs = (scenes: (10 | 20)[], from = 0, to = scenes.length, beats?: s
   return scenes.slice(from, to).map((c, i) => `  Scene ${from + i + 1} | ${c} seconds${c === 20 ? ' (two 10 second halves)' : ''} | ${b[from + i]} | ${spokenRules(c)}`).join('\n');
 };
 
-const castRules = (need: number, format: string, silent = false) => `CAST: write at least ${silent ? Math.min(need, 3) : need} DIFFERENT ${silent ? 'on-screen' : 'speaking'} characters${format === 'documentary' || silent ? ' (a Narrator is optional and does not count)' : ''}, and at most 6. ${silent ? 'They do not have to speak.' : 'Each one must speak in at least one scene.'} Every character has: a short name (or "Narrator"), a role, a gender ("male" or "female"), a "voice" (how they sound: age, pitch, pace, accent or texture, e.g. "gravelly elderly man, slow and weary"), and a concrete visual description of 25 to 45 words (age, face, hair, clothes, build, one distinctive detail). Narrator has no visual description. Never give two characters the same kind of voice.`;
+const castRules = (need: number, format: string, silent = false) => `CAST: use a small, story-essential cast: ${silent ? Math.min(need, 3) : need} to 4 named characters maximum (a Narrator is separate and does not count). Do not add characters just to fill a quota. Every named character must have a clear story purpose and a visible action or reaction in the scenes where they appear; never leave an unnecessary person standing idle in frame. Do not invent crowds, random extras or duplicate versions of a character. ${silent ? 'Characters do not have to speak.' : 'Only characters who genuinely need dialogue should speak; do not force every character into every scene.'} Give each character a short name, role, gender, distinct voice profile and concrete 25 to 45 word visual description (age, face, hair, clothes, build and one distinctive detail). Narrator has no visual description.`;
 
 const sceneJsonShape = `{ "sceneNumber": 1, "continuesPrevious": false, "visualPrompt": "<what the camera sees in the first half>", "secondHalfAction": "<20 second scenes only: what happens next in the SAME place, 1 to 2 sentences, empty for 10 second scenes>", "cameraMotion": "<camera instruction>", "sound": "<2 to 4 realistic sounds of this scene>", "lines": [ { "speaker": "<character name>", "text": "<spoken words>", "emotion": "<how it is said>", "doing": "<what the speaker does while saying it>", "half": 1 } ] }`;
 
 const sceneRules = (cam: { label: string }) => `SCENE RULES:
-- "visualPrompt": describe only what the camera sees, in 60 to 100 words. START with the shot type and the physical action in progress (for example: Low tracking shot behind a man sprinting through a market as crates explode behind him), then name who is in frame and REPEAT each visible character's full visual description word for word, then the physics (how fabric, hair, smoke, water, dust, debris and light move), the setting and lighting. The characters must be doing something physical with their whole body or with objects, never just standing and speaking to the camera. No dialogue, no subtitles, no captions, no logos, no readable text.
+- "visualPrompt": describe only what the camera sees, in 60 to 100 words. Start with shot type and one concrete physical action. Name only the characters needed for that beat and repeat each visible character's full visual description word for word. Give every visible character a specific purposeful action or reaction; no idle extras, random bystanders, duplicate people or decorative characters. Include clear positions, screen direction, setting and lighting. No dialogue, subtitles, logos or readable text.
 - "continuesPrevious": set true ONLY when this scene is the next physical beat of the same uninterrupted action in the same place and time, with the same camera side and screen direction. Set false for a motivated cut, new angle, new location or time jump. Never force image-to-video continuation across a real scene change.
 - "secondHalfAction": for 20 second scenes, describe one bigger physical beat that follows straight on from the first half in the same place. State the exact final body positions, facing, screen direction and prop placement at the end of the first half, then describe only the next beat.
 - ACTION CHOREOGRAPHY: for a fight, describe one readable stunt beat at a time: who initiates, their starting screen position, the single attack path, the block/dodge or contact, the opponent's physical reaction, and where both people finish. Keep the camera on the same side of the 180-degree axis. Do not stack a flurry of unrelated punches, spins or throws into one shot.
@@ -612,6 +618,9 @@ function writerHead(a: WriterBase): string {
     commercial: 'A premium brand commercial or product advertisement. Make the product, service or brand the visual hero. Open with a striking visual hook, demonstrate the product in believable use, communicate only benefits supported by the user brief, create a memorable brand mood, and finish with a clear, tasteful call to action. Never invent prices, guarantees, certifications, customer testimonials or performance claims.',
   };
   const mood = STORY_MOODS[a.mood], cam = CAMERA_PROFILES[a.cameraProfile];
+  const verticalDirection = a.aspectRatio === '9:16' && a.format !== 'animation'
+    ? `\nVERTICAL LIVE-ACTION DIRECTION (9:16): Design every shot for a phone screen, with the principal face and essential action inside the central safe area. Use a clear shot size and motivated camera move; establish screen geography before close coverage. Keep the same actor identity, age, facial structure, skin tone, hair, body proportions, wardrobe and carried props across all scenes. Repeat each character description exactly. Maintain one 180-degree action axis: state screen-left/right travel and facing, and never reverse or mirror it unless the turn is shown. Use one simple readable physical action per shot, with visible cause, contact, weight and result. Keep feet grounded and hands anatomically plausible. Lock the location layout, doorways, furniture, horizon and object scale. Background people only when essential, few and purposeful. Avoid arbitrary zooms, camera spins, snap reframing, morphing, duplicate people, frozen extras and impossible movement. Use natural skin and fabric texture, motivated light, restrained depth of field and believable motion blur; avoid plastic skin, excessive sharpening and decorative lens flares. These are generation targets, not a guarantee of artifact-free output.\n`
+    : '';
   const commercialDirection = a.format === 'commercial' ? `\nBRAND COMMERCIAL ART DIRECTION:\n- Treat the product or service as the hero. Build a premium visual sequence: striking opening image, product reveal, tactile close-up details, believable real-world use, clear benefit demonstration, brand moment and memorable final call to action.\n- Use refined composition, deliberate negative space, controlled highlights, realistic materials, premium colour grading and smooth purposeful camera movement. Avoid generic stock-footage staging.\n- If the brief names brand colours, product materials, packaging, logo placement or audience, honour those details consistently. Do not invent a logo, price, discount, guarantee, certification, customer review, performance statistic or product feature.\n- Keep all on-screen text extremely short and add it in post-production direction only; never ask the video model to render readable words or logos. The voice-over must sound like a confident premium advertisement, not a generic narrator.\n` : '';
   const lock = a.characterLock
     ? `\nMAIN CHARACTER LOCK: The FIRST character in "characters" is the protagonist${a.characterLock.name ? `, named "${a.characterLock.name}"` : ''}. Their visual description is fixed by the user and must be used word for word: "${a.characterLock.descriptor}". Copy it unchanged into every scene's "visualPrompt" in which they appear.\n`
@@ -624,7 +633,7 @@ Visual look: ${a.look}
 Frame: ${a.aspectRatio}
 PRODUCTION-SPECIFIC ORIGINALITY SEED: ${a.variationSeed || 'fresh-original-production'}. Treat this as a private creative randomizer, not story content. Use it to make distinct choices for the cast names, location, opening incident, central obstacle, key prop or visual motif, and dialogue rhythms. Do not reuse a generic template just because the genre and mood match another production.
 GLOBAL MOOD: ${mood.label}. ${mood.write}
-Every "visualPrompt" must show this mood through lighting, colour, weather, texture and physical detail. Visual treatment to build on: ${mood.render}.
+Every "visualPrompt" must show this mood through lighting, colour, weather, texture and physical detail. Visual treatment to build on: ${mood.render}.${verticalDirection}
 CAMERA PROFILE: ${cam.label}. Base instruction: ${cam.direct}.
 PACING: ${a.pacing}
 ${lock}
