@@ -22,10 +22,11 @@ export interface AssembleInput {
   second: string;
   soundText: string;
   characters: { name: string; voice?: string; gender?: string }[];
+  continuesPrevious?: boolean;
 }
 
 export function assembleParts(o: AssembleInput) {
-  const { presentation, brief, mood, look, aspect, cameraMotion, halves, lines, visualBase, second, soundText, characters } = o;
+  const { presentation, brief, mood, look, aspect, cameraMotion, halves, lines, visualBase, second, soundText, characters, continuesPrevious } = o;
   const aspectHint = aspect === '9:16' ? 'Vertical 9:16 framing.' : aspect === '1:1' ? 'Square 1:1 framing.' : 'Wide 16:9 framing.';
   const spokenFor = (ls: SceneLine[]) => ls.map((l) => {
     const ch = characters.find((c) => c.name.toLowerCase() === l.speaker.toLowerCase());
@@ -41,7 +42,7 @@ export function assembleParts(o: AssembleInput) {
     narrated: 'Cinematic film footage of the story with natural movement: nobody speaks on camera and no lips move.',
     shortdrama: 'Cinematic vertical short-drama scene with emotionally intense, believable acting: people confront each other in the place, with tight reaction close-ups, strong body language and movement, never looking into the camera.',
   } as const;
-  const fixed = `${openers[presentation]} Camera: ${cameraMotion}. Mood and grade: ${mood.render}.${genreLook ? ` Genre look: ${genreLook}.` : ''}${energy ? ` Energy: ${energy}.` : ''} Visual look: ${look}. ${aspectHint} One coherent live-action take, believable human anatomy and real-world physics. Preserve the action axis and screen direction. No montage, jump cuts, reverse motion, teleporting, duplicated people or reset actions. No generated text, letters, captions, subtitles, logos or watermarks in the picture; subtitles are added separately from the approved script.`;
+  const fixed = `${openers[presentation]} Camera: ${cameraMotion}. Mood and grade: ${mood.render}.${genreLook ? ` Genre look: ${genreLook}.` : ''}${energy ? ` Energy: ${energy}.` : ''} Visual look: ${look}. ${aspectHint} One coherent live-action take, believable human anatomy and real-world physics. Preserve the 180-degree action axis and exact screen direction. For running, keep the subject's travel direction and forward-facing body orientation stable; show a turn before changing direction. For fights, show one physically readable attack/block/contact/reaction beat, with grounded feet, believable weight and a clear final pose. No random spins, mirrored movement, sliding feet, rubber limbs, impossible impacts, teleporting, duplicated people or reset actions. No generated text, letters, captions, subtitles, logos or watermarks in the picture; subtitles are added separately from the approved script.`;
   const parts = [];
   for (let h = 1; h <= halves; h++) {
     const mine = lines.filter((l) => l.half === h);
@@ -52,7 +53,7 @@ export function assembleParts(o: AssembleInput) {
       narrated: mine.length ? `Audio: a calm off-screen narrator reads the line below as a voice-over, over natural ambient sound. No music. Nobody on screen speaks. ${spokenFor(mine)}` : 'Audio: natural ambient sound, no music, no speech.',
     } as const;
     const tail = `${tails[presentation]}${soundText && h === 1 ? ` Sounds in this scene: ${soundText}.` : ''}`;
-    const lead = h === 1 ? '' : `IMAGE-TO-VIDEO CONTINUATION: the opening frame is the exact final frame of the previous clip. Continue one beat forward from that precise body position, pose, prop placement, camera angle, lens, lighting and background. Preserve each person's identity, facing and screen direction; never reverse direction, teleport, reset the action, change clothes or move an object to another hand. No cut and no new location. Next physical beat: ${(second || 'the action carries on naturally from the last frame').replace(/[.\s]+$/, '')}. `;
+    const lead = h === 1 && continuesPrevious ? 'IMAGE-TO-VIDEO CONTINUATION FROM THE PREVIOUS SCENE: start from its exact final frame. Preserve every character identity, face, clothing, body pose, prop hand, location, lighting, camera side and screen direction. Continue one clear physical beat forward; do not reset, reverse, mirror, teleport or introduce a new person. ' : h === 1 ? '' : `IMAGE-TO-VIDEO CONTINUATION: the opening frame is the exact final frame of the previous clip. Continue one beat forward from that precise body position, pose, prop placement, camera angle, lens, lighting and background. Preserve each person's identity, facing and screen direction; never reverse direction, teleport, reset the action, change clothes or move an object to another hand. No cut and no new location. Next physical beat: ${(second || 'the action carries on naturally from the last frame').replace(/[.\\s]+$/, '')}. `;
     // The second half starts from the first half's last picture, so it only describes the next beat. Repeating the opening description makes the video jump back.
     const visual = h === 1 ? cut(visualBase, Math.max(200, RENDER_PROMPT_MAX - fixed.length - tail.length - lead.length - 4)) : 'The same people, place and light as in the picture it starts from.';
     parts.push({ seconds: PART_SECONDS, kind: h === 1 ? 'text' : 'continue', prompt: `${lead}${visual} ${fixed} ${tail}`.slice(0, RENDER_PROMPT_MAX), lines: mine.map((l) => ({ speaker: l.speaker, text: l.text })) });
