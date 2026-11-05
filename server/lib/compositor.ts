@@ -1,4 +1,4 @@
-type VideoMediaLayer = { kind: 'video' | 'image' | 'audio'; sourceIn: number; duration: number; startAt: number; scale: number; opacity: number; x: number; y: number; volume: number };
+type VideoMediaLayer = { kind: 'video' | 'image' | 'audio'; sourceIn: number; duration: number; startAt: number; scale: number; opacity: number; x: number; y: number; volume: number; fadeIn?: number; fadeOut?: number };
 type VideoCaptionCue = { start: number; end: number; text: string };
 
 export interface CompositionInput {
