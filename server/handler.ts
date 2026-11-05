@@ -102,15 +102,25 @@ const register: Handler = async ({ req, res, body }) => {
   json(res, 200, { ok: true, email });
 };
 
+/** Promote only the configured, email-verified first-owner account. */
+async function promoteConfiguredOwner(row: any) {
+  const configuredEmail = normEmail(process.env.OWNER_EMAIL || '');
+  if (!configuredEmail || row.email !== configuredEmail) return row;
+  const promoted = (await sql()`UPDATE users SET tier='agency', sub_status='owner', sub_cycle='annual',
+    period_end='2100-01-01T00:00:00Z' WHERE id=${row.id} RETURNING *`) as any[];
+  return promoted[0] || row;
+}
+
 const verifyEmail: Handler = async ({ req, res, body }) => {
   const email = normEmail(body.email);
   await rateLimit(`ver:ip:${clientIp(req)}`, 30, 3600);
   await checkCode(email, 'verify', body.code);
   const rows = (await sql()`UPDATE users SET email_verified = TRUE WHERE email = ${email} RETURNING *`) as any[];
   if (!rows[0]) throw new HttpError(404, 'Account not found.');
-  await startSession(res, rows[0].id);
-  mail.welcome(email, rows[0].name, appUrl(req)).catch((e) => console.error('welcome email', e));
-  json(res, 200, { user: toUser(rows[0]) });
+  const signedIn = await promoteConfiguredOwner(rows[0]);
+  await startSession(res, signedIn.id);
+  mail.welcome(email, signedIn.name, appUrl(req)).catch((e) => console.error('welcome email', e));
+  json(res, 200, { user: toUser(signedIn) });
 };
 
 const resend: Handler = async ({ req, res, body }) => {
@@ -134,8 +144,9 @@ const login: Handler = async ({ req, res, body }) => {
     await mail.otp(email, r.name, await issueCode(email, 'verify'), 'verify');
     throw new HttpError(403, 'Please verify your email. We sent you a new code.', 'UNVERIFIED');
   }
-  await startSession(res, r.id);
-  json(res, 200, { user: toUser(r) });
+  const signedIn = await promoteConfiguredOwner(r);
+  await startSession(res, signedIn.id);
+  json(res, 200, { user: toUser(signedIn) });
 };
 
 const resetPassword: Handler = async ({ req, res, body }) => {
@@ -1073,16 +1084,17 @@ function finishStory(ctx: StoryCtx, d: any, input: StoryInput) {
     const vp = str(sc?.visualPrompt, 900) || str(sc?.setting, 300);
     if (vp.length < 10) continue;
     const visualCore = brief.characterLock && !vp.toLowerCase().includes(lockKey) ? `Main character, identical in every scene: ${brief.characterLock.descriptor}. ${vp}` : vp;
+    const continuesPrevious = sc?.continuesPrevious === true;
     const visualBase = shownText ? `${visualCore} ${shownText}` : visualCore;
     const soundText = str(sc?.sound, 160);
     const modelCam = str(sc?.cameraMotion, 220);
     const cameraMotion = modelCam.length >= 8 ? modelCam : cam.direct;
     const second = str(sc?.secondHalfAction, 400);
 
-    const parts = assembleParts({ presentation, brief: { genre: brief.genre, intensity: brief.intensity }, mood: { render: mood.render }, look, aspect, cameraMotion, halves, lines, visualBase, second, soundText, characters });
+    const parts = assembleParts({ presentation, brief: { genre: brief.genre, intensity: brief.intensity }, mood: { render: mood.render }, look, aspect, cameraMotion, halves, lines, visualBase, second, soundText, characters, continuesPrevious });
     scenes.push({
       id: `s${scenes.length + 1}`, sceneId: `scene-${String(scenes.length + 1).padStart(2, '0')}`, sceneNumber: scenes.length + 1, beat: beats[i] || '',
-      visualPrompt: str(visualBase, 900), secondHalfAction: second, voiceoverText: lines.map((l) => l.text).join(' '), cameraMotion, sound: soundText,
+      visualPrompt: str(visualBase, 900), continuesPrevious, secondHalfAction: second, voiceoverText: lines.map((l) => l.text).join(' '), cameraMotion, sound: soundText,
       lines: lines.map((l) => ({ speaker: l.speaker, text: l.text, emotion: l.emotion || '', doing: l.doing || '', half: l.half })), clipSeconds: len, parts,
     });
   }
@@ -1662,12 +1674,13 @@ function episodeView(e: any) {
     characters: (Array.isArray(sb.characters) ? sb.characters : []).map((c: any) => ({ name: String(c.name || ''), role: String(c.role || ''), gender: c.gender === 'female' ? 'female' : 'male', voice: String(c.voice || '') })),
     notes: Array.isArray(sb.notes) ? sb.notes.map(String) : [],
     scenes: scenes.map((sc) => ({
-      sceneId: String(sc.sceneId || ''), sceneNumber: Number(sc.sceneNumber) || 0, beat: String(sc.beat || ''), clipSeconds: Number(sc.clipSeconds) || 0,
+      sceneId: String(sc.sceneId || ''), sceneNumber: Number(sc.sceneNumber) || 0, beat: String(sc.beat || ''), clipSeconds: Number(sc.clipSeconds) || 0, continuesPrevious: sc.continuesPrevious === true,
       visualPrompt: String(sc.visualPrompt || ''), voiceoverText: String(sc.voiceoverText || ''), cameraMotion: String(sc.cameraMotion || ''),
       lines: (Array.isArray(sc.lines) ? sc.lines : []).map((l: any) => ({ speaker: String(l.speaker || ''), text: String(l.text || ''), half: Number(l.half) === 2 ? 2 : 1 })),
     })),
     // Finished clips in story order. A 20 second scene contributes its two clips one after the other, so every scene plays to its end.
     clips: e.status === 'COMPLETED' ? entries.flatMap((en) => en.parts.map((p) => p.url as string).filter(Boolean)) : [],
+    clipJobIds: e.status === 'COMPLETED' ? entries.flatMap((en) => en.parts.filter((p) => p.url && p.jobId).map((p) => p.jobId as string)) : [],
   };
 }
 
@@ -1845,10 +1858,13 @@ async function stageRender(row: any, user: ReturnType<typeof toUser>, ep: any): 
   outer: for (const en of entries) for (let k = 0; k < en.parts.length; k++) {
     const p = en.parts[k];
     if (p.jobId || p.url || p.tries >= MAX_PART_TRIES || (p.retryAt || 0) > Date.now()) continue;
-    if (k > 0 && !en.parts[k - 1].url) continue; // the second half starts from the first half's last picture
+    const previousSceneLastUrl = en.index > 0 ? entries[en.index - 1]?.parts.slice(-1)[0]?.url : undefined;
+    const previousUrl = k > 0 ? en.parts[k - 1]?.url : (scenes[en.index].continuesPrevious === true ? previousSceneLastUrl : undefined);
+    if (k > 0 && !previousUrl) continue; // the second half starts from the first half's last picture
+    if (k === 0 && scenes[en.index].continuesPrevious === true && !previousUrl) continue; // connected action waits for the previous scene's final frame
     if (started >= MAX_STARTS_PER_STEP || left() < 14_000) break outer;
     try {
-      const { jobId } = await startPart(row, user, { prompt: scenes[en.index].parts[k].prompt, aspect, kind: k === 0 ? 'text' : 'continue', prevUrl: k > 0 ? en.parts[k - 1].url : undefined });
+      const { jobId } = await startPart(row, user, { prompt: scenes[en.index].parts[k].prompt, aspect, kind: previousUrl ? 'continue' : 'text', prevUrl: previousUrl });
       p.jobId = jobId; p.tries += 1; p.checkAt = Date.now() + FIRST_CHECK_MS; delete p.error; started++;
     } catch (e: any) {
       if (e instanceof RateLimited) {
@@ -2165,9 +2181,10 @@ const videoEditorRender: Handler = async ({ req, res, body }) => {
         duration: clampNumber(layer.duration, duration - startAt, 0.1, duration - startAt),
         volume: clampNumber(layer.volume, 1, 0, 2),
         opacity: clampNumber(layer.opacity, 1, 0, 1),
-        scale: clampNumber(layer.scale, 100, 10, 200),
-        x: clampNumber(layer.x, 0.5, 0, 1),
-        y: clampNumber(layer.y, 0.5, 0, 1),
+        scale: clampNumber(layer.scale, 55, 10, 100),
+        // The editor stores overlay positions as percentages (0–100), not fractions.
+        x: clampNumber(layer.x, 50, 0, 100),
+        y: clampNumber(layer.y, 50, 0, 100),
       };
     });
   const main = layers.find((layer: any) => layer.track === 'main');

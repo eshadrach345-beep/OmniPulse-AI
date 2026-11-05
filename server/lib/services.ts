@@ -114,16 +114,20 @@ const PREFERRED_MODELS = () => ['gemini-3.8-flash', 'gemini-3.5-flash-lite'];
 export interface GeminiResult { data: any; model: string; grounded: boolean; sources: { title: string; url: string }[] }
 
 /** Asks Google which Flash models this key can actually call, so a renamed or retired model never takes the app down. */
-let discovered: { at: number; list: string[] } | null = null;
+const discoveredModels = new Map<string, { at: number; list: string[] }>();
+const discoveryKey = (key: string) => crypto.createHash('sha256').update(key).digest('hex').slice(0, 16);
 async function discoverModels(key: string): Promise<string[]> {
-  if (discovered && Date.now() - discovered.at < 6 * 3600_000) return discovered.list;
+  const cacheKey = discoveryKey(key);
+  const cached = discoveredModels.get(cacheKey);
+  if (cached && Date.now() - cached.at < 6 * 3600_000) return cached.list;
   try {
     const r = await fetch('https://generativelanguage.googleapis.com/v1beta/models?pageSize=200', { headers: { 'x-goog-api-key': key }, signal: AbortSignal.timeout(6000) });
     const d: any = await r.json().catch(() => ({}));
     const list = ((d.models || []) as any[])
       .filter((m) => (m.supportedGenerationMethods || []).includes('generateContent') && /flash/i.test(m.name) && !/image|tts|live|audio|embed|robotics|computer|cyber|omni|banana|vision/i.test(m.name))
       .map((m) => String(m.name).replace(/^models\//, ''));
-    discovered = { at: Date.now(), list };
+    discoveredModels.set(cacheKey, { at: Date.now(), list });
+    if (discoveredModels.size > 20) discoveredModels.delete(discoveredModels.keys().next().value as string);
     return list;
   } catch { return []; }
 }
@@ -291,7 +295,9 @@ async function discoverModel(b: LlmBackup, current: string): Promise<string | nu
     const list: any[] = Array.isArray(d?.data) ? d.data : Array.isArray(d) ? d : [];
     let models = list.map((m) => ({ id: String(m?.id || ''), free: m?.pricing ? Number(m.pricing.prompt) === 0 && Number(m.pricing.completion) === 0 : false })).filter((m) => m.id && !/embed|whisper|tts|vision|\bvl\b|guard|moderation|image|audio|rerank|safety/i.test(m.id));
     if (b.id === 'openrouter') models = models.filter((m) => m.free || m.id.endsWith(':free'));
-    for (const re of [/llama-?3\.3-?70b/i, /gpt-oss-?120b/i, /qwen.*(235b|32b)/i, /llama.*70b/i, /gpt-oss/i, /deepseek/i, /gemma.*(27b|12b)/i, /llama.*8b/i]) {
+    // Prefer currently supported Groq models. llama-3.3-70b-versatile was retired
+    // and has appeared in stale model lists, so never select it as a fallback.
+    for (const re of [/gpt-oss-?20b/i, /gpt-oss-?120b/i, /qwen.*(235b|32b)/i, /llama.*70b/i, /gpt-oss/i, /deepseek/i, /gemma.*(27b|12b)/i, /llama.*8b/i]) {
       const hit = models.find((m) => re.test(m.id) && m.id !== current);
       if (hit) return hit.id;
     }
@@ -314,7 +320,7 @@ async function callBackup(b: LlmBackup, prompt: string, o: { json: boolean; time
     if (!text.trim()) throw new GeminiFail(0, `${b.label} returned an empty answer.`);
     return text;
   }
-  const modelKey = `${b.id}|${b.base}`;
+  const modelKey = `${b.id}|${b.base}|${discoveryKey(b.key)}`;
   let model = modelCache.get(modelKey) || b.model;
   const errText = (data: any) => String(data?.error?.message || data?.message || '');
   const ask = async (json: boolean, m: string, maxTok: number) => {
@@ -337,8 +343,26 @@ async function callBackup(b: LlmBackup, prompt: string, o: { json: boolean; time
     const alt = await discoverModel(b, model);
     if (alt && alt !== model) { model = alt; modelCache.set(modelKey, alt); a = await ask(o.json, model, maxTok); if (o.json && !a.r.ok && [400, 422].includes(a.r.status)) a = await ask(false, model, maxTok); }
   }
-  // small free plans limit the size of one request: ask for a shorter answer
-  if (!a.r.ok && [400, 413].includes(a.r.status) && /context|max_tokens|too (large|long|many)|maximum|exceed/i.test(errText(a.d)) && maxTok > 3500) { maxTok = 3500; a = await ask(o.json, model, maxTok); if (o.json && !a.r.ok && [400, 422].includes(a.r.status)) a = await ask(false, model, maxTok); }
+  // Free provider plans may enforce a combined input + output token budget.
+  // Use the provider's own Requested/Limit figures when present, preserving as much
+  // useful output as possible instead of repeatedly sending an oversized request.
+  for (let retry = 0; retry < 2 && !a.r.ok; retry++) {
+    const detail = errText(a.d);
+    // A 429 belongs to the provider's current rate-limit window. Do not retry it
+    // immediately; llmGenerate records the provider cooldown and tries the next writer.
+    const shrinkable = [400, 413].includes(a.r.status)
+      && /context|max_tokens|too (large|long|many)|maximum|exceed|request size/i.test(detail);
+    if (!shrinkable || maxTok <= 700) break;
+    const requested = Number(detail.match(/requested[:\s]+([\d,]+)/i)?.[1]?.replace(/,/g, '') || 0);
+    const limit = Number(detail.match(/limit[:\s]+([\d,]+)/i)?.[1]?.replace(/,/g, '') || 0);
+    const overflow = requested > limit && limit > 0 ? requested - limit : 0;
+    const reduced = overflow ? maxTok - overflow - 300 : Math.floor(maxTok * 0.6);
+    const nextMax = Math.max(700, Math.min(maxTok - 1, reduced));
+    if (nextMax >= maxTok) break;
+    maxTok = nextMax;
+    a = await ask(o.json, model, maxTok);
+    if (o.json && !a.r.ok && [400, 422].includes(a.r.status) && !/model|context|token|exceed/i.test(errText(a.d))) a = await ask(false, model, maxTok);
+  }
   let r = a.r, d: any = a.d;
   const fail = (res: Response, data: any) => {
     const msg = tidy(errText(data) || 'rejected');
@@ -444,7 +468,7 @@ export async function testAiWriters(): Promise<{ name: string; ok: boolean; mess
       catch (e: any) { const f = new GeminiFail(e?.status || 0, e?.message || 'failed', !!e?.keyBad); noteGeminiFailure(f, k); out.push({ name, ok: false, message: tidy(e?.message || 'failed') }); }
     }),
     ...llmBackups().map(async (b) => {
-      try { await callBackup(b, 'Reply with the single word OK.', { json: false, timeoutMs: 15_000, maxTokens: 20 }); out.push({ name: `${b.label} (${modelCache.get(`${b.id}|${b.base}`) || b.model})`, ok: true, message: 'Working.' }); }
+      try { await callBackup(b, 'Reply with the single word OK.', { json: false, timeoutMs: 15_000, maxTokens: 20 }); out.push({ name: `${b.label} (${modelCache.get(`${b.id}|${b.base}|${discoveryKey(b.key)}`) || b.model})`, ok: true, message: 'Working.' }); }
       catch (e: any) { out.push({ name: `${b.label} (${b.model})`, ok: false, message: e?.keyBad ? 'The key was rejected. Check that it is copied correctly and is still active.' : e?.status === 429 ? `The key works, but its free allowance is used up. Ready again in about ${niceWait(e.retryMs || 60_000)}.` : tidy(e?.message || 'failed') }); }
     }),
   ]);

@@ -47,7 +47,7 @@ export const AccountSettings: React.FC<Props> = ({ user, onClose, onUserChange, 
   return (
     <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm p-4 overflow-y-auto" onClick={onClose}>
       <div role="dialog" aria-modal="true" aria-label="Account settings" className="bg-slate-900 border border-slate-700 rounded-2xl p-6 my-6 max-w-lg mx-auto space-y-4" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between"><h2 className="text-lg font-bold text-white">Account settings</h2><button onClick={onClose} aria-label="Close" className="text-slate-400 hover:text-slate-200"><X className="w-5 h-5" /></button></div>
+        <div className="flex items-center justify-between"><h2 className="text-lg font-bold text-white">Account settings</h2><button onClick={onClose} aria-label="Close" className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-slate-300 hover:bg-slate-800 hover:text-white"><X className="w-5 h-5" /></button></div>
         {msg && <div role={msg.ok ? 'status' : 'alert'} className={`text-xs rounded-lg px-3 py-2 border ${msg.ok ? 'text-emerald-300 bg-emerald-500/10 border-emerald-500/30' : 'text-rose-300 bg-rose-500/10 border-rose-500/30'}`}>{msg.text}</div>}
 
         <form onSubmit={(e) => { e.preventDefault(); run('profile', async () => { onUserChange(await Auth.updateProfile(name, brand)); return 'Profile updated.'; }); }} className="space-y-3">

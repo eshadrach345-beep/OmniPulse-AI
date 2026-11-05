@@ -98,3 +98,25 @@
   main { overflow-wrap: anywhere; }
   input, select, textarea { max-width: 100%; }
 }
+
+/* Dialogs stay within the phone viewport. Their first row (usually title + close)
+   remains visible while long forms and settings panels scroll independently. */
+[role='dialog'] {
+  max-height: calc(100vh - 1rem);
+  max-height: calc(100dvh - max(1rem, env(safe-area-inset-top)));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-gutter: stable;
+  scroll-padding-block: 4.5rem 1rem;
+}
+[role='dialog'] > :first-child {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  background-color: var(--color-slate-900);
+  box-shadow: 0 1px 0 rgba(138, 162, 184, 0.14);
+}
+@media (max-width: 639px) {
+  [role='dialog'] { border-radius: 1rem; }
+}

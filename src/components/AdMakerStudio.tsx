@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { ImagePlus, Sparkles, Wand2, Loader2, X, Check, Film } from 'lucide-react';
 import type { AspectRatioType, GeneratedVideo } from '../types';
 import { api } from '../services/api';
@@ -61,6 +61,8 @@ export const AdMakerStudio: React.FC<Props> = ({ nicheName, onClose, onSaveNewVi
   const [busy, setBusy] = useState<'ideas' | 'images' | 'render' | null>(null);
   const [status, setStatus] = useState('');
   const [error, setError] = useState('');
+
+  useEffect(() => () => { if (preview) URL.revokeObjectURL(preview); }, [preview]);
 
   const concept = concepts[selectedConcept];
   const chooseFile = async (file?: File) => {
@@ -139,11 +141,11 @@ export const AdMakerStudio: React.FC<Props> = ({ nicheName, onClose, onSaveNewVi
   };
 
   return (
-    <div className="fixed inset-0 z-[70] bg-black/85 backdrop-blur-sm overflow-y-auto p-3 sm:p-5">
-      <div className="max-w-4xl mx-auto my-4 rounded-2xl border border-slate-700 bg-slate-950 shadow-2xl overflow-hidden">
+    <div className="fixed inset-0 z-[70] flex items-start justify-center bg-black/85 p-2 sm:p-5 backdrop-blur-sm overflow-y-auto overscroll-contain" onClick={onClose}>
+      <div role="dialog" aria-modal="true" aria-label="Image-to-video ad maker" className="w-full max-w-4xl mx-auto my-2 sm:my-4 rounded-2xl border border-slate-700 bg-slate-950 shadow-2xl overflow-y-auto overscroll-contain" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between p-4 sm:p-5 border-b border-slate-800 bg-slate-900">
           <div><p className="text-[10px] uppercase tracking-[.2em] text-fuchsia-300 font-bold">OmniPulse Creative Lab</p><h2 className="text-lg font-bold text-white flex items-center gap-2"><Sparkles className="w-5 h-5 text-fuchsia-400" />Image-to-Video Ad Maker</h2><p className="text-xs text-slate-400 mt-1">Turn product photos into polished campaign videos and generate matching brand visuals.</p></div>
-          <button onClick={onClose} className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800" aria-label="Close ad maker"><X className="w-5 h-5" /></button>
+          <button onClick={onClose} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-slate-300 hover:text-white hover:bg-slate-800" aria-label="Close ad maker"><X className="w-5 h-5" /></button>
         </div>
         <div className="grid lg:grid-cols-2 gap-5 p-4 sm:p-5">
           <div className="space-y-3">

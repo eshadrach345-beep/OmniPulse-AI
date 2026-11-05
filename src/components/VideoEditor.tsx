@@ -60,7 +60,7 @@ export const VideoEditor: React.FC<Props> = ({ video, onSave }) => {
   const audioLayers = current?.mediaLayers?.filter((layer) => layer.track === 'audio') || [];
   const activeCaption = current?.captions?.find((cue) => previewTime >= cue.start && previewTime <= cue.end);
 
-  useEffect(() => { setPreviewTime(0); }, [current?.id]);
+  useEffect(() => { setPreviewTime(0); }, [current?.id, mainLayer?.sourceIn]);
 
   useEffect(() => {
     let active = true;
@@ -147,13 +147,25 @@ export const VideoEditor: React.FC<Props> = ({ video, onSave }) => {
 
   const applyTranscript = () => {
     if (!current || !transcript?.segments?.length) return;
-    const captions = transcript.segments.map((segment) => ({
-      start: Math.max(0, segment.start),
-      end: Math.max(segment.start, segment.end),
-      text: segment.text,
-    }));
-    const duration = Math.max(Number(current.duration) || 0, transcript.duration || 0);
-    patchCurrent({ captions, voiceoverText: transcript.text, duration: duration || current.duration });
+    // Transcription timestamps refer to the complete uploaded file. Convert them
+    // to this scene's local timeline and keep every cue inside the render window.
+    const duration = Math.max(1, Math.min(90, Number(current.duration) || 30));
+    const sourceIn = transcript.assetId === mainLayer?.assetId ? Math.max(0, Number(mainLayer?.sourceIn) || 0) : 0;
+    const windowEnd = sourceIn + duration;
+    const captions = transcript.segments
+      .filter((segment) => segment.end > sourceIn && segment.start < windowEnd)
+      .map((segment) => ({
+        start: Math.max(0, segment.start - sourceIn),
+        end: Math.min(duration, segment.end - sourceIn),
+        text: segment.text,
+      }))
+      .filter((cue) => cue.end > cue.start);
+    if (!captions.length) {
+      setMediaError('No speech was found inside this scene segment. Adjust the source in-point or edit duration, then transcribe again.');
+      return;
+    }
+    patchCurrent({ captions, voiceoverText: transcript.text });
+    setMediaError('');
   };
 
   const requestMediaMatches = async () => {
@@ -309,7 +321,7 @@ export const VideoEditor: React.FC<Props> = ({ video, onSave }) => {
 
   if (!scenes.length) return null;
   return (
-    <section className="rounded-2xl border border-indigo-500/25 bg-slate-950/90 p-4 sm:p-5 space-y-4">
+    <section id="omnipulse-timeline-editor" className="scroll-mt-24 rounded-2xl border border-indigo-500/25 bg-slate-950/90 p-4 sm:p-5 space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <div className="rounded-xl bg-indigo-500/15 p-2.5 text-indigo-300"><Clapperboard className="w-5 h-5" /></div>
@@ -351,7 +363,7 @@ export const VideoEditor: React.FC<Props> = ({ video, onSave }) => {
             <div className="relative mx-auto aspect-video max-h-64 w-full bg-slate-950">
               {mainLayer?.kind === 'image' && mediaUrls[mainLayer.assetId]
                 ? <img src={mediaUrls[mainLayer.assetId]} alt={mainLayer.name} className="h-full w-full object-contain" />
-                : <video key={mainLayer?.assetId || current.clipUrl || current.id} src={(mainLayer && mainLayer.kind === 'video' ? mediaUrls[mainLayer.assetId] : '') || current.clipUrl || undefined} controls playsInline preload="metadata" onTimeUpdate={(event) => setPreviewTime(event.currentTarget.currentTime)} className="h-full w-full object-contain" aria-label="Selected scene preview" />}
+                : <video key={`${mainLayer?.assetId || current.clipUrl || current.id}-${mainLayer?.sourceIn || 0}`} src={(mainLayer && mainLayer.kind === 'video' ? mediaUrls[mainLayer.assetId] : '') || current.clipUrl || undefined} controls playsInline preload="metadata" onLoadedMetadata={(event) => { const start = Math.max(0, Number(mainLayer?.sourceIn) || 0); if (start > 0) event.currentTarget.currentTime = Math.min(start, Math.max(0, event.currentTarget.duration - 0.05)); }} onTimeUpdate={(event) => { const start = Math.max(0, Number(mainLayer?.sourceIn) || 0); const elapsed = Math.max(0, event.currentTarget.currentTime - start); const limit = Math.max(1, Number(current.duration) || 1); if (elapsed >= limit) { event.currentTarget.currentTime = start + limit; event.currentTarget.pause(); } setPreviewTime(Math.min(limit, elapsed)); }} className="h-full w-full object-contain" aria-label="Selected scene preview" />}
               {overlayLayers.filter((layer) => previewTime >= layer.startAt && previewTime <= layer.startAt + layer.duration).map((layer) => mediaUrls[layer.assetId] ? <div key={layer.id} className="pointer-events-none absolute" style={{ left: `${layer.x}%`, top: `${layer.y}%`, width: `${Math.max(10, Math.min(100, layer.scale))}%`, opacity: layer.opacity, transform: 'translate(-50%, -50%)' }}>
                 {layer.kind === 'image' ? <img src={mediaUrls[layer.assetId]} alt={layer.name} className="w-full rounded-md shadow-xl" /> : <video src={mediaUrls[layer.assetId]} muted loop autoPlay playsInline className="w-full rounded-md shadow-xl" />}
               </div> : null)}
@@ -361,6 +373,7 @@ export const VideoEditor: React.FC<Props> = ({ video, onSave }) => {
           </div>}
           {audioLayers.map((layer) => mediaUrls[layer.assetId] ? <div key={layer.id} className="rounded-lg border border-slate-700 bg-slate-950 p-2"><p className="mb-1 text-[10px] text-slate-400">{layer.name} · audio track · starts at {formatTime(layer.startAt)}</p><audio src={mediaUrls[layer.assetId]} controls preload="metadata" onLoadedMetadata={(event) => { event.currentTarget.currentTime = Math.max(0, layer.sourceIn); event.currentTarget.volume = Math.max(0, Math.min(1, layer.volume)); }} className="w-full" /></div> : null)}
           {current && <>
+            <label className="block space-y-1"><span className="text-[11px] font-medium text-slate-400">Edit segment duration (seconds · max 90 per render)</span><input type="number" min="1" max="90" step="0.5" value={current.duration} onChange={(event) => patchCurrent({ duration: Math.max(1, Math.min(90, Number(event.target.value) || 1)) })} className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-white outline-none focus:border-indigo-400" /></label>
             <label className="block space-y-1"><span className="text-[11px] font-medium text-slate-400">Scene name / beat</span><input value={current.beat || ''} onChange={(e) => patchCurrent({ beat: e.target.value })} placeholder="Opening, reveal, climax..." className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-white outline-none focus:border-indigo-400" /></label>
             <label className="block space-y-1"><span className="text-[11px] font-medium text-slate-400">Text overlay</span><textarea value={current.onScreenText || ''} onChange={(e) => patchCurrent({ onScreenText: e.target.value })} rows={3} maxLength={180} placeholder="Add a title, lower-third or callout..." className="w-full resize-y rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-white outline-none focus:border-indigo-400" /></label>
             <label className="block space-y-1"><span className="text-[11px] font-medium text-slate-400">Overlay placement</span><select value={current.overlayPosition || 'center'} onChange={(event) => patchCurrent({ overlayPosition: event.target.value as VideoScene['overlayPosition'] })} className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-white"><option value="top">Top title</option><option value="center">Center title</option><option value="bottom">Bottom lower-third</option></select></label>
@@ -416,7 +429,7 @@ export const VideoEditor: React.FC<Props> = ({ video, onSave }) => {
             </div>
           </div>
           </>}
-          <p className="text-[10px] leading-relaxed text-slate-500">Reordering and removing clips changes the scene sequence used by the film joiner. Text overlays and subtitle edits are saved and previewed in the studio; they do not alter the original generated audio or burn into the exported MP4 yet.</p>
+          <p className="text-[10px] leading-relaxed text-slate-500">Edits are non-destructive until you render. Scene exports burn in text overlays and timed captions, composite visual layers, and mix added audio; the original uploaded files remain unchanged.</p>
         </div>
       <div className="space-y-2 rounded-xl border border-slate-800 bg-slate-950/70 p-3">
         <div className="flex items-center justify-between gap-2"><div><h3 className="text-xs font-semibold text-white">Multitrack timeline</h3><p className="text-[10px] text-slate-500">Select any block to inspect and edit that scene's layers.</p></div><span className="text-[10px] text-slate-500">{scenes.length} scene lanes</span></div>

@@ -18,6 +18,8 @@ import { TopNav } from './components/TopNav';
 import { AccountsBar } from './components/AccountsBar';
 import { DashboardOverview } from './components/DashboardOverview';
 import { VideoStudio } from './components/VideoStudio';
+import { CreatorUploadStudio } from './components/CreatorUploadStudio';
+import { VideoEditor } from './components/VideoEditor';
 import { SeriesStudio } from './components/SeriesStudio';
 import { TrendHashtagRadar } from './components/TrendHashtagRadar';
 import { PostScheduler } from './components/PostScheduler';
@@ -45,11 +47,12 @@ interface WorkspaceProps {
 function Workspace({ user: currentUser, initialDashboard, onLogout, onUserChange }: WorkspaceProps) {
   // Navigation
   const [activeTab, setActiveTab] = useState<
-    'dashboard' | 'accounts' | 'video-studio' | 'series' | 'trends-hashtags' | 'scheduler' | 'ab-testing' | 'analytics' | 'support' | 'owner'
+    'dashboard' | 'accounts' | 'video-studio' | 'creator-studio' | 'series' | 'trends-hashtags' | 'scheduler' | 'ab-testing' | 'analytics' | 'support' | 'owner'
   >('dashboard');
 
   // Set when the dashboard asks the Series tab to open one project on its next part.
   const [seriesFocus, setSeriesFocus] = useState<string | null>(null);
+  const [creatorEditVideo, setCreatorEditVideo] = useState<GeneratedVideo | null>(null);
 
   // Modals state
   const [isPricingOpen, setIsPricingOpen] = useState(false);
@@ -526,7 +529,7 @@ function Workspace({ user: currentUser, initialDashboard, onLogout, onUserChange
       showToast(`Auto-Pilot made ${made} ${settings.preferredStyle.replace(/_/g, ' ')} videos for ${settings.targetPlatforms.join(', ')}.`);
     } catch (err) {
       console.error('Autonomous run error:', err);
-      showToast(err instanceof Error ? err.message : 'Auto-Pilot run failed. Please try again.');
+      throw err instanceof Error ? err : new Error('Auto-Pilot run failed. Please try again.');
     } finally {
       setIsExecutingAutonomousRun(false);
     }
@@ -626,6 +629,67 @@ function Workspace({ user: currentUser, initialDashboard, onLogout, onUserChange
             prefillPrompt={createRequest.prompt}
             onResetCreateRequested={() => setCreateRequest({ open: false, prompt: '' })}
           />
+        )}
+
+        {activeTab === 'creator-studio' && (
+          <div className="space-y-5">
+            <CreatorUploadStudio onEditVideo={(asset) => {
+              const sceneId = `creator-scene-${asset.id}`;
+              setCreatorEditVideo({
+                id: `creator-project-${asset.id}`,
+                title: asset.name,
+                userPrompt: 'Creator-uploaded footage',
+                videoType: 'real_video',
+                aspectRatio: '16:9',
+                targetPlatforms: [],
+                nicheId: 'creator-upload',
+                estimatedDuration: 30,
+                scenes: [{
+                  id: sceneId,
+                  sceneNumber: 1,
+                  duration: 30,
+                  visualCue: 'Original creator footage',
+                  narration: '',
+                  onScreenText: '',
+                  soundEffectCue: '',
+                  motionStyle: 'Dynamic Zoom',
+                  bgGradient: '',
+                  mediaLayers: [{
+                    id: `main-${asset.id}`,
+                    assetId: asset.id,
+                    name: asset.name,
+                    contentType: asset.contentType,
+                    kind: 'video',
+                    track: 'main',
+                    startAt: 0,
+                    sourceIn: 0,
+                    duration: 30,
+                    volume: 1,
+                    opacity: 1,
+                    scale: 100,
+                    x: 50,
+                    y: 50,
+                  }],
+                }],
+                voiceoverStyle: 'Original audio',
+                backgroundMusicTrack: '',
+                thumbnailUrl: '',
+                createdAt: new Date().toISOString(),
+                status: 'ready',
+              });
+              window.setTimeout(() => document.getElementById('creator-edit-workspace')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80);
+            }} />
+            {creatorEditVideo && (
+              <div id="creator-edit-workspace" className="scroll-mt-24 space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div><h2 className="text-lg font-bold text-white">Edit uploaded footage</h2><p className="text-xs text-slate-400">Add supporting clips, images and audio; transcribe speech; ask the AI Director to place your own media; then render an MP4.</p></div>
+                  <button type="button" onClick={() => setCreatorEditVideo(null)} className="rounded-lg border border-slate-700 px-3 py-2 text-xs text-slate-300 hover:text-white">Close editor</button>
+                </div>
+                <VideoEditor key={creatorEditVideo.id} video={creatorEditVideo} onSave={setCreatorEditVideo} />
+                <p className="text-[10px] leading-relaxed text-slate-500">New uploaded-video projects start with a 30-second edit segment. Adjust the scene duration and source in-point to match your footage before rendering. The editor uses only media in your private library.</p>
+              </div>
+            )}
+          </div>
         )}
 
         {activeTab === 'series' && (

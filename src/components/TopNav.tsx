@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { AppUser } from '../types/auth';
-import { Zap, Video, Clapperboard, Calendar, TrendingUp, Split, BarChart3, Radio, Crown, LogOut, Settings, Activity, CreditCard, ImagePlus, Share2, MessageSquare } from 'lucide-react';
+import { Zap, Video, Clapperboard, Calendar, TrendingUp, Split, BarChart3, Radio, Crown, LogOut, Settings, Activity, CreditCard, ImagePlus, Share2, MessageSquare, Menu, X } from 'lucide-react';
 
-export type TabId = 'dashboard' | 'accounts' | 'video-studio' | 'series' | 'trends-hashtags' | 'scheduler' | 'ab-testing' | 'analytics' | 'support' | 'owner';
+export type TabId = 'dashboard' | 'accounts' | 'video-studio' | 'creator-studio' | 'series' | 'trends-hashtags' | 'scheduler' | 'ab-testing' | 'analytics' | 'support' | 'owner';
 
 interface TopNavProps {
   activeTab: TabId;
@@ -22,6 +22,7 @@ interface TopNavProps {
 const NAV: { id: TabId; label: string; short: string; icon: React.ElementType }[] = [
   { id: 'dashboard', label: 'Dashboard', short: 'Home', icon: Activity },
   { id: 'accounts', label: 'Social Accounts', short: 'Accounts', icon: Share2 },
+  { id: 'creator-studio', label: 'Video Editor', short: 'Editor', icon: Clapperboard },
   { id: 'video-studio', label: 'Video Studio', short: 'Videos', icon: Video },
   { id: 'series', label: 'Series', short: 'Series', icon: Clapperboard },
   { id: 'trends-hashtags', label: 'Trends & Hashtags', short: 'Trends', icon: TrendingUp },
@@ -36,6 +37,16 @@ export const TopNav: React.FC<TopNavProps> = ({
   activeTab, setActiveTab, onOpenCreateVideo, onOpenAdMaker, autoPilotActive, toggleAutoPilot, currentUser, onLogout, onOpenSettings, onOpenSystemCheck, onOpenPricing,
 }) => {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const mobilePrimaryIds: TabId[] = ['dashboard', 'accounts', 'creator-studio', 'video-studio', 'scheduler'];
+  const mobileMoreItems = NAV.filter(({ id }) => !mobilePrimaryIds.includes(id) && (id !== 'owner' || currentUser.isOwner));
+  const moreActive = mobileMoreItems.some(({ id }) => id === activeTab);
+  useEffect(() => {
+    if (!moreOpen) return;
+    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === 'Escape') setMoreOpen(false); };
+    window.addEventListener('keydown', closeOnEscape);
+    return () => window.removeEventListener('keydown', closeOnEscape);
+  }, [moreOpen]);
   const initials = currentUser.name.split(' ').map((p) => p[0]).slice(0, 2).join('').toUpperCase();
   const planLabel = currentUser.isOwner ? 'Owner access' : currentUser.isTrial ? 'Trial' : `${currentUser.tier} plan`;
   const item = 'w-full text-left px-3.5 py-2.5 hover:bg-slate-800 flex items-center gap-2.5';
@@ -53,11 +64,11 @@ export const TopNav: React.FC<TopNavProps> = ({
             </span>
           </div>
 
-          <nav className="hidden xl:flex items-center gap-0.5" aria-label="Main">
+          <nav className="hidden xl:flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto scrollbar-none px-2" aria-label="Main">
             {NAV.filter(({ id }) => id !== 'owner' || currentUser.isOwner).map(({ id, label, icon: Icon }) => (
               <button
                 key={id} onClick={() => setActiveTab(id)} aria-current={activeTab === id ? 'page' : undefined}
-                className={`flex items-center gap-1 px-2 py-2 text-xs font-medium transition-colors border-b-2 ${activeTab === id ? 'border-indigo-400 text-white' : 'border-transparent text-slate-400 hover:text-slate-100'}`}
+                className={`flex shrink-0 items-center gap-1 px-2 py-2 text-xs font-medium transition-colors border-b-2 ${activeTab === id ? 'border-indigo-400 text-white' : 'border-transparent text-slate-400 hover:text-slate-100'}`}
               >
                 <Icon className="w-4 h-4" /><span>{label}</span>
               </button>
@@ -113,20 +124,40 @@ export const TopNav: React.FC<TopNavProps> = ({
         </div>
       </header>
 
-      {/* Phone navigation: a bottom tab bar is easier to reach than a scrolling strip */}
-      <nav aria-label="Main" className="xl:hidden fixed bottom-0 inset-x-0 z-40 border-t border-slate-800 bg-slate-950/95 backdrop-blur-md pb-[env(safe-area-inset-bottom)]">
-        <div className="grid grid-cols-5 max-w-3xl mx-auto">
-          {NAV.filter(({ id }) => id !== 'owner' || currentUser.isOwner).map(({ id, short, icon: Icon }) => (
-            <button
-              key={id} onClick={() => setActiveTab(id)} aria-current={activeTab === id ? 'page' : undefined}
-              className={`flex flex-col items-center gap-1 pt-2.5 pb-2 text-[11px] font-medium transition-colors ${activeTab === id ? 'text-indigo-300' : 'text-slate-400'}`}
-            >
-              <Icon className={`w-5 h-5 ${activeTab === id ? 'text-indigo-300' : ''}`} />
-              <span>{short}</span>
-            </button>
-          ))}
-        </div>
-      </nav>
+      {/* Mobile navigation keeps the everyday destinations visible and puts other tools in a clear More menu. */}
+<nav aria-label="Main" className="xl:hidden fixed bottom-0 inset-x-0 z-40 border-t border-slate-800 bg-slate-950/95 backdrop-blur-md pb-[env(safe-area-inset-bottom)]">
+  <div className="grid max-w-3xl mx-auto grid-cols-6">
+    {NAV.filter(({ id }) => mobilePrimaryIds.includes(id)).map(({ id, short, icon: Icon }) => (
+      <button key={id} type="button" onClick={() => { setActiveTab(id); setMoreOpen(false); }} aria-current={activeTab === id ? "page" : undefined}
+        className={"flex min-w-0 flex-col items-center justify-center gap-1 py-2.5 text-[10px] font-semibold transition-colors " + (activeTab === id ? "text-indigo-300" : "text-slate-400")}>
+        <Icon className={"h-5 w-5 " + (activeTab === id ? "text-indigo-300" : "")} /><span className="truncate">{short}</span>
+      </button>
+    ))}
+    <button type="button" onClick={() => setMoreOpen((open) => !open)} aria-expanded={moreOpen} aria-controls="mobile-more-tools" aria-haspopup="menu"
+      className={"flex min-w-0 flex-col items-center justify-center gap-1 py-2.5 text-[10px] font-semibold transition-colors " + (moreOpen || moreActive ? "text-indigo-300" : "text-slate-400")}>
+      {moreOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}<span>More</span>
+    </button>
+  </div>
+</nav>
+{moreOpen && (
+  <>
+    <button type="button" aria-label="Close more tools menu" onClick={() => setMoreOpen(false)} className="fixed inset-0 z-[45] bg-black/45 xl:hidden" />
+    <section id="mobile-more-tools" role="menu" aria-label="More workspace tools" className="fixed left-3 right-3 bottom-[calc(4.25rem+env(safe-area-inset-bottom))] z-[46] max-h-[65vh] max-h-[65dvh] overflow-y-auto overscroll-contain rounded-2xl border border-slate-700 bg-slate-900 p-3 shadow-2xl xl:hidden">
+      <div className="sticky top-0 -mx-3 -mt-3 mb-3 flex items-center justify-between border-b border-slate-800 bg-slate-900/95 px-3 pb-3 pt-3 backdrop-blur">
+        <div><h2 className="text-sm font-bold text-white">More tools</h2><p className="text-[10px] text-slate-400">Open another workspace</p></div>
+        <button type="button" onClick={() => setMoreOpen(false)} aria-label="Close menu" className="flex h-10 w-10 items-center justify-center rounded-xl text-slate-300 hover:bg-slate-800"><X className="h-5 w-5" /></button>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        {mobileMoreItems.map(({ id, label, icon: Icon }) => (
+          <button key={id} type="button" role="menuitem" onClick={() => { setActiveTab(id); setMoreOpen(false); }}
+            className={"flex min-w-0 items-center gap-2.5 rounded-xl border px-3 py-3 text-left text-xs font-semibold transition-colors " + (activeTab === id ? "border-indigo-400/50 bg-indigo-500/15 text-indigo-200" : "border-slate-700 bg-slate-950/60 text-slate-200 hover:border-slate-500")}>
+            <Icon className="h-4 w-4 shrink-0 text-indigo-300" /><span className="min-w-0">{label}</span>
+          </button>
+        ))}
+      </div>
+    </section>
+  </>
+)}
     </>
   );
 };
