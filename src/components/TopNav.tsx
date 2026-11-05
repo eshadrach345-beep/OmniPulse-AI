@@ -22,7 +22,7 @@ interface TopNavProps {
 const NAV: { id: TabId; label: string; short: string; icon: React.ElementType }[] = [
   { id: 'dashboard', label: 'Dashboard', short: 'Home', icon: Activity },
   { id: 'accounts', label: 'Social Accounts', short: 'Accounts', icon: Share2 },
-  { id: 'creator-studio', label: 'Video Editor', short: 'Editor', icon: Clapperboard },
+  { id: 'creator-studio', label: 'Creator Video Editor', short: 'Editor', icon: Clapperboard },
   { id: 'video-studio', label: 'Video Studio', short: 'Videos', icon: Video },
   { id: 'series', label: 'Series', short: 'Series', icon: Clapperboard },
   { id: 'trends-hashtags', label: 'Trends & Hashtags', short: 'Trends', icon: TrendingUp },
@@ -38,7 +38,7 @@ export const TopNav: React.FC<TopNavProps> = ({
 }) => {
   const [menuOpen, setMenuOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
-  const mobilePrimaryIds: TabId[] = ['dashboard', 'accounts', 'creator-studio', 'video-studio', 'scheduler'];
+  const mobilePrimaryIds: TabId[] = ['dashboard', 'accounts', 'video-studio', 'scheduler'];
   const mobileMoreItems = NAV.filter(({ id }) => !mobilePrimaryIds.includes(id) && (id !== 'owner' || currentUser.isOwner));
   const moreActive = mobileMoreItems.some(({ id }) => id === activeTab);
   useEffect(() => {
@@ -147,6 +147,7 @@ export const TopNav: React.FC<TopNavProps> = ({
         <div><h2 className="text-sm font-bold text-white">More tools</h2><p className="text-[10px] text-slate-400">Open another workspace</p></div>
         <button type="button" onClick={() => setMoreOpen(false)} aria-label="Close menu" className="flex h-10 w-10 items-center justify-center rounded-xl text-slate-300 hover:bg-slate-800"><X className="h-5 w-5" /></button>
       </div>
+      <p className="mb-2 px-1 text-[10px] font-bold uppercase tracking-[0.16em] text-indigo-300">Features & workspaces</p>
       <div className="grid grid-cols-2 gap-2">
         {mobileMoreItems.map(({ id, label, icon: Icon }) => (
           <button key={id} type="button" role="menuitem" onClick={() => { setActiveTab(id); setMoreOpen(false); }}
