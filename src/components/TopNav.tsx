@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { AppUser } from '../types/auth';
-import { Zap, Video, Clapperboard, Calendar, TrendingUp, Split, BarChart3, Radio, Crown, LogOut, Settings, Activity, CreditCard, ImagePlus, Share2, MessageSquare, CloudUpload } from 'lucide-react';
+import { Zap, Video, Clapperboard, Calendar, TrendingUp, Split, BarChart3, Radio, Crown, LogOut, Settings, Activity, CreditCard, ImagePlus, Share2, MessageSquare } from 'lucide-react';
 
 export type TabId = 'dashboard' | 'accounts' | 'video-studio' | 'creator-studio' | 'series' | 'trends-hashtags' | 'scheduler' | 'ab-testing' | 'analytics' | 'support' | 'owner';
 
@@ -22,8 +22,8 @@ interface TopNavProps {
 const NAV: { id: TabId; label: string; short: string; icon: React.ElementType }[] = [
   { id: 'dashboard', label: 'Dashboard', short: 'Home', icon: Activity },
   { id: 'accounts', label: 'Social Accounts', short: 'Accounts', icon: Share2 },
+  { id: 'creator-studio', label: 'Video Editor', short: 'Editor', icon: Clapperboard },
   { id: 'video-studio', label: 'Video Studio', short: 'Videos', icon: Video },
-  { id: 'creator-studio', label: 'Upload & Edit', short: 'Upload', icon: CloudUpload },
   { id: 'series', label: 'Series', short: 'Series', icon: Clapperboard },
   { id: 'trends-hashtags', label: 'Trends & Hashtags', short: 'Trends', icon: TrendingUp },
   { id: 'scheduler', label: 'Post Scheduler', short: 'Posts', icon: Calendar },
@@ -77,10 +77,6 @@ export const TopNav: React.FC<TopNavProps> = ({
               <Video className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">Direct Video</span><span className="sm:hidden">Create</span>
             </button>
-            <button onClick={() => setActiveTab('creator-studio')} title="Upload your own video and edit it with AI" className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-emerald-100 bg-emerald-950 border border-emerald-700/60 rounded-lg hover:bg-emerald-900 transition-colors whitespace-nowrap">
-              <CloudUpload className="w-3.5 h-3.5" />
-              <span>Upload & Edit</span>
-            </button>
             <button onClick={onOpenAdMaker} title="Open the dedicated brand advertising studio" className="flex items-center gap-1.5 px-2.5 py-2 text-xs font-semibold text-fuchsia-100 bg-fuchsia-950 border border-fuchsia-700/60 rounded-lg hover:bg-fuchsia-900 transition-colors whitespace-nowrap">
               <ImagePlus className="w-3.5 h-3.5" /><span className="hidden sm:inline">Ad Maker</span><span className="sm:hidden">Ad</span>
             </button>
@@ -120,11 +116,11 @@ export const TopNav: React.FC<TopNavProps> = ({
 
       {/* Phone navigation: a bottom tab bar is easier to reach than a scrolling strip */}
       <nav aria-label="Main" className="xl:hidden fixed bottom-0 inset-x-0 z-40 border-t border-slate-800 bg-slate-950/95 backdrop-blur-md pb-[env(safe-area-inset-bottom)]">
-        <div className="grid grid-cols-5 max-w-3xl mx-auto">
+        <div className="flex max-w-3xl mx-auto overflow-x-auto overscroll-x-contain">
           {NAV.filter(({ id }) => id !== 'owner' || currentUser.isOwner).map(({ id, short, icon: Icon }) => (
             <button
               key={id} onClick={() => setActiveTab(id)} aria-current={activeTab === id ? 'page' : undefined}
-              className={`flex flex-col items-center gap-1 pt-2.5 pb-2 text-[11px] font-medium transition-colors ${activeTab === id ? 'text-indigo-300' : 'text-slate-400'}`}
+              className={`flex min-w-[68px] flex-none flex-col items-center gap-1 pt-2.5 pb-2 text-[11px] font-medium transition-colors ${activeTab === id ? 'text-indigo-300' : 'text-slate-400'}`}
             >
               <Icon className={`w-5 h-5 ${activeTab === id ? 'text-indigo-300' : ''}`} />
               <span>{short}</span>
