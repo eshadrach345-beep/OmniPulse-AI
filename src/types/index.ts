@@ -236,6 +236,7 @@ export interface VideoScene {
   overlayStyle?: 'cinematic' | 'minimal' | 'lower_third';
   /** Professional colour and sound controls applied by the FFmpeg export. */
   audioGain?: number;
+  normalizeAudio?: boolean;
   brightness?: number;
   contrast?: number;
   saturation?: number;
