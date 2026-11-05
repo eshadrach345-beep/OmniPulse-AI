@@ -5,6 +5,17 @@ import { CloudUpload, Film, Image as ImageIcon, Music2, ShieldCheck, RefreshCw, 
 
 type MediaAsset = { id: string; name: string; contentType: string; size: number; createdAt: string };
 const ACCEPT = 'video/mp4,video/quicktime,video/webm,video/x-matroska,audio/mpeg,audio/mp4,audio/wav,audio/x-wav,image/jpeg,image/png,image/webp';
+const inferredMime = (file: File) => {
+  const declared = file.type.toLowerCase();
+  if (declared && declared !== 'application/octet-stream') return declared;
+  const extension = file.name.toLowerCase().split('.').pop() || '';
+  const byExtension: Record<string, string> = {
+    mp4: 'video/mp4', mov: 'video/quicktime', webm: 'video/webm', mkv: 'video/x-matroska',
+    mp3: 'audio/mpeg', m4a: 'audio/mp4', wav: 'audio/wav',
+    jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp',
+  };
+  return byExtension[extension] || declared;
+};
 const prettySize = (bytes: number) => bytes >= 1024 ** 3 ? `${(bytes / 1024 ** 3).toFixed(1)} GB` : bytes >= 1024 ** 2 ? `${(bytes / 1024 ** 2).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
 
 export const CreatorUploadStudio: React.FC<{ onEditVideo?: (asset: MediaAsset) => void }> = ({ onEditVideo }) => {
@@ -42,25 +53,35 @@ export const CreatorUploadStudio: React.FC<{ onEditVideo?: (asset: MediaAsset) =
   };
 
   const handleFiles = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
+    const files = Array.from(event.target.files || []);
     event.target.value = '';
-    if (!file) return;
+    if (!files.length) return;
     setError('');
     setMessage('');
     setProgress(0);
     setBusy(true);
+    const totalBytes = Math.max(1, files.reduce((sum, file) => sum + file.size, 0));
+    let completedBytes = 0;
+    const failed: string[] = [];
     try {
-      await upload(`creator-media/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`, file, {
-        access: 'private',
-        handleUploadUrl: '/api/media/upload',
-        clientPayload: JSON.stringify({ name: file.name, type: file.type, size: file.size }),
-        multipart: file.size > 100 * 1024 ** 2,
-        onUploadProgress: ({ percentage }) => setProgress(Math.round(percentage)),
-      });
-      setMessage('Upload completed. Your private media is being added to the library.');
+      for (const file of files) {
+        try {
+          await upload(`creator-media/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`, file, {
+            access: 'private',
+            handleUploadUrl: '/api/media/upload',
+            clientPayload: JSON.stringify({ name: file.name, type: inferredMime(file), size: file.size }),
+            multipart: file.size > 100 * 1024 ** 2,
+            onUploadProgress: ({ percentage }) => setProgress(Math.min(100, Math.round(((completedBytes + file.size * percentage / 100) / totalBytes) * 100))),
+          });
+          completedBytes += file.size;
+          setProgress(Math.min(100, Math.round((completedBytes / totalBytes) * 100)));
+        } catch (e) {
+          failed.push(`${file.name}: ${e instanceof ApiError ? e.message : e instanceof Error ? e.message : 'Upload failed'}`);
+        }
+      }
       await refresh();
-    } catch (e) {
-      setError(e instanceof ApiError ? e.message : e instanceof Error ? e.message : 'Upload failed. Please try again.');
+      if (failed.length) setError(`Could not upload ${failed.length} file(s). ${failed.slice(0, 3).join(' · ')}`);
+      else setMessage(files.length === 1 ? 'Upload completed. Your private media is ready in the library.' : `All ${files.length} files uploaded to your private media library.`);
     } finally { setBusy(false); setProgress(0); }
   };
 
@@ -80,14 +101,14 @@ export const CreatorUploadStudio: React.FC<{ onEditVideo?: (asset: MediaAsset) =
       <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-center rounded-xl border border-slate-800 bg-slate-900/70 p-4">
         <div className="space-y-1">
           <p className="text-sm font-semibold text-white">Upload your original media</p>
-          <p className="text-xs leading-relaxed text-slate-400">Choose video clips, voice recordings, music or images. Files upload directly to your private cloud library, not through your phone's local storage or the app server.</p>
+          <p className="text-xs leading-relaxed text-slate-400">Choose one or several video clips, voice recordings, music files or images. Files upload directly to your private cloud library, not through your phone's local storage or the app server.</p>
           <p className="text-[10px] text-slate-500">Supported: MP4, MOV, WebM, MKV, MP3, WAV, JPG, PNG and WebP. Per-file limits depend on your subscription.</p>
         </div>
         <button type="button" disabled={busy} onClick={() => input.current?.click()} className="inline-flex items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2.5 text-xs font-semibold text-white hover:bg-indigo-500 disabled:opacity-50">
           {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <CloudUpload className="h-4 w-4" />}
           {busy ? 'Uploading…' : 'Choose media'}
         </button>
-        <input ref={input} type="file" accept={ACCEPT} className="hidden" onChange={handleFiles} />
+        <input ref={input} type="file" accept={ACCEPT} multiple className="hidden" onChange={handleFiles} />
       </div>
 
       {busy && <div className="space-y-1.5" role="status" aria-live="polite"><div className="flex justify-between text-[11px] text-slate-300"><span>Uploading securely</span><span>{progress}%</span></div><div className="h-2 rounded-full bg-slate-800 overflow-hidden"><div className="h-full rounded-full bg-indigo-500 transition-all" style={{ width: `${progress}%` }} /></div></div>}
