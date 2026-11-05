@@ -195,6 +195,17 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
   // ---- the part being made
   const [episodeId, setEpisodeId] = useState<string | null>(null);
   const [episode, setEpisode] = useState<Episode | null>(null);
+  const [editorOrder, setEditorOrder] = useState<string[]>([]);
+  useEffect(() => {
+    setEditorOrder(episode?.status === 'COMPLETED' ? (episode.clipJobIds || []) : []);
+  }, [episode?.id, episode?.status, episode?.clipJobIds?.join('|')]);
+  const moveEditorClip = (index: number, delta: number) => setEditorOrder((current) => {
+    const target = index + delta;
+    if (target < 0 || target >= current.length) return current;
+    const next = [...current]; [next[index], next[target]] = [next[target], next[index]];
+    return next;
+  });
+  const removeEditorClip = (index: number) => setEditorOrder((current) => current.filter((_, i) => i !== index));
   const [pollKey, setPollKey] = useState(0);
   const [nextId, setNextId] = useState<string | null>(null); // the next part of a series that is being made by itself
   const [dl, setDl] = useState<{ busy: boolean; msg: string }>({ busy: false, msg: '' });
@@ -426,6 +437,31 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
             <div className="space-y-3">
               <p className="text-xs text-slate-300">{episode.logline}</p>
               <ClipSequence clips={episode.clips} captions={episodeCaptionTracks(episode.scenes)} />
+              {episode.clipJobIds?.length > 0 && (
+                <section className="rounded-xl border border-indigo-500/30 bg-slate-950/80 p-3 space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div><h3 className="text-sm font-semibold text-white flex items-center gap-2"><Clapperboard className="w-4 h-4 text-indigo-300" />Episode Timeline Editor</h3><p className="text-[10px] text-slate-400 mt-1">Rearrange or remove generated shots, then export your edited cut.</p></div>
+                    <span className="text-[10px] text-slate-400">{editorOrder.length} clips in cut</span>
+                  </div>
+                  <ol className="space-y-2">
+                    {editorOrder.map((jobId, index) => {
+                      const originalIndex = episode.clipJobIds.indexOf(jobId);
+                      return <li key={jobId} className="flex items-center gap-2 rounded-lg border border-slate-800 bg-slate-900 p-2">
+                        <span className="w-7 shrink-0 text-center text-[10px] font-bold text-indigo-300">{index + 1}</span>
+                        <div className="min-w-0 flex-1"><p className="truncate text-xs font-semibold text-white">Shot {originalIndex + 1}</p><p className="text-[10px] text-slate-500">Generated scene clip · approx. 10 seconds</p></div>
+                        <button type="button" onClick={() => moveEditorClip(index, -1)} disabled={index === 0} aria-label="Move clip earlier" className="rounded-md border border-slate-700 px-2 py-1.5 text-xs text-slate-300 disabled:opacity-30">↑</button>
+                        <button type="button" onClick={() => moveEditorClip(index, 1)} disabled={index === editorOrder.length - 1} aria-label="Move clip later" className="rounded-md border border-slate-700 px-2 py-1.5 text-xs text-slate-300 disabled:opacity-30">↓</button>
+                        <button type="button" onClick={() => removeEditorClip(index)} aria-label="Remove clip" className="rounded-md border border-rose-900/70 px-2 py-1.5 text-xs text-rose-300">Remove</button>
+                      </li>;
+                    })}
+                  </ol>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <button type="button" onClick={() => setEditorOrder(episode.clipJobIds)} className="rounded-lg border border-slate-700 px-3 py-2 text-[11px] text-slate-300">Reset order</button>
+                    <a href={editorOrder.length ? `/api/video/merge?ids=${encodeURIComponent(editorOrder.join(','))}&name=${encodeURIComponent(episode.title || 'omnipulse-edited')}` : undefined} aria-disabled={editorOrder.length === 0} className={`rounded-lg px-3 py-2 text-[11px] font-semibold text-white ${editorOrder.length ? 'bg-indigo-600 hover:bg-indigo-500' : 'bg-slate-700 opacity-40 pointer-events-none'}`}>Export edited MP4</a>
+                  </div>
+                  <p className="text-[10px] text-slate-500">This first episode editor supports shot order and removal. Frame-accurate trimming, overlays and audio mixing are available in the advanced Video Studio editor.</p>
+                </section>
+              )}
               <div className="flex flex-wrap gap-2">
                 {episode.finalVideoUrl && (
                   <button type="button" onClick={() => downloadFull(episode)} disabled={dl.busy} className="px-3 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-60 text-xs font-semibold text-white flex items-center gap-1.5">
