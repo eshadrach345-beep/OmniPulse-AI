@@ -112,7 +112,11 @@ export async function renderComposition(input: CompositionInput): Promise<void> 
     const label = `a${index}`;
     const startMs = Math.round(Math.max(0, Math.min(duration, layer.startAt || 0)) * 1000);
     const volume = Math.max(0, Math.min(2, Number(layer.volume) || 0));
-    filter.push(`[${index}:a]atrim=duration=${Math.max(0.1, layer.duration)},asetpts=PTS-STARTPTS,adelay=${startMs}|${startMs},volume=${volume}[${label}]`);
+    const audioDuration = Math.max(0.1, Math.min(duration - Math.max(0, layer.startAt || 0), layer.duration));
+    const fadeIn = Math.max(0, Math.min(audioDuration, Number(layer.fadeIn) || 0));
+    const fadeOut = Math.max(0, Math.min(audioDuration, Number(layer.fadeOut) || 0));
+    const envelope = [fadeIn > 0 ? `afade=t=in:st=0:d=${fadeIn}` : '', fadeOut > 0 ? `afade=t=out:st=${Math.max(0, audioDuration - fadeOut)}:d=${fadeOut}` : ''].filter(Boolean).join(',');
+    filter.push(`[${index}:a]atrim=duration=${audioDuration},asetpts=PTS-STARTPTS${envelope ? `,${envelope}` : ''},adelay=${startMs}|${startMs},volume=${volume}[${label}]`);
     audioLabels.push(`[${label}]`);
   }
   if (audioLabels.length > 1) filter.push(`${audioLabels.join('')}amix=inputs=${audioLabels.length}:duration=longest:dropout_transition=0,alimiter=limit=0.95[aout]`);
