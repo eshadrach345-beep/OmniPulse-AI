@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import { AppUser } from '../types/auth';
-import { Zap, Video, Clapperboard, Calendar, TrendingUp, Split, BarChart3, Radio, Crown, LogOut, Settings, Activity, CreditCard, ImagePlus, Share2 } from 'lucide-react';
+import { Zap, Video, Clapperboard, Calendar, TrendingUp, Split, BarChart3, Radio, Crown, LogOut, Settings, Activity, CreditCard, ImagePlus, Share2, MessageSquare } from 'lucide-react';
 
-export type TabId = 'dashboard' | 'accounts' | 'video-studio' | 'series' | 'trends-hashtags' | 'scheduler' | 'ab-testing' | 'analytics';
+export type TabId = 'dashboard' | 'accounts' | 'video-studio' | 'series' | 'trends-hashtags' | 'scheduler' | 'ab-testing' | 'analytics' | 'support' | 'owner';
 
 interface TopNavProps {
   activeTab: TabId;
@@ -28,6 +28,8 @@ const NAV: { id: TabId; label: string; short: string; icon: React.ElementType }[
   { id: 'scheduler', label: 'Post Scheduler', short: 'Posts', icon: Calendar },
   { id: 'ab-testing', label: 'A/B Studio', short: 'A/B', icon: Split },
   { id: 'analytics', label: 'Analytics & Reports', short: 'Reports', icon: BarChart3 },
+  { id: 'support', label: 'Support', short: 'Help', icon: MessageSquare },
+  { id: 'owner', label: 'Owner Console', short: 'Owner', icon: Activity },
 ];
 
 export const TopNav: React.FC<TopNavProps> = ({
@@ -52,7 +54,7 @@ export const TopNav: React.FC<TopNavProps> = ({
           </div>
 
           <nav className="hidden xl:flex items-center gap-0.5" aria-label="Main">
-            {NAV.map(({ id, label, icon: Icon }) => (
+            {NAV.filter(({ id }) => id !== 'owner' || currentUser.isOwner).map(({ id, label, icon: Icon }) => (
               <button
                 key={id} onClick={() => setActiveTab(id)} aria-current={activeTab === id ? 'page' : undefined}
                 className={`flex items-center gap-1 px-2 py-2 text-xs font-medium transition-colors border-b-2 ${activeTab === id ? 'border-indigo-400 text-white' : 'border-transparent text-slate-400 hover:text-slate-100'}`}
@@ -113,8 +115,8 @@ export const TopNav: React.FC<TopNavProps> = ({
 
       {/* Phone navigation: a bottom tab bar is easier to reach than a scrolling strip */}
       <nav aria-label="Main" className="xl:hidden fixed bottom-0 inset-x-0 z-40 border-t border-slate-800 bg-slate-950/95 backdrop-blur-md pb-[env(safe-area-inset-bottom)]">
-        <div className="grid grid-cols-4 max-w-2xl mx-auto">
-          {NAV.map(({ id, short, icon: Icon }) => (
+        <div className="grid grid-cols-5 max-w-3xl mx-auto">
+          {NAV.filter(({ id }) => id !== 'owner' || currentUser.isOwner).map(({ id, short, icon: Icon }) => (
             <button
               key={id} onClick={() => setActiveTab(id)} aria-current={activeTab === id ? 'page' : undefined}
               className={`flex flex-col items-center gap-1 pt-2.5 pb-2 text-[11px] font-medium transition-colors ${activeTab === id ? 'text-indigo-300' : 'text-slate-400'}`}

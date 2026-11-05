@@ -23,6 +23,7 @@ const buildSrt = (items: GeneratedVideo['scenes']) => {
   const cues: string[] = [];
   for (const scene of items) {
     // Prefer real speech timestamps when available; fall back to estimated screenplay timing.
+    const duration = Math.max(0.5, Number(scene.duration) || 4);
     const timedCaptions = (scene.captions || []).filter((cue) => String(cue.text || '').trim() && Number.isFinite(Number(cue.start)) && Number.isFinite(Number(cue.end)));
     if (timedCaptions.length) {
       timedCaptions.forEach((cue) => {
@@ -33,7 +34,6 @@ const buildSrt = (items: GeneratedVideo['scenes']) => {
       offset += duration;
       continue;
     }
-    const duration = Math.max(0.5, Number(scene.duration) || 4);
     const lines = (scene.lines || []).filter((line) => String(line.text || '').trim());
     // Respect explicit first/second-half dialogue timing when present. Older scenes
     // without timing metadata keep the previous whole-scene estimate.

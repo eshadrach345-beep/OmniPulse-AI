@@ -1,7 +1,7 @@
 import { neon } from '@neondatabase/serverless';
 
 let client: ReturnType<typeof neon> | null = null;
-export function sql() {
+export function sql(): any {
   if (!client) {
     const url = process.env.DATABASE_URL || process.env.POSTGRES_URL;
     if (!url) throw new Error('DATABASE_URL is not configured');
@@ -53,6 +53,24 @@ export function ensureSchema(): Promise<void> {
         attempts INT NOT NULL DEFAULT 0,
         PRIMARY KEY (email, purpose)
       )`;
+      await q`CREATE TABLE IF NOT EXISTS support_threads (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        subject TEXT NOT NULL DEFAULT 'Support request',
+        status TEXT NOT NULL DEFAULT 'open',
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      )`;
+      await q`CREATE INDEX IF NOT EXISTS support_threads_user_idx ON support_threads (user_id, updated_at DESC)`;
+      await q`CREATE TABLE IF NOT EXISTS support_messages (
+        id TEXT PRIMARY KEY,
+        thread_id TEXT NOT NULL,
+        sender_id TEXT NOT NULL,
+        sender_role TEXT NOT NULL CHECK (sender_role IN ('user', 'owner')),
+        body TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      )`;
+      await q`CREATE INDEX IF NOT EXISTS support_messages_thread_idx ON support_messages (thread_id, created_at ASC)`;
       await q`CREATE TABLE IF NOT EXISTS media_assets (
         id TEXT PRIMARY KEY,
         user_id TEXT NOT NULL,

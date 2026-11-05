@@ -18,7 +18,7 @@ import {
   GrokHookStyle,
   StoryBrief
 } from '../types';
-import { STUDIO_VOICES, StudioVoice, ElevenLabsVoice } from '../data/voicesData';
+import { STUDIO_VOICES, StudioVoice } from '../data/voicesData';
 
 /**
  * Return real playable MP4 video footage matching the selected style and aspect ratio
@@ -208,7 +208,6 @@ export const StudioAudioService = {
   }
 };
 
-export const ElevenLabsAudioService = StudioAudioService;
 
 /** Neutral generated thumbnail (a gradient with the title's initial) until a real frame is available. */
 export function placeholderThumb(label: string): string {
@@ -237,7 +236,7 @@ async function pollRender(jobId: string, onStatus?: (m: string) => void): Promis
 
 
 /**
- * Generate a complete Video Script & Visual Storyboard using Gemini + fal.ai Pipeline
+ * Generate a complete Video Script & Visual Storyboard using OmniPulse's AI generation pipeline
  */
 export async function generateAIVideoScript(params: {
   idea: string;
@@ -269,7 +268,7 @@ export async function generateAIVideoScript(params: {
 
   const chosenVoice = StudioAudioService.getVoice(voiceId);
 
-  // 1. Script + storyboard from Gemini (server-side). Errors surface to the user.
+  // 1. Script + storyboard from the server-side AI engine. Errors surface to the user.
   onStatus?.('Writing your script and storyboard...');
   const scriptBody = {
     idea,
@@ -283,16 +282,16 @@ export async function generateAIVideoScript(params: {
     seconds,
     variationSeed: typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : 'short-video-' + Date.now() + '-' + Math.random().toString(36).slice(2),
   };
-  const transient = (e: unknown) => e instanceof ApiError && ([0, 502, 503, 504].includes(e.status) || (e.status === 424 && e.code === 'GEMINI'));
+  const transient = (e: unknown) => e instanceof ApiError && ([0, 502, 503, 504].includes(e.status) || (e.status === 424 && e.code === 'AI_PROVIDER_UNAVAILABLE'));
   let scriptData: any;
   try {
-    try { scriptData = await api.post('/gemini/generate-script', scriptBody); }
-    catch (e) { if (!transient(e)) throw e; onStatus?.('Script engine was busy, retrying...'); await sleep(1500); scriptData = await api.post('/gemini/generate-script', scriptBody); }
+    try { scriptData = await api.post('/ai/generate-script', scriptBody); }
+    catch (e) { if (!transient(e)) throw e; onStatus?.('Script engine was busy, retrying...'); await sleep(1500); scriptData = await api.post('/ai/generate-script', scriptBody); }
   } catch (e) {
     throw new Error(`Script step failed: ${e instanceof Error ? e.message : 'unknown error'}`);
   }
 
-  // 2. Real video render on fal.ai: submit job, then poll until it completes.
+  // 2. Real video render through the video engine: submit job, then poll until it completes.
   onStatus?.('Submitting your video to the render engine...');
   const falPrompt = scriptData?.falPrompt || `${idea}. Dynamic camera motion, cinematic lighting, high detail`;
   let jobId: string;
@@ -301,7 +300,7 @@ export async function generateAIVideoScript(params: {
   const generatedVideoUrl = await pollRender(jobId, onStatus);
   const falEngineName = 'fal-ai/minimax/h3-max-turbo';
 
-  // If Gemini generated the script, build the complete video object
+  // If the AI engine generated the script, build the complete video object
   {
     const GRADIENTS = ['from-indigo-950 via-slate-900 to-black', 'from-blue-950 via-slate-900 to-black', 'from-emerald-950 via-slate-900 to-black', 'from-purple-950 via-slate-900 to-black'];
     const MOTIONS: VideoScene['motionStyle'][] = ['Dynamic Zoom', 'Kinetic Kinetic Typography', 'Isometric Pan', 'Hand Sketch Draw'];
@@ -363,8 +362,8 @@ export async function analyzeNicheTrends(nicheName: string, customQuery?: string
   trendingCreators: TrendingCreator[];
 }> {
   // Two short requests (live search, then formatting) so no single request runs long.
-  const found: any = await api.post('/gemini/research-trends', { niche: nicheName, customQuery: customQuery || '' });
-  const data: any = await api.post('/gemini/research-trends', { step: 'format', niche: nicheName, notes: found.notes });
+  const found: any = await api.post('/ai/research-trends', { niche: nicheName, customQuery: customQuery || '' });
+  const data: any = await api.post('/ai/research-trends', { step: 'format', niche: nicheName, notes: found.notes });
   data.sources = found.sources; data.grounded = !!found.grounded;
   if (!Array.isArray(data.trendingTopics) || !data.trendingTopics.length) {
     throw new Error('Research returned no trends. Please try again.');
@@ -478,12 +477,12 @@ export async function generateStoryDraft(p: StoryDraftRequest): Promise<StoryDra
   };
   const requestStep = async (draft?: any) => {
     const payload = draft ? { ...body, draft } : body;
-    try { return await api.post<any>('/gemini/generate-story-step', payload); }
+    try { return await api.post<any>('/ai/generate-story-step', payload); }
     catch (e) {
-      const transient = e instanceof ApiError && ([0, 502, 503, 504].includes(e.status) || (e.status === 424 && e.code === 'GEMINI'));
+      const transient = e instanceof ApiError && ([0, 502, 503, 504].includes(e.status) || (e.status === 424 && e.code === 'AI_PROVIDER_UNAVAILABLE'));
       if (!transient) throw e;
       await sleep(1400);
-      return await api.post<any>('/gemini/generate-story-step', payload);
+      return await api.post<any>('/ai/generate-story-step', payload);
     }
   };
   let step = await requestStep();
@@ -498,7 +497,7 @@ export async function generateStoryDraft(p: StoryDraftRequest): Promise<StoryDra
     throw new Error('The full script could not be completed. No shortened video was created. Please try again.');
   }
   const expected = Number(p.brief.requestedSeconds);
-  const actual = Number(draft.totalSeconds || draft.estimatedDuration || 0);
+  const actual = Number(draft.totalSeconds || 0);
   if (expected >= 60 && actual && actual < expected) {
     throw new Error('The storyboard is shorter than the duration you selected (' + actual + 's of ' + expected + 's). It was not silently accepted. Please regenerate.');
   }

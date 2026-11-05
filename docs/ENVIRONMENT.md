@@ -10,15 +10,13 @@ They are *not* needed in Google AI Studio. This app runs on Vercel, not in the A
 | `SESSION_SECRET` | 32+ random characters (signs login cookies) |
 | `TOKEN_ENCRYPTION_KEY` | Another random string (encrypts social-account tokens) |
 | `OWNER_ACCESS_CODE` | Your private test code. Enter it on the sign-in screen ("Have an access code?") for full access with no signup or payment. Leave unset to disable. |
-| `GEMINI_API_KEY` | Google AI Studio key |
-| `GEMINI_MODEL` | Optional. Default `gemini-3.8-flash` with automatic fallbacks |
-| `GEMINI_MODEL` | Recommended: `gemini-2.5-flash-lite` (cheap and fast) or `gemini-2.5-flash`. Leave unset to try both automatically |
-| `GEMINI_API_KEY` | Main AI writer. You can add more free keys from other Google projects as `GEMINI_API_KEY_2` to `GEMINI_API_KEY_5` (or put them all in `GEMINI_API_KEYS`, separated by commas). When one key runs out of its free quota the next one is used |
+| `GEMINI_API_KEY` | Google AI Studio key. Additional keys can be supplied as `GEMINI_API_KEY_2` through `GEMINI_API_KEY_5`, or together in `GEMINI_API_KEYS` (comma-separated). Keys are rotated when a provider reports quota or rate-limit errors. |
+| `GEMINI_MODEL` | Optional model override. If unset, the service tries `gemini-3.8-flash` and `gemini-3.5-flash-lite` in sequence. Model access depends on the Google project and current API availability. |
 | `LLM_API_KEY` | Backup AI writer. It works with any service: the service is recognised from the key (`gsk_` Groq, `sk-or-` OpenRouter, `sk-` OpenAI, `xai-` xAI, `csk-` Cerebras, `sk-ant-` Anthropic). For any other service also set `LLM_BASE_URL` (for example `https://api.example.com/v1`) and optionally `LLM_MODEL` |
 | `GROQ_API_KEY`, `OPENROUTER_API_KEY`, `OPENAI_API_KEY`, `DEEPSEEK_API_KEY`, `MISTRAL_API_KEY`, `CEREBRAS_API_KEY`, `TOGETHER_API_KEY`, `XAI_API_KEY`, `ANTHROPIC_API_KEY` | Alternative ways to add backup writers. Every one that is set is tried in turn after Gemini |
 | `LLM_PRIMARY` | Set to `backup` to try the backup writers before Gemini |
 | `LLM_BASE_URL` | Optional. Default `https://api.groq.com/openai/v1` |
-| `LLM_MODEL` | Optional. Default `llama-3.3-70b-versatile` |
+| `LLM_MODEL` | Optional backup-provider model override. Without an override, each configured provider uses its current default model (Groq currently defaults to `openai/gpt-oss-20b`). |
 | `LLM_PRIMARY` | Optional. Set to `backup` to use the backup AI first and keep Gemini for live search only |
 | `VIDEO_PROVIDER` | Optional. `fal` (default), `deapi`, or `auto` (fal first, deAPI if fal fails) |
 | `DEAPI_API_KEY` | Optional second video provider (deapi.ai, free starter credit) |

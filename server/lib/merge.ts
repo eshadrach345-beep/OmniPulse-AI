@@ -1,4 +1,4 @@
-// Joins several short clips into one MP4 using ffmpeg. Everything is imported lazily so a missing ffmpeg never breaks the rest of the API.
+// Joins scene clips into one MP4. Inputs are streamed to disk to avoid buffering an entire production in function memory.
 
 interface ClipInfo { video: string; audio: string; size: string; seconds: number }
 
@@ -104,18 +104,50 @@ async function mergeClipsFresh(urls: string[]): Promise<MergeResult> {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'op-merge-'));
   const cleanup = async () => { await fs.rm(dir, { recursive: true, force: true }).catch(() => undefined); };
   try {
-    // Download every scene at the same time. Long productions have up to 12 scenes, and one after another would eat the 60 second limit.
-    // Each clip is inspected as soon as it has arrived, in parallel with the others, instead of one after another at the end.
+    // Stream downloads concurrently, but keep a strict aggregate size ceiling and cancel peers on any failure.
+    const MAX_INPUT_BYTES = 400 * 1024 * 1024;
+    const { Readable, Transform } = await import('node:stream');
+    const { pipeline } = await import('node:stream/promises');
+    const { createWriteStream } = await import('node:fs');
+    const controller = new AbortController();
+    let downloadedBytes = 0;
+    let declaredBytesTotal = 0;
     const info: ClipInfo[] = new Array(urls.length);
-    const files: string[] = await Promise.all(urls.map(async (url, i) => {
-      let r: Response | null = null;
-      for (let attempt = 0; attempt < 2 && !r?.ok; attempt++) { try { r = await fetch(url, { signal: AbortSignal.timeout(20_000) }); } catch { r = null; } } // one quick retry for a network hiccup
-      if (!r || !r.ok) throw new Error(`Scene ${i + 1} could not be downloaded${r ? ` (${r.status})` : ''}.`);
-      const f = path.join(dir, `c${i}.mp4`);
-      await fs.writeFile(f, Buffer.from(await r.arrayBuffer()));
-      if (urls.length > 1) info[i] = await inspect(bin, f);
-      return f;
-    }));
+    const downloadTasks = urls.map(async (url, i) => {
+      try {
+        let r: Response | null = null;
+        for (let attempt = 0; attempt < 2 && !r?.ok; attempt++) {
+          try { r = await fetch(url, { signal: AbortSignal.any([controller.signal, AbortSignal.timeout(45_000)]) }); }
+          catch (error) { if (controller.signal.aborted) throw error; r = null; }
+        }
+        if (!r || !r.ok) throw new Error(`Scene ${i + 1} could not be downloaded${r ? ` (${r.status})` : ''}.`);
+        const declaredBytes = Number(r.headers.get('content-length') || 0);
+        if (declaredBytes > 0) {
+          declaredBytesTotal += declaredBytes;
+          if (declaredBytesTotal > MAX_INPUT_BYTES) throw new Error('The combined scene files exceed the 400 MB assembly limit.');
+        }
+        if (!r.body) throw new Error(`Scene ${i + 1} returned an empty download.`);
+        const f = path.join(dir, `c${i}.mp4`);
+        const meter = new Transform({ transform(chunk, _encoding, callback) {
+          downloadedBytes += chunk.length;
+          if (downloadedBytes > MAX_INPUT_BYTES) callback(new Error('The combined scene files exceed the 400 MB assembly limit.'));
+          else callback(null, chunk);
+        } });
+        await pipeline((Readable as any).fromWeb(r.body as any), meter, createWriteStream(f, { flags: 'wx' }), { signal: controller.signal });
+        return f;
+      } catch (error) { controller.abort(error); throw error; }
+    });
+    let files: string[];
+    try { files = await Promise.all(downloadTasks); }
+    catch (error) { controller.abort(); await Promise.allSettled(downloadTasks); throw error; }
+    // Probe clips in small batches; spawning one FFmpeg process per scene at once can exhaust Hobby memory.
+    if (urls.length > 1) {
+      for (let i = 0; i < files.length; i += 2) {
+        const batch = files.slice(i, i + 2);
+        const results = await Promise.all(batch.map((file) => inspect(bin, file)));
+        results.forEach((result, offset) => { info[i + offset] = result; });
+      }
+    }
     const out = path.join(dir, 'out.mp4');
     if (files.length === 1) { await fs.copyFile(files[0], out); return { file: out, cleanup }; }
 
@@ -129,7 +161,7 @@ async function mergeClipsFresh(urls: string[]): Promise<MergeResult> {
       await fs.writeFile(list, files.map((f) => `file '${f.replace(/'/g, "'\\''")}'`).join('\n'));
       let ok = false;
       if (fluent) {
-        try { await fluentRun(fluent().input(list).inputOptions(['-f concat', '-safe 0']).outputOptions(['-c copy', ...WEB_FLAGS]), out, 40_000); ok = true; }
+        try { await fluentRun(fluent().input(list).inputOptions(['-f concat', '-safe 0']).outputOptions(['-c copy', ...WEB_FLAGS]), out, 45_000); ok = true; }
         catch (e: any) { console.error('fluent concat failed, trying plain ffmpeg:', e?.message); }
       } else {
         const r = await run(bin, ['-y', '-f', 'concat', '-safe', '0', '-i', list, '-c', 'copy', '-movflags', '+faststart', out], 40_000);

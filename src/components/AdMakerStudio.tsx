@@ -77,7 +77,7 @@ export const AdMakerStudio: React.FC<Props> = ({ nicheName, onClose, onSaveNewVi
     if (product.trim().length < 5) { setError('Describe your product or service first.'); return; }
     setBusy('ideas'); setError(''); setStatus('Creative director is developing campaign ideas...');
     try {
-      const r = await api.post<{ concepts: Concept[]; brandImagePrompts?: string[] }>('/gemini/ad-concepts', { brand, product, audience, brief, aspect, seconds });
+      const r = await api.post<{ concepts: Concept[]; brandImagePrompts?: string[] }>('/ai/ad-concepts', { brand, product, audience, brief, aspect, seconds });
       setConcepts(r.concepts); setSelectedConcept(0); setVoiceover(r.concepts[0]?.voiceover || '');
       const firstPrompt = r.brandImagePrompts?.[0] || r.concepts[0]?.imagePrompt || '';
       setImagePrompt(firstPrompt);
@@ -174,7 +174,7 @@ export const AdMakerStudio: React.FC<Props> = ({ nicheName, onClose, onSaveNewVi
           {status && <p role="status" className="text-xs text-indigo-200">{status}</p>}
           {error && <p role="alert" className="text-xs text-red-300 bg-red-950/40 border border-red-900 rounded-lg p-3">{error}</p>}
           <button onClick={render} disabled={!!busy || !selectedImage} className="w-full flex items-center justify-center gap-2 rounded-xl bg-linear-to-r from-fuchsia-600 to-indigo-600 hover:opacity-90 disabled:opacity-40 px-4 py-3.5 text-sm font-bold text-white">{busy==='render'?<Loader2 className="w-4 h-4 animate-spin"/>:<Film className="w-4 h-4"/>}{busy==='render'?'Rendering your image-based ad...':'Animate selected image into an ad'}</button>
-          <p className="text-[10px] text-slate-500 text-center">Video rendering uses your account's available video seconds. Brand still generation may consume fal.ai credits.</p>
+          <p className="text-[10px] text-slate-500 text-center">Video rendering uses your account's available video seconds. Brand still generation may consume your account's available AI credits.</p>
         </div>
       </div>
     </div>

@@ -1,6 +1,7 @@
 import React from 'react';
 
 export class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { failed: boolean }> {
+  declare readonly props: Readonly<{ children: React.ReactNode }>;
   state = { failed: false };
   static getDerivedStateFromError() { return { failed: true }; }
   componentDidCatch(error: unknown) { console.error('UI crashed:', error); }

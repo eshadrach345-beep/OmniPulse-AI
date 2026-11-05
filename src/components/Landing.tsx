@@ -58,7 +58,7 @@ export const Landing: React.FC<{ onGetStarted: (mode: 'signup' | 'signin') => vo
   const [annual, setAnnual] = useState(false);
   const [open, setOpen] = useState<number | null>(0);
   useEffect(() => { Auth.plans().then(setPlans).catch(() => undefined); }, []);
-  const ref = plans.find((p) => p.id === 'pro') || plans[0];
+  const ref = plans.find((p) => p.id === 'pro' && p.monthlyAvailable && p.annualAvailable) || plans.find((p) => p.monthlyAvailable && p.annualAvailable);
   const saving = ref ? annualSavingPct(ref.monthly, ref.annual) : 0;
 
   return (
@@ -172,14 +172,15 @@ export const Landing: React.FC<{ onGetStarted: (mode: 'signup' | 'signin') => vo
         <div className="grid md:grid-cols-3 gap-5 items-start">
           {plans.map((p) => {
             const featured = p.id === 'pro';
+            const cycleAvailable = annual ? p.annualAvailable : p.monthlyAvailable;
             return (
               <div key={p.id} className={`rounded-2xl p-6 sm:p-7 ${featured ? 'bg-slate-900 border-2 border-indigo-500 md:-mt-3' : 'bg-slate-900/60 border border-slate-700'}`}>
                 <div className="flex items-center justify-between">
                   <h3 className="font-display font-bold text-white text-xl">{p.name}</h3>
                   {featured && <span className="text-xs font-semibold text-indigo-200 bg-indigo-900/70 rounded-full px-2.5 py-1">Most chosen</span>}
                 </div>
-                <p className="mt-4"><span className="font-display text-5xl font-extrabold text-white">{formatMoney(annual ? p.annual : p.monthly, p.currency)}</span><span className="text-sm text-slate-400"> per month</span></p>
-                {annual && <p className="text-xs text-slate-400 mt-1">Billed yearly</p>}
+                <p className="mt-4"><span className="font-display text-5xl font-extrabold text-white">{cycleAvailable ? formatMoney(annual ? p.annual : p.monthly, p.currency) : 'Unavailable'}</span><span className="text-sm text-slate-400"> per month</span></p>
+                {annual && cycleAvailable && <p className="text-xs text-slate-400 mt-1">Billed yearly</p>}
                 <ul className="text-slate-200 space-y-2.5 my-6">
                   <li className="flex gap-2.5"><Check className="w-4 h-4 text-indigo-400 shrink-0 mt-1" />{p.secondsPerMonth || p.videosPerMonth * 5} seconds of AI video each month (5 or 10 second videos)</li>
                   {p.quality && <li className="flex gap-2.5"><Check className="w-4 h-4 text-indigo-400 shrink-0 mt-1" />{p.quality}</li>}

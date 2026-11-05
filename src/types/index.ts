@@ -232,7 +232,7 @@ export interface VideoScene {
   onScreenText: string;
   /** Editor-controlled placement for the on-screen title overlay. */
   overlayPosition?: 'top' | 'center' | 'bottom';
-  /** Visual treatment for the editor preview title; not burned into the source MP4. */
+  /** Visual treatment used for the title in the editor preview and exported MP4. */
   overlayStyle?: 'cinematic' | 'minimal' | 'lower_third';
   soundEffectCue: string;
   motionStyle: 'Dynamic Zoom' | 'Hand Sketch Draw' | 'Kinetic Kinetic Typography' | 'Isometric Pan';
@@ -252,7 +252,7 @@ export interface GeneratedVideo {
   scenes: VideoScene[];
   /** Set for drama, documentary and animation productions with several voices. */
   characters?: VideoCharacter[];
-  format?: 'drama' | 'documentary' | 'animation';
+  format?: 'drama' | 'documentary' | 'animation' | 'commercial';
   /** Creative settings the production was made with (duration, mood, camera, character lock). */
   brief?: StoryBrief & { targetSeconds: number };
   voiceoverStyle: string;

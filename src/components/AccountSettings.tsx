@@ -59,7 +59,7 @@ export const AccountSettings: React.FC<Props> = ({ user, onClose, onUserChange, 
 
         {user.isOwner && (
           <Section title="System check (owner only)">
-            <p className="text-xs text-slate-400">Tests every connection live: database, Gemini, fal.ai (video and voice), Resend, Flutterwave and your social network keys. Uses a few cents of API credit.</p>
+            <p className="text-xs text-slate-400">Runs a live owner-only check of the services that power OmniPulse. Some checks may use a small amount of account API credit.</p>
             <button onClick={() => run('check', async () => { setChecks(null); setChecks(await Auth.systemCheck()); })} disabled={busy === 'check'} className={btn}>
               {busy === 'check' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Activity className="w-3.5 h-3.5" />}Run system check
             </button>
