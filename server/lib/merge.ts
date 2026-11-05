@@ -186,7 +186,9 @@ async function mergeClipsFresh(urls: string[]): Promise<MergeResult> {
         // Match each audio segment to its video's measured duration before concatenating.
         // This prevents short/long provider audio tracks from shifting later dialogue out of sync.
         const clipDuration = c.seconds.toFixed(2);
-        parts.push(`[${i}:a]aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo,dynaudnorm=f=150:g=7:p=0.8,apad,atrim=duration=${clipDuration},asetpts=PTS-STARTPTS[a${i}]`);
+        const edgeFade = Math.min(0.04, c.seconds / 2).toFixed(3);
+        const fadeOutAt = Math.max(0, c.seconds - Number(edgeFade)).toFixed(3);
+        parts.push(`[${i}:a]aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo,dynaudnorm=f=150:g=7:p=0.8,apad,atrim=duration=${clipDuration},afade=t=in:st=0:d=${edgeFade},afade=t=out:st=${fadeOutAt}:d=${edgeFade},asetpts=PTS-STARTPTS[a${i}]`);
       } else {
         parts.push(`anullsrc=r=44100:cl=stereo,atrim=duration=${c.seconds.toFixed(2)},aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo,asetpts=PTS-STARTPTS[a${i}]`);
       }
