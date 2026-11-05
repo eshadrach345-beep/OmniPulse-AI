@@ -309,7 +309,7 @@ export const VideoEditor: React.FC<Props> = ({ video, onSave }) => {
 
   if (!scenes.length) return null;
   return (
-    <section className="rounded-2xl border border-indigo-500/25 bg-slate-950/90 p-4 sm:p-5 space-y-4">
+    <section id="omnipulse-timeline-editor" className="scroll-mt-24 rounded-2xl border border-indigo-500/25 bg-slate-950/90 p-4 sm:p-5 space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <div className="rounded-xl bg-indigo-500/15 p-2.5 text-indigo-300"><Clapperboard className="w-5 h-5" /></div>
