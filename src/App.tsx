@@ -18,6 +18,7 @@ import { TopNav } from './components/TopNav';
 import { AccountsBar } from './components/AccountsBar';
 import { DashboardOverview } from './components/DashboardOverview';
 import { VideoStudio } from './components/VideoStudio';
+import { CreatorUploadStudio } from './components/CreatorUploadStudio';
 import { SeriesStudio } from './components/SeriesStudio';
 import { TrendHashtagRadar } from './components/TrendHashtagRadar';
 import { PostScheduler } from './components/PostScheduler';
@@ -45,7 +46,7 @@ interface WorkspaceProps {
 function Workspace({ user: currentUser, initialDashboard, onLogout, onUserChange }: WorkspaceProps) {
   // Navigation
   const [activeTab, setActiveTab] = useState<
-    'dashboard' | 'accounts' | 'video-studio' | 'series' | 'trends-hashtags' | 'scheduler' | 'ab-testing' | 'analytics' | 'support' | 'owner'
+    'dashboard' | 'accounts' | 'video-studio' | 'creator-studio' | 'series' | 'trends-hashtags' | 'scheduler' | 'ab-testing' | 'analytics' | 'support' | 'owner'
   >('dashboard');
 
   // Set when the dashboard asks the Series tab to open one project on its next part.
@@ -627,6 +628,8 @@ function Workspace({ user: currentUser, initialDashboard, onLogout, onUserChange
             onResetCreateRequested={() => setCreateRequest({ open: false, prompt: '' })}
           />
         )}
+
+        {activeTab === 'creator-studio' && <CreatorUploadStudio />}
 
         {activeTab === 'series' && (
           <SeriesStudio
