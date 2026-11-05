@@ -102,15 +102,25 @@ const register: Handler = async ({ req, res, body }) => {
   json(res, 200, { ok: true, email });
 };
 
+/** Promote only the configured, email-verified first-owner account. */
+async function promoteConfiguredOwner(row: any) {
+  const configuredEmail = normEmail(process.env.OWNER_EMAIL || '');
+  if (!configuredEmail || row.email !== configuredEmail) return row;
+  const promoted = (await sql()`UPDATE users SET tier='agency', sub_status='owner', sub_cycle='annual',
+    period_end='2100-01-01T00:00:00Z' WHERE id=${row.id} RETURNING *`) as any[];
+  return promoted[0] || row;
+}
+
 const verifyEmail: Handler = async ({ req, res, body }) => {
   const email = normEmail(body.email);
   await rateLimit(`ver:ip:${clientIp(req)}`, 30, 3600);
   await checkCode(email, 'verify', body.code);
   const rows = (await sql()`UPDATE users SET email_verified = TRUE WHERE email = ${email} RETURNING *`) as any[];
   if (!rows[0]) throw new HttpError(404, 'Account not found.');
-  await startSession(res, rows[0].id);
-  mail.welcome(email, rows[0].name, appUrl(req)).catch((e) => console.error('welcome email', e));
-  json(res, 200, { user: toUser(rows[0]) });
+  const signedIn = await promoteConfiguredOwner(rows[0]);
+  await startSession(res, signedIn.id);
+  mail.welcome(email, signedIn.name, appUrl(req)).catch((e) => console.error('welcome email', e));
+  json(res, 200, { user: toUser(signedIn) });
 };
 
 const resend: Handler = async ({ req, res, body }) => {
@@ -134,8 +144,9 @@ const login: Handler = async ({ req, res, body }) => {
     await mail.otp(email, r.name, await issueCode(email, 'verify'), 'verify');
     throw new HttpError(403, 'Please verify your email. We sent you a new code.', 'UNVERIFIED');
   }
-  await startSession(res, r.id);
-  json(res, 200, { user: toUser(r) });
+  const signedIn = await promoteConfiguredOwner(r);
+  await startSession(res, signedIn.id);
+  json(res, 200, { user: toUser(signedIn) });
 };
 
 const resetPassword: Handler = async ({ req, res, body }) => {
