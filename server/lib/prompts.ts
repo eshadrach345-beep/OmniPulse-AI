@@ -388,7 +388,7 @@ export interface SeriesContinuity {
   /** Rolling summary of the whole series up to and including the previous part. */
   storySoFar: string;
   endingScene: { visualPrompt: string; voiceoverText: string };
-  characters: { name: string; role: string; gender: string; description: string; voice?: string }[];
+  characters: { name: string; role: string; gender: string; description: string; voice?: string; referenceImageUrl?: string }[];
 }
 
 /** The opening block of the writer prompt for Part 2 and later. Empty for a first part. */
