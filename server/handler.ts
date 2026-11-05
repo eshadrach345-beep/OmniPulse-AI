@@ -2563,7 +2563,8 @@ const routes: Record<string, Handler> = {
   'GET /cron/dispatch': cronDispatch, 'POST /cron/dispatch': cronDispatch,
   'GET /system/check': systemCheck,
   // Public liveness endpoint intentionally reveals no deployment, provider, or secret-configuration details.
-  'GET /health': async ({ res }) => json(res, 200, { ok: true }),\n  'GET /_diag/video-provider': videoProviderDiagnostic,
+  'GET /health': async ({ res }) => json(res, 200, { ok: true }),
+  'GET /_diag/video-provider': videoProviderDiagnostic,
 };
 
 export default async function handler(req: Req, res: Res) {
