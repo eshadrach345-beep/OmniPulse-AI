@@ -17,6 +17,7 @@ export interface CompositionInput {
   output: string;
   audioGain?: number;
   normalizeAudio?: boolean;
+  normalizeAudio?: boolean;
   brightness?: number;
   contrast?: number;
   saturation?: number;
@@ -58,6 +59,7 @@ export async function renderComposition(input: CompositionInput): Promise<void> 
   const height = Math.max(480, Math.min(1920, Math.round(input.height / 2) * 2));
   const args = ['-hide_banner', '-y'];
   const audioGain = Math.max(0, Math.min(2.5, Number(input.audioGain ?? 1)));
+  const normalizeAudio = input.normalizeAudio !== false;
   const normalizeAudio = input.normalizeAudio !== false;
   const brightness = Math.max(-0.15, Math.min(0.15, Number(input.brightness ?? 0)));
   const contrast = Math.max(0.5, Math.min(1.8, Number(input.contrast ?? 1)));
