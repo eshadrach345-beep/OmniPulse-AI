@@ -1039,7 +1039,7 @@ function finishStory(ctx: StoryCtx, d: any, input: StoryInput) {
   const characters: { id: string; name: string; role: string; gender: 'male' | 'female'; voice: string; description: string; kind: 'human' | 'animal' | 'creature' }[] = [];
   const byName = new Map<string, number>();
   const addChar = (name: string, role = '', gender: string = 'male', description = '', voice = '', kind = '') => {
-    const clean = str(name, 30); if (!clean || characters.length >= 6) return;
+    const clean = str(name, 30); if (!clean || characters.length >= 4) return;
     const key = clean.toLowerCase(); if (byName.has(key)) return;
     byName.set(key, characters.length);
     characters.push({ id: `c${characters.length + 1}`, name: clean, role: str(role, 60), gender: gender === 'female' ? 'female' : 'male', voice: str(voice, 90), description: str(description, 400), kind: kind === 'animal' || kind === 'creature' ? kind : 'human' });
