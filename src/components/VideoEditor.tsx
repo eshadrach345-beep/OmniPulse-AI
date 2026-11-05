@@ -300,6 +300,47 @@ export const VideoEditor: React.FC<Props> = ({ video, onSave }) => {
     next.splice(selected + 1, 0, { ...current, id: `${current.id}-copy-${Date.now()}`, sceneNumber: scenes.length + 1 });
     commit(next); setSelected(selected + 1);
   };
+  /** Split the selected source clip at the preview playhead into two independently editable cuts. */
+  const splitAtPlayhead = () => {
+    if (!current || !mainLayer || mainLayer.kind !== 'video') {
+      setRenderError('Select an uploaded video clip before splitting it.');
+      return;
+    }
+    const cut = Math.max(0.5, Math.min(Number(current.duration) - 0.5, previewTime));
+    if (cut <= 0.5 || cut >= Number(current.duration) - 0.5) {
+      setRenderError('Move the playhead into the clip, at least half a second from either edge.');
+      return;
+    }
+    const firstDuration = Math.round(cut * 100) / 100;
+    const secondDuration = Math.round((Number(current.duration) - cut) * 100) / 100;
+    const firstScene: VideoScene = {
+      ...current, id: `${current.id}-cut-a-${Date.now()}`, duration: firstDuration,
+      beat: current.beat ? `${current.beat} · Cut 1` : 'Cut 1',
+      mediaLayers: (current.mediaLayers || []).map((layer) => layer.id === mainLayer.id ? { ...layer, duration: firstDuration } : layer),
+      captions: (current.captions || []).filter((cue) => cue.start < firstDuration).map((cue) => ({ ...cue, end: Math.min(cue.end, firstDuration) })).filter((cue) => cue.end > cue.start),
+    };
+    const secondScene: VideoScene = {
+      ...current, id: `${current.id}-cut-b-${Date.now()}`, duration: secondDuration,
+      beat: current.beat ? `${current.beat} · Cut 2` : 'Cut 2',
+      mediaLayers: (current.mediaLayers || []).map((layer) => layer.id === mainLayer.id ? { ...layer, sourceIn: layer.sourceIn + firstDuration, duration: secondDuration } : layer),
+      captions: (current.captions || []).filter((cue) => cue.end > firstDuration).map((cue) => ({ ...cue, start: Math.max(0, cue.start - firstDuration), end: cue.end - firstDuration })).filter((cue) => cue.end > cue.start),
+    };
+    const next = [...scenes.slice(0, selected), firstScene, secondScene, ...scenes.slice(selected + 1)];
+    commit(next);
+    setSelected(selected + 1);
+    setPreviewTime(0);
+    setRenderError('');
+  };
+  const applyOverlayPreset = (preset: 'hook' | 'lower' | 'cta' | 'chapter') => {
+    const presets = {
+      hook: { text: 'WAIT FOR IT…', position: 'top' as const, style: 'cinematic' as const },
+      lower: { text: 'NAME  |  CREATOR / TITLE', position: 'bottom' as const, style: 'lower_third' as const },
+      cta: { text: 'FOLLOW FOR MORE', position: 'bottom' as const, style: 'minimal' as const },
+      chapter: { text: 'CHAPTER ONE', position: 'center' as const, style: 'cinematic' as const },
+    };
+    const value = presets[preset];
+    patchCurrent({ onScreenText: value.text, overlayPosition: value.position, overlayStyle: value.style });
+  };
   const undo = () => {
     const previous = undoStack[undoStack.length - 1]; if (!previous) return;
     const ordered = previous.map((scene, index) => ({ ...scene, sceneNumber: index + 1 }));
@@ -373,6 +414,35 @@ export const VideoEditor: React.FC<Props> = ({ video, onSave }) => {
           </div>}
           {audioLayers.map((layer) => mediaUrls[layer.assetId] ? <div key={layer.id} className="rounded-lg border border-slate-700 bg-slate-950 p-2"><p className="mb-1 text-[10px] text-slate-400">{layer.name} · audio track · starts at {formatTime(layer.startAt)}</p><audio src={mediaUrls[layer.assetId]} controls preload="metadata" onLoadedMetadata={(event) => { event.currentTarget.currentTime = Math.max(0, layer.sourceIn); event.currentTarget.volume = Math.max(0, Math.min(1, layer.volume)); }} className="w-full" /></div> : null)}
           {current && <>
+            <div className="space-y-3 rounded-xl border border-indigo-500/25 bg-indigo-950/20 p-3">
+              <div className="flex items-center justify-between gap-2"><div><p className="text-xs font-bold text-white">Precision cut controls</p><p className="text-[10px] text-slate-400">Set the source in-point, choose the cut length, then split at the preview playhead.</p></div><Scissors className="h-4 w-4 text-indigo-300" /></div>
+              {mainLayer?.kind === 'video' && <label className="block space-y-1"><span className="text-[11px] font-medium text-slate-400">Source IN · seconds</span><input type="number" min="0" step="0.1" value={mainLayer.sourceIn} onChange={(event) => patchMediaLayer(mainLayer.id, { sourceIn: Math.max(0, Number(event.target.value) || 0) })} className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-white" /></label>}
+              <div className="grid grid-cols-2 gap-2 text-[10px]"><div className="rounded-lg bg-slate-950 p-2"><span className="text-slate-500">Current source start</span><strong className="mt-1 block text-indigo-200 tabular-nums">{formatTime(mainLayer?.sourceIn || 0)}</strong></div><div className="rounded-lg bg-slate-950 p-2"><span className="text-slate-500">Current source end</span><strong className="mt-1 block text-indigo-200 tabular-nums">{formatTime((mainLayer?.sourceIn || 0) + (current?.duration || 0))}</strong></div></div>
+              <div className="flex flex-wrap items-center justify-between gap-2"><span className="text-[10px] text-slate-400">Playhead: {formatTime(previewTime)} / {formatTime(current.duration)}</span><button type="button" onClick={splitAtPlayhead} disabled={!mainLayer || mainLayer.kind !== 'video' || current.duration < 2} className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-2 text-[11px] font-bold text-white disabled:opacity-40"><Scissors className="h-3.5 w-3.5" />Split at playhead</button></div>
+              <p className="text-[10px] text-slate-500">Example: set IN to 1:03 (63 seconds), set length to 4 seconds, then split to create separate timeline cuts. Each cut exports independently.</p>
+            </div>
+            <div className="space-y-3 rounded-xl border border-slate-700 bg-slate-950/70 p-3">
+              <div><p className="text-xs font-bold text-white">Picture & sound finishing</p><p className="text-[10px] text-slate-500">These controls are applied by the server compositor when you render.</p></div>
+              <label className="block space-y-1"><span className="flex justify-between text-[11px] text-slate-400"><span>Original audio level</span><strong className="text-indigo-200">{Math.round((current.audioGain ?? 1) * 100)}%</strong></span><input type="range" min="0" max="2.5" step="0.05" value={current.audioGain ?? 1} onChange={(e) => patchCurrent({ audioGain: Number(e.target.value) })} className="w-full accent-indigo-500" /></label>
+              <label className="block space-y-1"><span className="flex justify-between text-[11px] text-slate-400"><span>Brightness</span><strong>{Math.round((current.brightness ?? 0) * 100)}</strong></span><input type="range" min="-0.15" max="0.15" step="0.01" value={current.brightness ?? 0} onChange={(e) => patchCurrent({ brightness: Number(e.target.value) })} className="w-full accent-indigo-500" /></label>
+              <label className="block space-y-1"><span className="flex justify-between text-[11px] text-slate-400"><span>Contrast</span><strong>{(current.contrast ?? 1).toFixed(2)}×</strong></span><input type="range" min="0.5" max="1.8" step="0.05" value={current.contrast ?? 1} onChange={(e) => patchCurrent({ contrast: Number(e.target.value) })} className="w-full accent-indigo-500" /></label>
+              <label className="block space-y-1"><span className="flex justify-between text-[11px] text-slate-400"><span>Colour saturation</span><strong>{(current.saturation ?? 1).toFixed(2)}×</strong></span><input type="range" min="0" max="2" step="0.05" value={current.saturation ?? 1} onChange={(e) => patchCurrent({ saturation: Number(e.target.value) })} className="w-full accent-indigo-500" /></label>
+              <label className="block space-y-1"><span className="text-[11px] text-slate-400">Export picture quality</span><select value={current.exportQuality || 'standard'} onChange={(e) => patchCurrent({ exportQuality: e.target.value as VideoScene['exportQuality'] })} className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-white"><option value="high">High quality · larger file</option><option value="standard">Balanced · recommended</option><option value="small">Smaller file · faster upload</option></select></label>
+            </div>
+            <div className="space-y-2 rounded-xl border border-fuchsia-500/25 bg-fuchsia-950/15 p-3">
+              <div><p className="text-xs font-bold text-white">Professional overlay presets</p><p className="text-[10px] text-slate-400">One-tap title treatments. Customize the text after applying.</p></div>
+              <div className="grid grid-cols-2 gap-2">
+                <button type="button" onClick={() => applyOverlayPreset('hook')} className="rounded-lg border border-slate-700 bg-slate-950 px-2 py-2 text-left text-[10px] font-semibold text-fuchsia-200">✦ Cinematic hook</button>
+                <button type="button" onClick={() => applyOverlayPreset('lower')} className="rounded-lg border border-slate-700 bg-slate-950 px-2 py-2 text-left text-[10px] font-semibold text-fuchsia-200">▰ Broadcast lower-third</button>
+                <button type="button" onClick={() => applyOverlayPreset('cta')} className="rounded-lg border border-slate-700 bg-slate-950 px-2 py-2 text-left text-[10px] font-semibold text-fuchsia-200">↗ Follow / CTA</button>
+                <button type="button" onClick={() => applyOverlayPreset('chapter')} className="rounded-lg border border-slate-700 bg-slate-950 px-2 py-2 text-left text-[10px] font-semibold text-fuchsia-200">▣ Chapter title</button>
+              </div>
+            </div>
+            <div className="space-y-2 rounded-xl border border-slate-700 bg-slate-950/70 p-3">
+              <div className="flex items-center justify-between"><p className="text-xs font-bold text-white">Subtitle cue editor</p><button type="button" onClick={() => patchCurrent({ captions: [...(current.captions || []), { start: Math.max(0, previewTime), end: Math.min(current.duration, previewTime + 3), text: 'New subtitle' }] })} className="rounded-lg border border-indigo-500/40 px-2 py-1 text-[10px] font-semibold text-indigo-200">+ Add cue</button></div>
+              {(current.captions || []).map((cue, index) => <div key={index} className="grid grid-cols-[1fr_1fr_auto] gap-2"><input aria-label="Subtitle start seconds" type="number" min="0" step="0.1" value={cue.start} onChange={(e) => patchCurrent({ captions: (current.captions || []).map((item, i) => i === index ? { ...item, start: Math.max(0, Number(e.target.value) || 0) } : item) })} className="min-w-0 rounded border border-slate-700 bg-slate-900 px-2 py-1.5 text-[10px] text-white" /><input aria-label="Subtitle end seconds" type="number" min="0" step="0.1" value={cue.end} onChange={(e) => patchCurrent({ captions: (current.captions || []).map((item, i) => i === index ? { ...item, end: Math.max(0, Number(e.target.value) || 0) } : item) })} className="min-w-0 rounded border border-slate-700 bg-slate-900 px-2 py-1.5 text-[10px] text-white" /><button type="button" aria-label="Remove subtitle cue" onClick={() => patchCurrent({ captions: (current.captions || []).filter((_, i) => i !== index) })} className="rounded border border-rose-900/60 px-2 text-rose-300">×</button><textarea value={cue.text} onChange={(e) => patchCurrent({ captions: (current.captions || []).map((item, i) => i === index ? { ...item, text: e.target.value } : item) })} rows={2} className="col-span-3 w-full rounded border border-slate-700 bg-slate-900 px-2 py-1.5 text-[11px] text-white" /></div>)}
+              {!current.captions?.length && <p className="text-[10px] text-slate-500">No subtitles yet. Use Transcribe selected upload below to create timed captions automatically, or add a cue manually.</p>}
+            </div>
             <label className="block space-y-1"><span className="text-[11px] font-medium text-slate-400">Edit segment duration (seconds · max 90 per render)</span><input type="number" min="1" max="90" step="0.5" value={current.duration} onChange={(event) => patchCurrent({ duration: Math.max(1, Math.min(90, Number(event.target.value) || 1)) })} className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-white outline-none focus:border-indigo-400" /></label>
             <label className="block space-y-1"><span className="text-[11px] font-medium text-slate-400">Scene name / beat</span><input value={current.beat || ''} onChange={(e) => patchCurrent({ beat: e.target.value })} placeholder="Opening, reveal, climax..." className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-white outline-none focus:border-indigo-400" /></label>
             <label className="block space-y-1"><span className="text-[11px] font-medium text-slate-400">Text overlay</span><textarea value={current.onScreenText || ''} onChange={(e) => patchCurrent({ onScreenText: e.target.value })} rows={3} maxLength={180} placeholder="Add a title, lower-third or callout..." className="w-full resize-y rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-white outline-none focus:border-indigo-400" /></label>
