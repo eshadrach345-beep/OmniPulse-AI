@@ -607,6 +607,10 @@ interface WriterBase {
   scenes: (10 | 20)[]; mood: StoryMoodKey; cameraProfile: CameraProfileKey; pacing: string;
   characterLock?: { name: string; descriptor: string };
   continuity?: SeriesContinuity;
+  /** Short-drama episode structure and finale awareness. */
+  presentation?: string;
+  ending?: string;
+  finalEpisode?: boolean;
   /** Unique random seed for this production's original plot and character choices. */
   variationSeed?: string;
   /** Ready style block from styleBlock(). */
@@ -649,6 +653,27 @@ ${ORIGINALITY}
 `;
 }
 
+function episodeArcRules(a: WriterBase): string {
+  if (a.presentation !== 'shortdrama') return '';
+  return `
+SHORT-DRAMA SERIAL STORY ENGINE:
+- Write this as a premium vertical serialized drama, not a collection of unrelated AI clips.
+- Open in the middle of a charged event, betrayal, accusation, threat, discovery or impossible choice. Establish the central conflict immediately; never spend the opening scene on greetings, generic scenery or exposition.
+- Every scene must change the power balance, reveal information, force a choice, increase danger or deepen the relationship. Give each scene one visually legible dramatic beat and a clear cause-and-effect link to the next.
+- Use recurring character goals, secrets, relationships and physical story props. Preserve the established cast; do not introduce a new named character unless the plot truly requires one.
+- Alternate purposeful two-person coverage, reaction close-ups, over-the-shoulder angles and action inserts. Keep the same screen direction, location geometry and actor identity across editorial cuts.
+- Keep dialogue emotionally specific, short and playable. Let expressions, gestures and actions carry the rest. Avoid explanatory speeches, generic narration and repetitive confrontations.
+- Do not use a "like/follow/subscribe" call to action as the dramatic ending. A caption call to action is separate from the story.
+`;
+}
+
+function episodeEndingRule(a: WriterBase): string {
+  if (a.presentation !== 'shortdrama') return '- The last scene must bring this part to a clear dramatic resolution; a short caption call to action may be supplied separately.';
+  if (a.finalEpisode) return '- This is the FINAL episode of the series. Resolve the central conflict and deliver an earned emotional payoff. Do not finish on an artificial cliffhanger or a call to action.';
+  if (a.ending === 'cliffhanger') return '- The final scene MUST end on a strong unresolved cliffhanger: a shocking reveal, betrayal, reversal, arrival, exposed secret, imminent danger or irreversible choice. End at the instant the consequence becomes clear, before the characters can resolve it. The next episode must feel necessary. No spoken or on-screen follow/following CTA.';
+  return '- The final scene must use the selected ending style, feel emotionally conclusive for this part, and leave a clear reason to watch the next episode. No spoken or on-screen follow CTA.';
+}
+
 /** One request that writes the whole part (up to SCENES_PER_WRITER_CALL scenes). */
 export function storyboardPrompt(a: WriterBase & { castMin: number }): string {
   const cam = CAMERA_PROFILES[a.cameraProfile];
@@ -659,7 +684,9 @@ STORYBOARD. Write EXACTLY ${a.scenes.length} scenes in order, one continuous sto
 ${sceneSpecs(a.scenes)}
 
 ${sceneRules(cam)}
-- Scene 1 must hook the viewer immediately${a.continuity ? " by continuing straight from the previous part's ending" : ''}. The last scene must resolve this part and may end with a short call to action.
+${episodeArcRules(a)}
+- Scene 1 must hook the viewer immediately${a.continuity ? " by continuing straight from the previous part's ending" : ''}.
+${episodeEndingRule(a)}
 
 Return ONLY valid JSON in exactly this shape:
 {
@@ -681,6 +708,8 @@ ${castRules(a.castMin, a.format, a.silentCast)}
 
 Plan a story of EXACTLY ${a.scenes.length} scenes, one continuous story with a full arc. Scene lengths:
 ${sceneSpecs(a.scenes)}
+${episodeArcRules(a)}
+${episodeEndingRule(a)}
 
 Return ONLY valid JSON in exactly this shape:
 {
@@ -712,7 +741,8 @@ Write ONLY scenes ${from} to ${to} now, in full, following their outline lines. 
 ${sceneSpecs(a.scenes, from - 1, to, undefined)}
 
 ${sceneRules(cam)}
-${from === 1 ? '- Scene 1 must hook the viewer immediately.' : `- Scene ${from} picks up straight from the end of scene ${from - 1}.`}${to === a.scenes.length ? ' The last scene resolves this part and may end with a short call to action.' : ''}
+${episodeArcRules(a)}
+${from === 1 ? '- Scene 1 must hook the viewer immediately.' : `- Scene ${from} picks up straight from the end of scene ${from - 1}.`}${to === a.scenes.length ? ` ${episodeEndingRule(a)}` : ''}
 
 Return ONLY valid JSON in exactly this shape:
 { "scenes": [ ${sceneJsonShape} ] }`;
