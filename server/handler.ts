@@ -7,7 +7,7 @@ import {
 } from './lib/core.js';
 import { sql, ensureSchema } from './lib/db.js';
 import { PLANS, TIERS, Tier, Cycle, planId, tierFromPlanId, priceFor, BILLING_CURRENCY, TRIAL, TOPUPS, trialPrice } from './lib/plans.js';
-import { mail, flw, verifyFlwSignature, lookupEnv, geminiJson, geminiRaw, geminiFormat, webTrendResearch, aiWriterStatus, testAiWriters, falSubmit, falContinueSubmit, falReferenceVideoSubmit, falGenerateCharacterReference, falStatus, falImageVideoSubmit, falGenerateBrandImages, deapiSubmit, deapiStatus, deapiAnimate, RateLimited, synthesize } from './lib/services.js';
+import { mail, flw, verifyFlwSignature, lookupEnv, geminiJson, geminiRaw, geminiFormat, webTrendResearch, aiWriterStatus, testAiWriters, falSubmit, falContinueSubmit, falReferenceVideoSubmit, falGenerateCharacterReference, falGenerateLocationPlate, falStatus, falImageVideoSubmit, falGenerateBrandImages, deapiSubmit, deapiStatus, deapiAnimate, RateLimited, synthesize } from './lib/services.js';
 import { trendsFormatPrompt, scriptPrompt, adConceptPrompt, abPrompt, competitorPrompt, outrankPrompt, parseStoryBrief, type SeriesContinuity, type StoryBriefInput, storyBeats, STORY_MOODS, CAMERA_PROFILES, GENRES, INTENSITIES, ENDINGS, PRESENTATIONS, CASTS, TROPES, styleBlock, STORY_LIMITS, planScenes, castMinimum, storyboardPrompt, outlinePrompt, chunkPrompt, adaptPrompt, PART_SECONDS, SCENES_PER_WRITER_CALL, MAX_WORDS_PER_CLIP } from './lib/prompts.js';
 import { assembleParts } from './lib/assemble.js';
 import { refineScene, shownInstruction, proseToUnits, thoughtToVisual, type SpokenLine } from './lib/screenplay.js';
@@ -1792,9 +1792,9 @@ async function stageScript(row: any, user: ReturnType<typeof toUser>, ep: any) {
   }
   const sb = (out as { sb: any }).sb;
   // Character portraits are opt-in: never spend image credits during script creation unless requested.
-  if (cfg.characterReferences === true && (process.env.VIDEO_PROVIDER || 'fal').trim().toLowerCase() !== 'deapi' && Array.isArray(sb.characters) && sb.characters.length) {
+  if (cfg.characterReferences === true && (process.env.VIDEO_PROVIDER || 'fal').trim().toLowerCase() !== 'deapi') {
     await rateLimit(`cast-reference:${row.id}`, 8, 3600);
-    const refs = await Promise.all(sb.characters.slice(0, 4).map(async (c: any) => {
+    const refs = await Promise.all((Array.isArray(sb.characters) ? sb.characters : []).slice(0, 4).map(async (c: any) => {
       if (c.referenceImageUrl && /^https:\/\//i.test(c.referenceImageUrl)) return c;
       try {
         const referenceImageUrl = await falGenerateCharacterReference(str(c.name, 30), str(c.role, 60), str(c.gender, 12), str(c.description, 400));
@@ -1805,6 +1805,16 @@ async function stageScript(row: any, user: ReturnType<typeof toUser>, ep: any) {
       }
     }));
     sb.characters = refs;
+    const projectRefs = project.reference_assets || {};
+    if (!/^https:\/\//i.test(String(projectRefs.locationPlateUrl || ''))) {
+      try {
+        const locationDescription = str(sb.location || sb.setting || sb.logline || sb.title || ep.prompt_input, 900);
+        const locationPlateUrl = await falGenerateLocationPlate(locationDescription, str(cfg.look, 80) || 'cinematic');
+        await sql()`UPDATE projects SET reference_assets = ${jsonb({ ...projectRefs, locationPlateUrl, locationDescription })}::jsonb, updated_at = now() WHERE id = ${ep.project_id}`;
+      } catch (e: any) {
+        console.error('location reference skipped:', e?.message);
+      }
+    }
   }
   const next = cfg.reviewFirst && !cfg.approved ? 'REVIEW' : 'RENDERING';
   await sql()`UPDATE episodes SET storyboard_json = ${jsonb(sb)}::jsonb, status = CASE WHEN status = 'PROCESSING' THEN ${next} ELSE status END, render_jobs = NULL, error = NULL, attempts = 0, locked_until = NULL, created_at = now(), updated_at = now() WHERE id = ${ep.id} AND status IN ('PROCESSING', 'PAUSED')`;
@@ -1885,6 +1895,8 @@ async function stageRender(row: any, user: ReturnType<typeof toUser>, ep: any): 
   if (!scenes.length) throw new HttpError(409, 'This episode has no scenes to render.', 'SERIES_STATE');
   const aspect = String(ep.brief?.aspect || '9:16');
   const entries = normalizeEntries(ep.render_jobs, scenes);
+  const projectRow = ((await sql()`SELECT reference_assets FROM projects WHERE id = ${ep.project_id}`) as any[])[0];
+  const projectReferences = projectRow?.reference_assets || {};
   const t0 = Date.now(), left = () => STEP_BUDGET_MS - (Date.now() - t0);
   const save = () => sql()`UPDATE episodes SET render_jobs = ${jsonb(entries)}::jsonb, updated_at = now() WHERE id = ${ep.id}`;
   let wait = 0;
@@ -1920,7 +1932,9 @@ async function stageRender(row: any, user: ReturnType<typeof toUser>, ep: any): 
       const sceneText = [visualForMatch, ...(scene.lines || []).map((l: any) => l.speaker)].join(' ').toLowerCase();
       const cast: any[] = Array.isArray(ep.storyboard_json?.characters) ? ep.storyboard_json.characters : [];
       const relevant = cast.filter((c) => c.referenceImageUrl && /^https:\/\//i.test(c.referenceImageUrl) && (sceneText.includes(String(c.name || '').toLowerCase()) || (scene.lines || []).some((l: any) => String(l.speaker || '').toLowerCase() === String(c.name || '').toLowerCase())));
-      const selected = (relevant.length ? relevant : cast.filter((c) => c.referenceImageUrl && /^https:\/\//i.test(c.referenceImageUrl)).slice(0, 2)).slice(0, 4).map((c) => ({ name: str(c.name, 30), url: String(c.referenceImageUrl) }));
+       const characterRefs = (relevant.length ? relevant : cast.filter((c) => c.referenceImageUrl && /^https:\/\//i.test(c.referenceImageUrl)).slice(0, 2)).slice(0, projectReferences.locationPlateUrl ? 3 : 4).map((c) => ({ name: str(c.name, 30), url: String(c.referenceImageUrl) }));
+       const locationRef = /^https:\/\//i.test(String(projectReferences.locationPlateUrl || '')) ? [{ name: 'the permanent location plate (room layout, furniture and props)', url: String(projectReferences.locationPlateUrl) }] : [];
+       const selected = [...locationRef, ...characterRefs].slice(0, 4);
       const { jobId } = await startPart(row, user, { prompt: scene.parts[k].prompt, aspect, kind: previousUrl ? 'continue' : 'text', prevUrl: previousUrl, referenceImages: selected });
       p.jobId = jobId; p.tries += 1; p.checkAt = Date.now() + FIRST_CHECK_MS; delete p.error; started++;
     } catch (e: any) {
@@ -2043,7 +2057,7 @@ const projectGet: Handler = async ({ req, res, query }) => {
   const lastDone = [...eps].reverse().find((e) => e.status === 'COMPLETED');
   const active = eps.find((e) => OPEN_STATUSES.includes(e.status));
   json(res, 200, {
-    project: { id: project.id, targetParts: Number(project.target_parts) || 1, autoContinue: !!project.auto_continue, title: project.title || 'Untitled series', genre: project.genre, createdAt: iso(project.created_at), updatedAt: iso(project.updated_at), characters: project.character_db?.characters || [] },
+    project: { id: project.id, targetParts: Number(project.target_parts) || 1, autoContinue: !!project.auto_continue, title: project.title || 'Untitled series', genre: project.genre, createdAt: iso(project.created_at), updatedAt: iso(project.updated_at), characters: project.character_db?.characters || [], referenceAssets: project.reference_assets || {} },
     episodes: eps,
     // A failed part gives its number back (episodeCreate removes it), so only parts that still count are used here.
     nextPartNumber: (eps.filter((e) => e.status !== 'FAILED').reduce((m, e) => Math.max(m, e.partNumber), 0)) + 1,
