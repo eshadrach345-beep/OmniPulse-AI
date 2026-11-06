@@ -7,7 +7,7 @@ import {
 } from './lib/core.js';
 import { sql, ensureSchema } from './lib/db.js';
 import { PLANS, TIERS, Tier, Cycle, planId, tierFromPlanId, priceFor, BILLING_CURRENCY, TRIAL, TOPUPS, trialPrice } from './lib/plans.js';
-import { mail, flw, verifyFlwSignature, lookupEnv, geminiJson, geminiRaw, geminiFormat, webTrendResearch, aiWriterStatus, testAiWriters, falSubmit, falContinueSubmit, falReferenceVideoSubmit, falGenerateCharacterReference, falGenerateLocationPlate, falEditLocationPlate, falStatus, falImageVideoSubmit, falGenerateBrandImages, deapiSubmit, deapiStatus, deapiAnimate, RateLimited, synthesize } from './lib/services.js';
+import { mail, flw, verifyFlwSignature, lookupEnv, geminiJson, geminiRaw, geminiFormat, webTrendResearch, aiWriterStatus, testAiWriters, falSubmit, falContinueSubmit, falReferenceVideoSubmit, falKlingReferenceSubmit, falGenerateCharacterReference, falGenerateLocationPlate, falEditLocationPlate, falStatus, falImageVideoSubmit, falGenerateBrandImages, deapiSubmit, deapiStatus, deapiAnimate, RateLimited, synthesize } from './lib/services.js';
 import { trendsFormatPrompt, scriptPrompt, adConceptPrompt, abPrompt, competitorPrompt, outrankPrompt, parseStoryBrief, type SeriesContinuity, type StoryBriefInput, storyBeats, STORY_MOODS, CAMERA_PROFILES, GENRES, INTENSITIES, ENDINGS, PRESENTATIONS, CASTS, TROPES, styleBlock, STORY_LIMITS, planScenes, castMinimum, storyboardPrompt, outlinePrompt, chunkPrompt, adaptPrompt, PART_SECONDS, SCENES_PER_WRITER_CALL, MAX_WORDS_PER_CLIP } from './lib/prompts.js';
 import { assembleParts } from './lib/assemble.js';
 import { refineScene, shownInstruction, proseToUnits, thoughtToVisual, type SpokenLine } from './lib/screenplay.js';
@@ -661,6 +661,8 @@ interface StoryInput {
   continuity?: SeriesContinuity;
   /** The person's own script (paste mode). Empty means the AI writes the story. */
   script?: string;
+  /** True when this is the configured final part of the series. */
+  finalEpisode?: boolean;
 }
 
 /** Reads the shared creative fields from a request body. Throws a 400 when the idea is too short. */
@@ -725,7 +727,7 @@ async function prepareStory(row: any, user: { secondsLimit: number }, input: Sto
   const presentation = format === 'documentary' ? 'narrated' as const : brief.presentation;
   const silentCast = presentation === 'narrated' || (brief.dialogue === 'none' && presentation !== 'dialogue' && presentation !== 'shortdrama') || (brief.cast === 'animals' && !brief.animalsTalk);
   const style = styleBlock({ presentation, genre: brief.genre, intensity: brief.intensity, dialogue: brief.dialogue, ending: brief.ending, cast: brief.cast, animalsTalk: brief.animalsTalk, trope: brief.trope });
-  const base = { idea, format, look, niche: input.niche, aspectRatio: aspect, scenes: plan.scenes, mood: brief.mood, cameraProfile: brief.cameraProfile, pacing, characterLock: brief.characterLock, continuity, variationSeed: input.variationSeed, style, silentCast };
+  const base = { idea, format, look, niche: input.niche, aspectRatio: aspect, scenes: plan.scenes, mood: brief.mood, cameraProfile: brief.cameraProfile, pacing, characterLock: brief.characterLock, continuity, variationSeed: input.variationSeed, style, silentCast, presentation, ending: brief.ending, finalEpisode: input.finalEpisode === true };
   return { idea, format, look, aspect, brief, continuity, script, available, plan, notes, mood, cam, base, presentation, silentCast, castMin: castMinimum(plan.targetSeconds, format) };
 }
 
@@ -1781,7 +1783,7 @@ async function stageScript(row: any, user: ReturnType<typeof toUser>, ep: any) {
     script = String(prev?.storyboard_json?.remainingScript || '');
     if (!script.trim()) throw new HttpError(409, 'There is no saved script left to continue. Paste more of your script, or ask the AI to write the next part.', 'SERIES_STATE');
   }
-  const storyInput: StoryInput = { idea: ep.prompt_input, format: cfg.format || 'drama', look: cfg.look || 'cinematic', aspect: cfg.aspect || '9:16', niche: cfg.niche || 'general audience', brief, continuity, variationSeed: str(cfg.variationSeed || crypto.randomUUID(), 80), script };
+  const storyInput: StoryInput = { idea: ep.prompt_input, format: cfg.format || 'drama', look: cfg.look || 'cinematic', aspect: cfg.aspect || '9:16', niche: cfg.niche || 'general audience', brief, continuity, variationSeed: str(cfg.variationSeed || crypto.randomUUID(), 80), script, finalEpisode: Number(ep.target_parts || 1) > 0 && Number(ep.part_number || 1) >= Number(ep.target_parts || 1) };
   // A pasted script never waits for the AI: it is split into scenes right here and the video starts at once.
   const out: Awaited<ReturnType<typeof writeStoryboard>> = script.trim()
     ? await adaptPastedScript(row, user, storyInput)
@@ -1839,12 +1841,31 @@ async function reserveSource(row: any, user: ReturnType<typeof toUser>, seconds:
  * Starts one 10 second clip. The second half of a 20 second scene starts from the last picture of the first half (image-to-video),
  * so the scene carries on without a jump; if that is not possible it falls back to a normal clip with a "continue" prompt.
  */
-async function startPart(row: any, user: ReturnType<typeof toUser>, spec: { prompt: string; aspect: string; kind: 'text' | 'continue'; prevUrl?: string; startImageUrl?: string; referenceImages?: { name: string; url: string }[] }) {
+async function startPart(row: any, user: ReturnType<typeof toUser>, spec: { prompt: string; aspect: string; kind: 'text' | 'continue'; prevUrl?: string; startImageUrl?: string; referenceImages?: { name: string; url: string }[]; multiPrompt?: { prompt: string; duration: number }[] }) {
   const source = await reserveSource(row, user, PART_SECONDS);
   await rateLimit(`render:${row.id}`, 300, 3600);
   const reso = PLANS[user.tier]?.resolution || '480P';
   const provider = (process.env.VIDEO_PROVIDER || 'fal').trim().toLowerCase();
   let job: { statusUrl: string; responseUrl: string } | undefined;
+
+  // Short-drama clips use Kling's multi-shot director and reusable reference assets.
+  // If Kling is unavailable or out of credit, fall back to the existing H3 Max path.
+  if (spec.multiPrompt?.length && provider !== 'deapi') {
+    const refs = (spec.referenceImages || []).filter((x) => /^https:\/\//i.test(x.url)).slice(0, 10);
+    const imageGuide = refs.map((x, i) => `@Image${i + 1} is ${x.name}. Use it as the exact identity or location reference; do not substitute or redesign it.`).join(' ');
+    const videoGuide = spec.prevUrl ? '@Video1 is the immediately preceding scene clip. Continue its established action, actors, clothing, props and screen direction without resetting.' : '';
+    const openingGuide = spec.startImageUrl ? 'Begin on the supplied start image and preserve its exact composition.' : '';
+    const globalPrompt = [imageGuide, videoGuide, openingGuide, 'Premium vertical serialized live-action drama. Keep character identities, location layout, wardrobe and props consistent through the entire multi-shot clip.'].filter(Boolean).join(' ');
+    try {
+      const j = await falKlingReferenceSubmit(
+        globalPrompt, refs.map((x) => x.url), '720p', PART_SECONDS, spec.aspect,
+        spec.startImageUrl, spec.prevUrl ? [spec.prevUrl] : [], spec.multiPrompt,
+      );
+      job = { statusUrl: j.statusUrl, responseUrl: j.responseUrl };
+    } catch (e: any) {
+      console.error('Kling 4.0 unavailable; falling back to H3 Max for this clip:', e?.message);
+    }
+  }
   if (spec.kind === 'continue' && (spec.prevUrl || spec.startImageUrl)) {
     let frame: Buffer;
     let imageUrl = spec.startImageUrl || '';
@@ -1969,7 +1990,7 @@ async function stageRender(row: any, user: ReturnType<typeof toUser>, ep: any): 
        const locationRef = /^https:\/\//i.test(String(projectReferences.locationPlateUrl || '')) ? [{ name: 'the permanent location plate (room layout, furniture and props)', url: String(projectReferences.locationPlateUrl) }] : [];
        const selected = [...locationRef, ...characterRefs].slice(0, 4);
       const continuityPrompt = isEpisodeOpening && (previousUrl || startImageUrl) ? `${scene.parts[k].prompt} Continue directly from the supplied final frame of the previous episode. Preserve the established characters, faces, hair, wardrobe, screen direction, room geometry and prop placement. Do not introduce new people or change the camera axis unless the screenplay explicitly requires a transition.` : scene.parts[k].prompt;
-      const { jobId } = await startPart(row, user, { prompt: continuityPrompt, aspect, kind: previousUrl || startImageUrl ? 'continue' : 'text', prevUrl: previousUrl, startImageUrl, referenceImages: selected });
+      const { jobId } = await startPart(row, user, { prompt: continuityPrompt, aspect, kind: previousUrl || startImageUrl ? 'continue' : 'text', prevUrl: previousUrl, startImageUrl, referenceImages: selected, multiPrompt: scene.parts[k].multiPrompt });
       p.jobId = jobId; p.tries += 1; p.checkAt = Date.now() + FIRST_CHECK_MS; delete p.error; started++;
     } catch (e: any) {
       if (e instanceof RateLimited) {
