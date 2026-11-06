@@ -198,6 +198,9 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
   const [trope, setTrope] = useState<TropeId>('none');
   const [reviewFirst, setReviewFirst] = useState(true);
   const [characterReferences, setCharacterReferences] = useState(false);
+  const [locationEditInstruction, setLocationEditInstruction] = useState('Remove the used dishes and clutter from the table. Keep the exact same table, chairs, kitchen, camera angle, lighting and all other props unchanged.');
+  const [locationEditBusy, setLocationEditBusy] = useState(false);
+  const [locationEditMessage, setLocationEditMessage] = useState('');
   const [notice, setNotice] = useState('');
   const applyPreset = (id: string) => {
     const p = PRESETS.find((x) => x.id === id); if (!p) return;
@@ -370,6 +373,18 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
       if (start) { setPollKey((k) => k + 1); usageRef.current?.(); } else setNotice('Your changes are saved.');
     } catch (e) { setError(e instanceof Error ? e.message : 'Your changes could not be saved.'); }
     finally { setBusy(false); }
+  };
+
+  const prepareCleanPlate = async () => {
+    if (!detail) return;
+    setLocationEditBusy(true); setLocationEditMessage(''); setError(null);
+    try {
+      const result = await Series.cleanPlate(detail.project.id, locationEditInstruction);
+      setDetail((current) => current ? { ...current, project: { ...current.project, referenceAssets: result.referenceAssets } } : current);
+      setLocationEditMessage(`Matched clean plate and opening frame prepared for Part ${result.nextPart}. Generate the next part to use them.`);
+    } catch (e) {
+      setLocationEditMessage(e instanceof Error ? e.message : 'The clean plate could not be prepared.');
+    } finally { setLocationEditBusy(false); }
   };
 
   const downloadFull = async (ep: Episode) => {
@@ -570,6 +585,25 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
           </div>
         )}
 
+        {continuing && detail?.project.referenceAssets?.locationPlateUrl && (
+          <section className="rounded-xl border border-indigo-500/30 bg-slate-950/70 p-3 space-y-2.5">
+            <div>
+              <p className="text-xs font-semibold text-indigo-200 flex items-center gap-1.5"><Sparkles className="w-3.5 h-3.5" />Prepare a scene change</p>
+              <p className="text-[10px] text-slate-400 mt-1">Update the location plate and the previous episode's final frame together. The next part starts from the matching edited frame.</p>
+            </div>
+            <img src={detail.project.referenceAssets.locationPlateUrl} alt="Saved series location reference" className="w-full max-h-48 object-contain rounded-lg border border-slate-800 bg-slate-900" />
+            <label className="block text-[11px] font-medium text-slate-300" htmlFor="series-clean-plate-instruction">What should change?</label>
+            <textarea id="series-clean-plate-instruction" value={locationEditInstruction} onChange={(e) => setLocationEditInstruction(e.target.value)} rows={3} maxLength={650}
+              className={areaCls} placeholder="For example: clear the table but keep the exact kitchen and camera angle." />
+            <button type="button" onClick={() => void prepareCleanPlate()} disabled={locationEditBusy || locationEditInstruction.trim().length < 8} className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-2 text-[11px] font-semibold text-white disabled:opacity-50">
+              {locationEditBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+              {locationEditBusy ? 'Editing both references…' : 'Prepare matching clean plate'}
+            </button>
+            {locationEditMessage && <p role="status" className="text-[10px] text-slate-300">{locationEditMessage}</p>}
+            <p className="text-[10px] text-amber-300/80">This uses two fal.ai image edits and may consume image credits. It does not spend video seconds.</p>
+          </section>
+        )}
+
         {showSeriesChoice && (
           <div className="grid grid-cols-2 gap-2" role="group" aria-label="One video or a series">
             <button type="button" onClick={() => setKind('one')} aria-pressed={kind === 'one'} className={chip(kind === 'one')}><span className="block font-bold">One video</span><span className="block text-[10px] text-slate-400 font-normal mt-0.5">A single story from start to end</span></button>
@@ -748,7 +782,7 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
         </label>
         <label className="flex items-start gap-2 text-xs text-slate-300 cursor-pointer rounded-lg border border-indigo-500/30 bg-indigo-950/20 p-3">
           <input type="checkbox" checked={characterReferences} onChange={(e) => setCharacterReferences(e.target.checked)} className="mt-0.5 accent-indigo-500" />
-          <span><span className="font-semibold text-indigo-200">Generate character reference portraits.</span> Creates reusable cast images and uses fal.ai H3 Max reference-to-video to help keep faces consistent. This uses additional fal.ai credits. If portrait generation fails, the film continues with normal prompts.</span>
+          <span><span className="font-semibold text-indigo-200">Generate character and location references.</span> Creates reusable character portraits and a wide location plate, then reuses them across episodes to help preserve faces, room layout, furniture and props. Uses additional fal.ai image credits. If reference generation fails, the film continues without it.</span>
         </label>
         {errorBox}
         <button type="button" onClick={submit} disabled={busy} className="w-full py-3 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-xs font-semibold flex items-center justify-center gap-2">

@@ -7,7 +7,7 @@ import {
 } from './lib/core.js';
 import { sql, ensureSchema } from './lib/db.js';
 import { PLANS, TIERS, Tier, Cycle, planId, tierFromPlanId, priceFor, BILLING_CURRENCY, TRIAL, TOPUPS, trialPrice } from './lib/plans.js';
-import { mail, flw, verifyFlwSignature, lookupEnv, geminiJson, geminiRaw, geminiFormat, webTrendResearch, aiWriterStatus, testAiWriters, falSubmit, falContinueSubmit, falReferenceVideoSubmit, falGenerateCharacterReference, falStatus, falImageVideoSubmit, falGenerateBrandImages, deapiSubmit, deapiStatus, deapiAnimate, RateLimited, synthesize } from './lib/services.js';
+import { mail, flw, verifyFlwSignature, lookupEnv, geminiJson, geminiRaw, geminiFormat, webTrendResearch, aiWriterStatus, testAiWriters, falSubmit, falContinueSubmit, falReferenceVideoSubmit, falGenerateCharacterReference, falGenerateLocationPlate, falEditLocationPlate, falStatus, falImageVideoSubmit, falGenerateBrandImages, deapiSubmit, deapiStatus, deapiAnimate, RateLimited, synthesize } from './lib/services.js';
 import { trendsFormatPrompt, scriptPrompt, adConceptPrompt, abPrompt, competitorPrompt, outrankPrompt, parseStoryBrief, type SeriesContinuity, type StoryBriefInput, storyBeats, STORY_MOODS, CAMERA_PROFILES, GENRES, INTENSITIES, ENDINGS, PRESENTATIONS, CASTS, TROPES, styleBlock, STORY_LIMITS, planScenes, castMinimum, storyboardPrompt, outlinePrompt, chunkPrompt, adaptPrompt, PART_SECONDS, SCENES_PER_WRITER_CALL, MAX_WORDS_PER_CLIP } from './lib/prompts.js';
 import { assembleParts } from './lib/assemble.js';
 import { refineScene, shownInstruction, proseToUnits, thoughtToVisual, type SpokenLine } from './lib/screenplay.js';
@@ -758,7 +758,7 @@ async function writeStoryboard(row: any, user: { secondsLimit: number }, input: 
   const have = (draft.scenes || []).length;
   const ranges: [number, number][] = [];
   for (let f = have + 1; f <= total && ranges.length < 2; f += CHUNK) ranges.push([f, Math.min(total, f + CHUNK - 1)]);
-  const writerPlan = { title: str(draft.title, 100), logline: str(draft.logline, 300), characters: draft.characters || [], outline: draft.outline };
+  const writerPlan = { title: str(draft.title, 100), logline: str(draft.logline, 300), location: str(draft.location || '', 900), characters: draft.characters || [], outline: draft.outline };
   const outs = await Promise.all(ranges.map(([f, t]) => geminiRaw(chunkPrompt(base, writerPlan, f, t), { timeoutMs: 40_000, deadlineMs: 50_000, maxTokens: 9_000 })));
   const scenes = [...(draft.scenes || [])];
   outs.forEach((o, i) => {
@@ -1123,7 +1123,7 @@ function finishStory(ctx: StoryCtx, d: any, input: StoryInput) {
   // A small cast makes every script sound the same, so a part with too few voices is written again.
   if (!silentCast && !script && !continuity && scenes.length >= 2 && cast.length < Math.max(2, castMin - 1)) throw new HttpError(424, `The script only had ${cast.length} speaking characters, fewer than the ${castMin} it needs. Retrying with a bigger cast.`, 'AI_PROVIDER_UNAVAILABLE');
   return {
-    success: true, title: str(d.title, 100) || 'Untitled production', logline: str(d.logline, 300), storySoFar: str(d.storySoFar, 900), format,
+    success: true, title: str(d.title, 100) || 'Untitled production', logline: str(d.logline, 300), storySoFar: str(d.storySoFar, 900), location: str(d.location || (rawScenes.slice(0, 3).map((scene: any) => str(scene?.visualPrompt || scene?.setting, 260)).join(' ')), 900), format,
     remainingScript: script ? str(d.remainingScript, 20000) : '',
     brief: {
       durationMode: brief.durationMode, requestedSeconds: brief.requestedSeconds, targetSeconds: plan.targetSeconds, sceneSeconds: brief.sceneSeconds,
@@ -1712,7 +1712,7 @@ async function buildContinuity(project: any, partNumber: number): Promise<Series
   const stored: any[] = Array.isArray(project.character_db?.characters) ? project.character_db.characters : (Array.isArray(sb.characters) ? sb.characters : []);
   return {
     partNumber,
-    previousTitle: String(sb.title || ''), previousLogline: String(sb.logline || ''), storySoFar: String(sb.storySoFar || ''),
+    previousTitle: String(sb.title || ''), previousLogline: String(sb.logline || ''), storySoFar: String(sb.storySoFar || ''), locationDescription: str(project.reference_assets?.locationDescription || sb.location || scenes.slice(0, 3).map((scene) => str(scene?.visualPrompt, 260)).join(' '), 900),
     endingScene: { visualPrompt: String(last.visualPrompt || ''), voiceoverText: String(last.voiceoverText || '') },
     characters: stored.map((c) => ({ name: str(c?.name, 30), role: str(c?.role, 60), gender: c?.gender === 'female' ? 'female' : 'male', voice: str(c?.voice, 90), description: str(c?.description, 400), referenceImageUrl: /^https:\/\//i.test(String(c?.referenceImageUrl || '')) ? String(c.referenceImageUrl) : undefined })).filter((c) => c.name),
   };
@@ -1791,10 +1791,16 @@ async function stageScript(row: any, user: ReturnType<typeof toUser>, ep: any) {
     return;
   }
   const sb = (out as { sb: any }).sb;
-  // Character portraits are opt-in: never spend image credits during script creation unless requested.
-  if (cfg.characterReferences === true && (process.env.VIDEO_PROVIDER || 'fal').trim().toLowerCase() !== 'deapi' && Array.isArray(sb.characters) && sb.characters.length) {
+  const locationDescription = str(sb.location || (Array.isArray(sb.scenes) ? sb.scenes.slice(0, 3).map((scene: any) => str(scene?.visualPrompt || scene?.setting, 260)).join(' ') : '') || sb.setting || sb.logline || sb.title || ep.prompt_input, 900);
+  let projectRefs = project.reference_assets || {};
+  if (locationDescription && !projectRefs.locationDescription) {
+    projectRefs = { ...projectRefs, locationDescription };
+    await sql()`UPDATE projects SET reference_assets = ${jsonb(projectRefs)}::jsonb, updated_at = now() WHERE id = ${ep.project_id}`;
+  }
+  // Character portraits and the master location plate are opt-in: never spend image credits unless requested.
+  if (cfg.characterReferences === true && (process.env.VIDEO_PROVIDER || 'fal').trim().toLowerCase() !== 'deapi') {
     await rateLimit(`cast-reference:${row.id}`, 8, 3600);
-    const refs = await Promise.all(sb.characters.slice(0, 4).map(async (c: any) => {
+    const refs = await Promise.all((Array.isArray(sb.characters) ? sb.characters : []).slice(0, 4).map(async (c: any) => {
       if (c.referenceImageUrl && /^https:\/\//i.test(c.referenceImageUrl)) return c;
       try {
         const referenceImageUrl = await falGenerateCharacterReference(str(c.name, 30), str(c.role, 60), str(c.gender, 12), str(c.description, 400));
@@ -1805,6 +1811,15 @@ async function stageScript(row: any, user: ReturnType<typeof toUser>, ep: any) {
       }
     }));
     sb.characters = refs;
+    if (!/^https:\/\//i.test(String(projectRefs.locationPlateUrl || ''))) {
+      try {
+        const locationPlateUrl = await falGenerateLocationPlate(locationDescription, str(cfg.look, 80) || 'cinematic');
+        projectRefs = { ...projectRefs, locationPlateUrl, locationDescription };
+        await sql()`UPDATE projects SET reference_assets = ${jsonb(projectRefs)}::jsonb, updated_at = now() WHERE id = ${ep.project_id}`;
+      } catch (e: any) {
+        console.error('location reference skipped:', e?.message);
+      }
+    }
   }
   const next = cfg.reviewFirst && !cfg.approved ? 'REVIEW' : 'RENDERING';
   await sql()`UPDATE episodes SET storyboard_json = ${jsonb(sb)}::jsonb, status = CASE WHEN status = 'PROCESSING' THEN ${next} ELSE status END, render_jobs = NULL, error = NULL, attempts = 0, locked_until = NULL, created_at = now(), updated_at = now() WHERE id = ${ep.id} AND status IN ('PROCESSING', 'PAUSED')`;
@@ -1824,22 +1839,32 @@ async function reserveSource(row: any, user: ReturnType<typeof toUser>, seconds:
  * Starts one 10 second clip. The second half of a 20 second scene starts from the last picture of the first half (image-to-video),
  * so the scene carries on without a jump; if that is not possible it falls back to a normal clip with a "continue" prompt.
  */
-async function startPart(row: any, user: ReturnType<typeof toUser>, spec: { prompt: string; aspect: string; kind: 'text' | 'continue'; prevUrl?: string; referenceImages?: { name: string; url: string }[] }) {
+async function startPart(row: any, user: ReturnType<typeof toUser>, spec: { prompt: string; aspect: string; kind: 'text' | 'continue'; prevUrl?: string; startImageUrl?: string; referenceImages?: { name: string; url: string }[] }) {
   const source = await reserveSource(row, user, PART_SECONDS);
   await rateLimit(`render:${row.id}`, 300, 3600);
   const reso = PLANS[user.tier]?.resolution || '480P';
   const provider = (process.env.VIDEO_PROVIDER || 'fal').trim().toLowerCase();
   let job: { statusUrl: string; responseUrl: string } | undefined;
-  if (spec.kind === 'continue' && spec.prevUrl) {
-    const frame = await lastFrameJpeg(spec.prevUrl);
+  if (spec.kind === 'continue' && (spec.prevUrl || spec.startImageUrl)) {
+    let frame: Buffer;
+    let imageUrl = spec.startImageUrl || '';
+    if (spec.prevUrl) {
+      frame = await lastFrameJpeg(spec.prevUrl);
+      imageUrl = `data:image/jpeg;base64,${frame.toString('base64')}`;
+    } else {
+      const source = await fetch(imageUrl, { signal: AbortSignal.timeout(15_000) });
+      if (!source.ok) throw new HttpError(424, 'The saved opening reference could not be loaded.', 'REFERENCE_IMAGE');
+      const bytes = Buffer.from(await source.arrayBuffer());
+      if (bytes.length > 15 * 1024 * 1024) throw new HttpError(413, 'The saved opening reference is too large.', 'REFERENCE_IMAGE');
+      frame = bytes;
+    }
     if (provider === 'deapi') {
       const j = await deapiAnimate(spec.prompt, frame, reso, PART_SECONDS, spec.aspect);
       job = { statusUrl: `deapi:${j.requestId}`, responseUrl: 'deapi' };
     } else {
-      const imageUrl = `data:image/jpeg;base64,${frame.toString('base64')}`;
       try {
         const refs = (spec.referenceImages || []).filter((x) => /^https:\/\//i.test(x.url)).slice(0, 4);
-        const prompt = refs.length ? `${refs.map((x, i) => `Image ${i + 1} is ${x.name}, the same established character shown in the previous scenes. Preserve this exact face, age, hair, skin tone and wardrobe. `).join('')}${spec.prompt}` : spec.prompt;
+        const prompt = refs.length ? `${refs.map((x, i) => `Reference image ${i + 1} is ${x.name}. Preserve its relevant identity or environment details exactly; do not redesign them. `).join('')}${spec.prompt}` : spec.prompt;
         const j = refs.length
           ? await falReferenceVideoSubmit(prompt, refs.map((x) => x.url), reso, PART_SECONDS, spec.aspect, imageUrl)
           : await falContinueSubmit(spec.prompt, imageUrl, reso, PART_SECONDS, spec.aspect);
@@ -1885,6 +1910,24 @@ async function stageRender(row: any, user: ReturnType<typeof toUser>, ep: any): 
   if (!scenes.length) throw new HttpError(409, 'This episode has no scenes to render.', 'SERIES_STATE');
   const aspect = String(ep.brief?.aspect || '9:16');
   const entries = normalizeEntries(ep.render_jobs, scenes);
+  const projectRow = ((await sql()`SELECT reference_assets FROM projects WHERE id = ${ep.project_id}`) as any[])[0];
+  const projectReferences = projectRow?.reference_assets || {};
+  const openingReference = Number(projectReferences.openingFrameForPart) === Number(ep.part_number) && /^https:\/\//i.test(String(projectReferences.openingFrameUrl || ''))
+    ? String(projectReferences.openingFrameUrl) : undefined;
+  let previousEpisodeAnchorUrl: string | undefined;
+  const firstPending = entries[0]?.parts[0];
+  if (ep.part_number > 1 && firstPending && !firstPending.url && !firstPending.jobId && !openingReference) {
+    const previousEpisode = ((await sql()`SELECT render_jobs, storyboard_json FROM episodes WHERE project_id = ${ep.project_id} AND part_number = ${ep.part_number - 1} AND status = 'COMPLETED' LIMIT 1`) as any[])[0];
+    if (previousEpisode) {
+      const previousScenes: any[] = Array.isArray(previousEpisode.storyboard_json?.scenes) ? previousEpisode.storyboard_json.scenes : [];
+      const previousEntries = normalizeEntries(previousEpisode.render_jobs, previousScenes);
+      const finalPart = [...previousEntries].reverse().flatMap((entry) => [...entry.parts].reverse()).find((part) => part.url);
+      if (finalPart?.jobId) {
+        const anchorJob = ((await sql()`SELECT * FROM video_jobs WHERE id = ${finalPart.jobId} AND user_id = ${row.id}`) as any[])[0];
+        if (anchorJob) previousEpisodeAnchorUrl = await jobVideoUrl(anchorJob);
+      } else if (finalPart?.url) previousEpisodeAnchorUrl = String(finalPart.url);
+    }
+  }
   const t0 = Date.now(), left = () => STEP_BUDGET_MS - (Date.now() - t0);
   const save = () => sql()`UPDATE episodes SET render_jobs = ${jsonb(entries)}::jsonb, updated_at = now() WHERE id = ${ep.id}`;
   let wait = 0;
@@ -1910,7 +1953,9 @@ async function stageRender(row: any, user: ReturnType<typeof toUser>, ep: any): 
     const p = en.parts[k];
     if (p.jobId || p.url || p.tries >= MAX_PART_TRIES || (p.retryAt || 0) > Date.now()) continue;
     const previousSceneLastUrl = en.index > 0 ? entries[en.index - 1]?.parts.slice(-1)[0]?.url : undefined;
-    const previousUrl = k > 0 ? en.parts[k - 1]?.url : (scenes[en.index].continuesPrevious === true ? previousSceneLastUrl : undefined);
+    const isEpisodeOpening = en.index === 0 && k === 0;
+    const startImageUrl = isEpisodeOpening ? openingReference : undefined;
+    const previousUrl = k > 0 ? en.parts[k - 1]?.url : (scenes[en.index].continuesPrevious === true ? previousSceneLastUrl : (isEpisodeOpening && !startImageUrl ? previousEpisodeAnchorUrl : undefined));
     if (k > 0 && !previousUrl) continue; // the second half starts from the first half's last picture
     if (k === 0 && scenes[en.index].continuesPrevious === true && !previousUrl) continue; // connected action waits for the previous scene's final frame
     if (started >= MAX_STARTS_PER_STEP || left() < 14_000) break outer;
@@ -1920,8 +1965,11 @@ async function stageRender(row: any, user: ReturnType<typeof toUser>, ep: any): 
       const sceneText = [visualForMatch, ...(scene.lines || []).map((l: any) => l.speaker)].join(' ').toLowerCase();
       const cast: any[] = Array.isArray(ep.storyboard_json?.characters) ? ep.storyboard_json.characters : [];
       const relevant = cast.filter((c) => c.referenceImageUrl && /^https:\/\//i.test(c.referenceImageUrl) && (sceneText.includes(String(c.name || '').toLowerCase()) || (scene.lines || []).some((l: any) => String(l.speaker || '').toLowerCase() === String(c.name || '').toLowerCase())));
-      const selected = (relevant.length ? relevant : cast.filter((c) => c.referenceImageUrl && /^https:\/\//i.test(c.referenceImageUrl)).slice(0, 2)).slice(0, 4).map((c) => ({ name: str(c.name, 30), url: String(c.referenceImageUrl) }));
-      const { jobId } = await startPart(row, user, { prompt: scene.parts[k].prompt, aspect, kind: previousUrl ? 'continue' : 'text', prevUrl: previousUrl, referenceImages: selected });
+       const characterRefs = (relevant.length ? relevant : cast.filter((c) => c.referenceImageUrl && /^https:\/\//i.test(c.referenceImageUrl)).slice(0, 2)).slice(0, projectReferences.locationPlateUrl ? 3 : 4).map((c) => ({ name: str(c.name, 30), url: String(c.referenceImageUrl) }));
+       const locationRef = /^https:\/\//i.test(String(projectReferences.locationPlateUrl || '')) ? [{ name: 'the permanent location plate (room layout, furniture and props)', url: String(projectReferences.locationPlateUrl) }] : [];
+       const selected = [...locationRef, ...characterRefs].slice(0, 4);
+      const continuityPrompt = isEpisodeOpening && (previousUrl || startImageUrl) ? `${scene.parts[k].prompt} Continue directly from the supplied final frame of the previous episode. Preserve the established characters, faces, hair, wardrobe, screen direction, room geometry and prop placement. Do not introduce new people or change the camera axis unless the screenplay explicitly requires a transition.` : scene.parts[k].prompt;
+      const { jobId } = await startPart(row, user, { prompt: continuityPrompt, aspect, kind: previousUrl || startImageUrl ? 'continue' : 'text', prevUrl: previousUrl, startImageUrl, referenceImages: selected });
       p.jobId = jobId; p.tries += 1; p.checkAt = Date.now() + FIRST_CHECK_MS; delete p.error; started++;
     } catch (e: any) {
       if (e instanceof RateLimited) {
@@ -2035,6 +2083,58 @@ const projectsList: Handler = async ({ req, res }) => {
   json(res, 200, { projects: rows.map((p) => ({ id: p.id, title: p.title || 'Untitled series', genre: p.genre, createdAt: iso(p.created_at), updatedAt: iso(p.updated_at), episodes: p.episodes })) });
 };
 
+/** Creates a matched clean location plate and next-episode opening frame from the previous completed episode. */
+const projectCleanPlate: Handler = async ({ req, res, body }) => {
+  const { row } = await requireAccess(req);
+  await rateLimit(`series-clean-plate:${row.id}`, 5, 3600);
+  if (!process.env.BLOB_READ_WRITE_TOKEN) throw new HttpError(503, 'Private media storage is not configured yet.', 'STORAGE_UNAVAILABLE');
+  const projectId = str(body.projectId, 80);
+  const instruction = str(body.instruction, 650).trim();
+  if (!projectId || instruction.length < 8) throw new HttpError(400, 'Choose a series and describe the scene change.');
+  const project = ((await sql()`SELECT id, reference_assets FROM projects WHERE id = ${projectId} AND user_id = ${row.id}`) as any[])[0];
+  if (!project) throw new HttpError(404, 'Series not found.');
+  const references = project.reference_assets || {};
+  const locationPlateUrl = String(references.locationPlateUrl || '');
+  if (!/^https:\/\//i.test(locationPlateUrl)) throw new HttpError(409, 'This series has no saved location plate. Start with character and location references enabled.');
+  const previous = ((await sql()`SELECT part_number, render_jobs, storyboard_json FROM episodes WHERE project_id = ${projectId} AND status = 'COMPLETED' ORDER BY part_number DESC LIMIT 1`) as any[])[0];
+  if (!previous) throw new HttpError(409, 'Finish an episode before preparing its next scene.');
+  const scenes: any[] = Array.isArray(previous.storyboard_json?.scenes) ? previous.storyboard_json.scenes : [];
+  const entries = normalizeEntries(previous.render_jobs, scenes);
+  const lastPart = [...entries].reverse().flatMap((entry) => [...entry.parts].reverse()).find((part) => part.url);
+  if (!lastPart?.url) throw new HttpError(409, 'The previous episode has no finished clip to continue from.');
+  let previousClipUrl = String(lastPart.url);
+  if (lastPart.jobId) {
+    const job = ((await sql()`SELECT * FROM video_jobs WHERE id = ${lastPart.jobId} AND user_id = ${row.id}`) as any[])[0];
+    if (job) previousClipUrl = await jobVideoUrl(job);
+  }
+  const frame = await lastFrameJpeg(previousClipUrl);
+  const assetId = newId('med');
+  const fileName = `Episode ${Number(previous.part_number)} continuity frame.jpg`;
+  const blob = await put(`series-reference-frames/${row.id}/${assetId}.jpg`, new Blob([new Uint8Array(frame)], { type: 'image/jpeg' }), {
+    access: 'private', token: process.env.BLOB_READ_WRITE_TOKEN, contentType: 'image/jpeg', addRandomSuffix: false,
+  });
+  await sql()`INSERT INTO media_assets (id, user_id, pathname, blob_url, original_name, content_type, size_bytes)
+    VALUES (${assetId}, ${row.id}, ${blob.pathname}, ${blob.url}, ${fileName}, 'image/jpeg', ${frame.length})`;
+  const token = await issueSignedToken({ operations: ['get'] });
+  const signed = await presignUrl(token, { pathname: blob.pathname, operation: 'get', access: 'private', validUntil: Date.now() + 10 * 60 * 1000 });
+  const [editedPlateUrl, editedOpeningFrameUrl] = await Promise.all([
+    falEditLocationPlate(locationPlateUrl, instruction),
+    falEditLocationPlate(signed.presignedUrl, instruction),
+  ]);
+  const nextPart = Number(previous.part_number) + 1;
+  const nextReferences = {
+    ...references,
+    locationPlateUrl: editedPlateUrl,
+    openingFrameUrl: editedOpeningFrameUrl,
+    openingFrameForPart: nextPart,
+    locationPlateUpdatedAt: new Date().toISOString(),
+    locationPlateEditInstruction: instruction,
+    continuityFrameAssetId: assetId,
+  };
+  await sql()`UPDATE projects SET reference_assets = ${jsonb(nextReferences)}::jsonb, updated_at = now() WHERE id = ${projectId} AND user_id = ${row.id}`;
+  json(res, 200, { ok: true, referenceAssets: nextReferences, nextPart });
+};
+
 const projectGet: Handler = async ({ req, res, query }) => {
   const { row } = await requireAccess(req);
   const project = ((await sql()`SELECT * FROM projects WHERE id = ${query.get('id') || ''} AND user_id = ${row.id}`) as any[])[0];
@@ -2043,7 +2143,7 @@ const projectGet: Handler = async ({ req, res, query }) => {
   const lastDone = [...eps].reverse().find((e) => e.status === 'COMPLETED');
   const active = eps.find((e) => OPEN_STATUSES.includes(e.status));
   json(res, 200, {
-    project: { id: project.id, targetParts: Number(project.target_parts) || 1, autoContinue: !!project.auto_continue, title: project.title || 'Untitled series', genre: project.genre, createdAt: iso(project.created_at), updatedAt: iso(project.updated_at), characters: project.character_db?.characters || [] },
+    project: { id: project.id, targetParts: Number(project.target_parts) || 1, autoContinue: !!project.auto_continue, title: project.title || 'Untitled series', genre: project.genre, createdAt: iso(project.created_at), updatedAt: iso(project.updated_at), characters: project.character_db?.characters || [], referenceAssets: project.reference_assets || {} },
     episodes: eps,
     // A failed part gives its number back (episodeCreate removes it), so only parts that still count are used here.
     nextPartNumber: (eps.filter((e) => e.status !== 'FAILED').reduce((m, e) => Math.max(m, e.partNumber), 0)) + 1,
@@ -2598,7 +2698,7 @@ const routes: Record<string, Handler> = {
   'POST /video/render': videoRender, 'GET /video/status': videoStatus,
   'GET /social/accounts': socialAccounts, 'POST /social/sync': socialSync, 'GET /video/download': videoDownload, 'GET /video/merge': videoMerge, 'POST /video/editor/render': videoEditorRender, 'POST /video/editor/assemble': videoEditorAssemble, 'GET /social/connect': socialConnect, 'GET /social/callback': socialCallback, 'GET /social/zernio-callback': socialZernioCallback,
   'POST /social/disconnect': socialDisconnect, 'GET /social/metrics': socialMetricsRoute, 'POST /social/publish': socialPublish,
-  'POST /episodes/create': episodeCreate, 'POST /episodes/retry': episodeRetry, 'GET /episodes/status': episodeStatus, 'POST /episodes/pause': episodePause, 'POST /episodes/resume': episodeResume, 'POST /episodes/edit': episodeEdit, 'GET /episodes/video': episodeVideo, 'GET /projects': projectsList, 'GET /projects/get': projectGet,
+  'POST /episodes/create': episodeCreate, 'POST /episodes/retry': episodeRetry, 'GET /episodes/status': episodeStatus, 'POST /episodes/pause': episodePause, 'POST /episodes/resume': episodeResume, 'POST /episodes/edit': episodeEdit, 'GET /episodes/video': episodeVideo, 'GET /projects': projectsList, 'GET /projects/get': projectGet, 'POST /projects/reference/clean-plate': projectCleanPlate,
   'GET /cron/dispatch': cronDispatch, 'POST /cron/dispatch': cronDispatch,
   'GET /system/check': systemCheck,
   // Public liveness endpoint intentionally reveals no deployment, provider, or secret-configuration details.
