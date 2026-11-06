@@ -1800,7 +1800,7 @@ async function stageScript(row: any, user: ReturnType<typeof toUser>, ep: any) {
     await sql()`UPDATE projects SET reference_assets = ${jsonb(projectRefs)}::jsonb, updated_at = now() WHERE id = ${ep.project_id}`;
   }
   // Character portraits and the master location plate are generated when the Series Studio reference option is enabled.
-  if (cfg.characterReferences === true && (process.env.VIDEO_PROVIDER || 'fal').trim().toLowerCase() !== 'deapi') {
+  if (cfg.characterReferences === true && lookupEnv('FAL_KEY')) {
     await rateLimit(`cast-reference:${row.id}`, 8, 3600);
     const refs = await Promise.all((Array.isArray(sb.characters) ? sb.characters : []).slice(0, 4).map(async (c: any) => {
       if (c.referenceImageUrl && /^https:\/\//i.test(c.referenceImageUrl)) return c;
@@ -1850,7 +1850,7 @@ async function startPart(row: any, user: ReturnType<typeof toUser>, spec: { prom
 
   // Short-drama clips use Kling's multi-shot director and reusable reference assets.
   // If Kling is unavailable or out of credit, fall back to the existing H3 Max path.
-  if (spec.multiPrompt?.length && provider !== 'deapi') {
+  if (spec.multiPrompt?.length && lookupEnv('FAL_KEY')) {
     const refs = (spec.referenceImages || []).filter((x) => /^https:\/\//i.test(x.url)).slice(0, 10);
     const imageGuide = refs.map((x, i) => `@Image${i + 1} is ${x.name}. Use it as the exact identity or location reference; do not substitute or redesign it.`).join(' ');
     const videoGuide = spec.prevUrl ? '@Video1 is the immediately preceding scene clip. Continue its established action, actors, clothing, props and screen direction without resetting.' : '';
