@@ -78,7 +78,7 @@ export interface ProjectSummary {
 }
 
 export interface ProjectDetail {
-  project: { id: string; title: string; genre: string; targetParts: number; autoContinue: boolean; createdAt: string | null; updatedAt: string | null; characters: SeriesCharacter[] };
+  project: { id: string; title: string; genre: string; targetParts: number; autoContinue: boolean; createdAt: string | null; updatedAt: string | null; characters: SeriesCharacter[]; referenceAssets?: { locationPlateUrl?: string; openingFrameUrl?: string; openingFrameForPart?: number; locationPlateUpdatedAt?: string; locationPlateEditInstruction?: string } };
   episodes: Episode[];
   nextPartNumber: number;
   /** Set while a part is still being made. */
@@ -119,6 +119,8 @@ export const Series = {
     durationMode: r.brief.durationMode, requestedSeconds: r.brief.requestedSeconds, sceneSeconds: r.brief.sceneSeconds, mood: r.brief.mood, cameraProfile: r.brief.cameraProfile, characterLock: r.brief.characterLock,
     presentation: r.brief.presentation, genre: r.brief.genre, intensity: r.brief.intensity, dialogue: r.brief.dialogue, ending: r.brief.ending, cast: r.brief.cast, animalsTalk: r.brief.animalsTalk, trope: r.brief.trope, reviewFirst: r.reviewFirst, characterReferences: r.characterReferences,
   }),
+  /** Makes a matched clean version of the saved location plate and the previous episode's last frame for the next part. */
+  cleanPlate: (projectId: string, instruction: string) => api.post<{ ok: boolean; nextPart: number; referenceAssets: NonNullable<ProjectDetail['project']['referenceAssets']> }>('/projects/reference/clean-plate', { projectId, instruction }),
   /** Pauses a part. Clips already sent to the video provider keep rendering there. */
   pause: (id: string) => api.post<{ ok: boolean }>('/episodes/pause', { id }),
   /** Carries on where a paused part stopped. */
