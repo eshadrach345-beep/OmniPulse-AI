@@ -758,7 +758,7 @@ async function writeStoryboard(row: any, user: { secondsLimit: number }, input: 
   const have = (draft.scenes || []).length;
   const ranges: [number, number][] = [];
   for (let f = have + 1; f <= total && ranges.length < 2; f += CHUNK) ranges.push([f, Math.min(total, f + CHUNK - 1)]);
-  const writerPlan = { title: str(draft.title, 100), logline: str(draft.logline, 300), characters: draft.characters || [], outline: draft.outline };
+  const writerPlan = { title: str(draft.title, 100), logline: str(draft.logline, 300), location: str(draft.location || '', 900), characters: draft.characters || [], outline: draft.outline };
   const outs = await Promise.all(ranges.map(([f, t]) => geminiRaw(chunkPrompt(base, writerPlan, f, t), { timeoutMs: 40_000, deadlineMs: 50_000, maxTokens: 9_000 })));
   const scenes = [...(draft.scenes || [])];
   outs.forEach((o, i) => {
@@ -1123,7 +1123,7 @@ function finishStory(ctx: StoryCtx, d: any, input: StoryInput) {
   // A small cast makes every script sound the same, so a part with too few voices is written again.
   if (!silentCast && !script && !continuity && scenes.length >= 2 && cast.length < Math.max(2, castMin - 1)) throw new HttpError(424, `The script only had ${cast.length} speaking characters, fewer than the ${castMin} it needs. Retrying with a bigger cast.`, 'AI_PROVIDER_UNAVAILABLE');
   return {
-    success: true, title: str(d.title, 100) || 'Untitled production', logline: str(d.logline, 300), storySoFar: str(d.storySoFar, 900), format,
+    success: true, title: str(d.title, 100) || 'Untitled production', logline: str(d.logline, 300), storySoFar: str(d.storySoFar, 900), location: str(d.location || (rawScenes.slice(0, 3).map((scene: any) => str(scene?.visualPrompt || scene?.setting, 260)).join(' ')), 900), format,
     remainingScript: script ? str(d.remainingScript, 20000) : '',
     brief: {
       durationMode: brief.durationMode, requestedSeconds: brief.requestedSeconds, targetSeconds: plan.targetSeconds, sceneSeconds: brief.sceneSeconds,
@@ -1712,7 +1712,7 @@ async function buildContinuity(project: any, partNumber: number): Promise<Series
   const stored: any[] = Array.isArray(project.character_db?.characters) ? project.character_db.characters : (Array.isArray(sb.characters) ? sb.characters : []);
   return {
     partNumber,
-    previousTitle: String(sb.title || ''), previousLogline: String(sb.logline || ''), storySoFar: String(sb.storySoFar || ''),
+    previousTitle: String(sb.title || ''), previousLogline: String(sb.logline || ''), storySoFar: String(sb.storySoFar || ''), locationDescription: str(project.reference_assets?.locationDescription || sb.location || scenes.slice(0, 3).map((scene) => str(scene?.visualPrompt, 260)).join(' '), 900),
     endingScene: { visualPrompt: String(last.visualPrompt || ''), voiceoverText: String(last.voiceoverText || '') },
     characters: stored.map((c) => ({ name: str(c?.name, 30), role: str(c?.role, 60), gender: c?.gender === 'female' ? 'female' : 'male', voice: str(c?.voice, 90), description: str(c?.description, 400), referenceImageUrl: /^https:\/\//i.test(String(c?.referenceImageUrl || '')) ? String(c.referenceImageUrl) : undefined })).filter((c) => c.name),
   };
@@ -1791,7 +1791,13 @@ async function stageScript(row: any, user: ReturnType<typeof toUser>, ep: any) {
     return;
   }
   const sb = (out as { sb: any }).sb;
-  // Character portraits are opt-in: never spend image credits during script creation unless requested.
+  const locationDescription = str(sb.location || (Array.isArray(sb.scenes) ? sb.scenes.slice(0, 3).map((scene: any) => str(scene?.visualPrompt || scene?.setting, 260)).join(' ') : '') || sb.setting || sb.logline || sb.title || ep.prompt_input, 900);
+  let projectRefs = project.reference_assets || {};
+  if (locationDescription && !projectRefs.locationDescription) {
+    projectRefs = { ...projectRefs, locationDescription };
+    await sql()`UPDATE projects SET reference_assets = ${jsonb(projectRefs)}::jsonb, updated_at = now() WHERE id = ${ep.project_id}`;
+  }
+  // Character portraits and the master location plate are opt-in: never spend image credits unless requested.
   if (cfg.characterReferences === true && (process.env.VIDEO_PROVIDER || 'fal').trim().toLowerCase() !== 'deapi') {
     await rateLimit(`cast-reference:${row.id}`, 8, 3600);
     const refs = await Promise.all((Array.isArray(sb.characters) ? sb.characters : []).slice(0, 4).map(async (c: any) => {
@@ -1805,12 +1811,11 @@ async function stageScript(row: any, user: ReturnType<typeof toUser>, ep: any) {
       }
     }));
     sb.characters = refs;
-    const projectRefs = project.reference_assets || {};
     if (!/^https:\/\//i.test(String(projectRefs.locationPlateUrl || ''))) {
       try {
-        const locationDescription = str(sb.location || sb.setting || sb.logline || sb.title || ep.prompt_input, 900);
         const locationPlateUrl = await falGenerateLocationPlate(locationDescription, str(cfg.look, 80) || 'cinematic');
-        await sql()`UPDATE projects SET reference_assets = ${jsonb({ ...projectRefs, locationPlateUrl, locationDescription })}::jsonb, updated_at = now() WHERE id = ${ep.project_id}`;
+        projectRefs = { ...projectRefs, locationPlateUrl, locationDescription };
+        await sql()`UPDATE projects SET reference_assets = ${jsonb(projectRefs)}::jsonb, updated_at = now() WHERE id = ${ep.project_id}`;
       } catch (e: any) {
         console.error('location reference skipped:', e?.message);
       }
