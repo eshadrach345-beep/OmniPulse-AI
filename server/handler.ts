@@ -1866,7 +1866,7 @@ async function startPart(row: any, user: ReturnType<typeof toUser>, spec: { prom
       console.error('Kling 4.0 unavailable; falling back to H3 Max for this clip:', e?.message);
     }
   }
-  if (spec.kind === 'continue' && (spec.prevUrl || spec.startImageUrl)) {
+  if (!job && spec.kind === 'continue' && (spec.prevUrl || spec.startImageUrl)) {
     let frame: Buffer;
     let imageUrl = spec.startImageUrl || '';
     if (spec.prevUrl) {
