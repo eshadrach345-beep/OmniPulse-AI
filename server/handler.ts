@@ -1841,8 +1841,8 @@ async function reserveSource(row: any, user: ReturnType<typeof toUser>, seconds:
  * Starts one 10 second clip. The second half of a 20 second scene starts from the last picture of the first half (image-to-video),
  * so the scene carries on without a jump; if that is not possible it falls back to a normal clip with a "continue" prompt.
  */
-async function startPart(row: any, user: ReturnType<typeof toUser>, spec: { prompt: string; aspect: string; kind: 'text' | 'continue'; prevUrl?: string; startImageUrl?: string; referenceImages?: { name: string; url: string }[]; multiPrompt?: { prompt: string; duration: number }[] }) {
-  const source = await reserveSource(row, user, PART_SECONDS);
+async function startPart(row: any, user: ReturnType<typeof toUser>, spec: { prompt: string; aspect: string; kind: 'text' | 'continue'; prevUrl?: string; startImageUrl?: string; referenceImages?: { name: string; url: string }[]; multiPrompt?: { prompt: string; duration: number }[] }, reservation: { id: string; source: 'plan' | 'topup' }) {
+  const { id, source } = reservation;
   await rateLimit(`render:${row.id}`, 300, 3600);
   const reso = PLANS[user.tier]?.resolution || '480P';
   const provider = (process.env.VIDEO_PROVIDER || 'fal').trim().toLowerCase();
@@ -1914,8 +1914,7 @@ async function startPart(row: any, user: ReturnType<typeof toUser>, spec: { prom
       }
     } else job = await submitToProvider(spec.prompt, reso, PART_SECONDS, spec.aspect);
   }
-  const id = newId('job');
-  await sql()`INSERT INTO video_jobs (id, user_id, status_url, response_url, seconds, source) VALUES (${id}, ${row.id}, ${job.statusUrl}, ${job.responseUrl}, ${PART_SECONDS}, ${source})`;
+  await sql()`UPDATE video_jobs SET status_url = ${job.statusUrl}, response_url = ${job.responseUrl}, status = 'queued' WHERE id = ${id} AND user_id = ${row.id}`;
   return { jobId: id };
 }
 
@@ -1991,12 +1990,16 @@ async function stageRender(row: any, user: ReturnType<typeof toUser>, ep: any): 
     const selected = [...locationRef, ...characterRefs].slice(0, 4);
     const continuityPrompt = isEpisodeOpening && (previousUrl || startImageUrl) ? scene.parts[k].prompt + ' Continue directly from the supplied final frame of the previous episode. Preserve the established characters, faces, hair, wardrobe, screen direction, room geometry and prop placement. Do not introduce new people or change the camera axis unless the screenplay explicitly requires a transition.' : scene.parts[k].prompt;
     const spec: Parameters<typeof startPart>[2] = { prompt: continuityPrompt, aspect, kind: previousUrl || startImageUrl ? 'continue' : 'text', prevUrl: previousUrl, startImageUrl, referenceImages: selected, multiPrompt: scene.parts[k].multiPrompt };
+    const source = await reserveSource(row, user, PART_SECONDS);
+    const reservation = { id: newId('job'), source } as { id: string; source: 'plan' | 'topup' };
+    await sql()`INSERT INTO video_jobs (id, user_id, status_url, response_url, seconds, source) VALUES (${reservation.id}, ${row.id}, 'pending', 'pending', ${PART_SECONDS}, ${source})`;
     started++;
     pendingStarts.push((async () => {
       try {
-        const { jobId } = await startPart(row, user, spec);
+        const { jobId } = await startPart(row, user, spec, reservation);
         p.jobId = jobId; p.tries += 1; p.checkAt = Date.now() + FIRST_CHECK_MS; delete p.error;
       } catch (e: any) {
+        await sql()`UPDATE video_jobs SET status = 'failed', error = ${String(e?.message || 'Submission failed.').slice(0, 300)} WHERE id = ${reservation.id} AND user_id = ${row.id}`;
         if (e instanceof RateLimited) {
           wait = Math.max(wait, e.daily ? 900 : Math.max(10, Math.min(e.retryAfter + 2, 120)));
           note = e.daily ? e.message : 'Waiting for the video engine rate limit. Submitted clips will continue rendering; nothing is lost.';
