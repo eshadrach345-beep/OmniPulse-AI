@@ -1990,9 +1990,17 @@ async function stageRender(row: any, user: ReturnType<typeof toUser>, ep: any): 
     const selected = [...locationRef, ...characterRefs].slice(0, 4);
     const continuityPrompt = isEpisodeOpening && (previousUrl || startImageUrl) ? scene.parts[k].prompt + ' Continue directly from the supplied final frame of the previous episode. Preserve the established characters, faces, hair, wardrobe, screen direction, room geometry and prop placement. Do not introduce new people or change the camera axis unless the screenplay explicitly requires a transition.' : scene.parts[k].prompt;
     const spec: Parameters<typeof startPart>[2] = { prompt: continuityPrompt, aspect, kind: previousUrl || startImageUrl ? 'continue' : 'text', prevUrl: previousUrl, startImageUrl, referenceImages: selected, multiPrompt: scene.parts[k].multiPrompt };
-    const source = await reserveSource(row, user, PART_SECONDS);
-    const reservation = { id: newId('job'), source } as { id: string; source: 'plan' | 'topup' };
-    await sql()`INSERT INTO video_jobs (id, user_id, status_url, response_url, seconds, source) VALUES (${reservation.id}, ${row.id}, 'pending', 'pending', ${PART_SECONDS}, ${source})`;
+    let source: 'plan' | 'topup';
+    const reservation = { id: newId('job'), source: 'plan' as 'plan' | 'topup' };
+    try {
+      source = await reserveSource(row, user, PART_SECONDS);
+      reservation.source = source;
+      await sql()`INSERT INTO video_jobs (id, user_id, status_url, response_url, seconds, source) VALUES (${reservation.id}, ${row.id}, 'pending', 'pending', ${PART_SECONDS}, ${source})`;
+    } catch (e: any) {
+      await Promise.allSettled(pendingStarts);
+      await save();
+      throw e;
+    }
     started++;
     pendingStarts.push((async () => {
       try {
