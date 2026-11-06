@@ -389,12 +389,14 @@ export interface SeriesContinuity {
   storySoFar: string;
   endingScene: { visualPrompt: string; voiceoverText: string };
   characters: { name: string; role: string; gender: string; description: string; voice?: string; referenceImageUrl?: string }[];
+  locationDescription?: string;
 }
 
 /** The opening block of the writer prompt for Part 2 and later. Empty for a first part. */
 export function continuityBlock(c?: SeriesContinuity): string {
   if (!c) return '';
   const clip = (v: string, n: number) => String(v || '').replace(/\s+/g, ' ').trim().slice(0, n);
+  const location = clip(c.locationDescription || '', 900);
   const cast = c.characters.length
     ? c.characters.map((ch) => `- ${clip(ch.name, 30)} (${clip(ch.role, 60) || 'character'}, ${ch.gender === 'female' ? 'female' : 'male'}): ${clip(ch.description, 400) || 'no fixed look yet'}${ch.voice ? `; established voice: ${clip(ch.voice, 120)}` : ''}`).join('\n')
     : '- (none recorded)';
@@ -408,6 +410,8 @@ How Part ${c.partNumber - 1} ended (its final scene):
 - Spoken: ${clip(c.endingScene.voiceoverText, 300)}
 RECURRING CHARACTERS (the same people with the same faces, hair, clothes and build. Copy each visual description word for word into every scene they appear in):
 ${cast}
+
+FIXED SERIES LOCATION (preserve the same layout, architecture, furniture, doors, windows, practical lights and important props unless the story explicitly changes them): ${location || 'Use the previous episode final frame and established scene descriptions as the location reference.'}
 
 CONTINUITY RULES FOR PART ${c.partNumber}:
 - Scene 1 starts immediately where Part ${c.partNumber - 1} stopped: same place and time of day, unless the user's idea says time has passed. No recap and no re-introduction of known characters.
@@ -586,6 +590,7 @@ const castRules = (need: number, format: string, silent = false) => `CAST: use a
 const sceneJsonShape = `{ "sceneNumber": 1, "continuesPrevious": false, "visualPrompt": "<what the camera sees in the first half>", "secondHalfAction": "<20 second scenes only: what happens next in the SAME place, 1 to 2 sentences, empty for 10 second scenes>", "cameraMotion": "<camera instruction>", "sound": "<2 to 4 realistic sounds of this scene>", "lines": [ { "speaker": "<character name>", "text": "<spoken words>", "emotion": "<how it is said>", "doing": "<what the speaker does while saying it>", "half": 1 } ] }`;
 
 const sceneRules = (cam: { label: string }) => `SCENE RULES:
+- Establish one primary recurring location in the top-level \"location\" field: 35 to 70 words describing its fixed architecture, room layout, furniture, doors, windows, lighting direction and signature props. Keep this description stable across the series; only change a set detail when the story explicitly shows the change.
 - "visualPrompt": describe only what the camera sees, in 60 to 100 words. Start with shot type and one concrete physical action. Show no more than two foreground characters in one shot unless the plot absolutely requires more; repeat each visible character's full visual description word for word. Give every visible character a specific purposeful action or reaction. Avoid crowd huddles, shoulder-to-shoulder groups, overlapping faces or hands, and faces partly hidden behind other bodies. If the story needs a larger group, split it into separate one- or two-person coverage shots. No idle extras, random bystanders, duplicate people or decorative characters. Include clear positions, screen direction, setting and lighting. No dialogue, subtitles, logos or readable text.
 - "continuesPrevious": set true ONLY when this scene is the next physical beat of the same uninterrupted action in the same place and time, with the same camera side and screen direction. Set false for a motivated cut, new angle, new location or time jump. Never force image-to-video continuation across a real scene change.
 - "secondHalfAction": for 20 second scenes, describe one bigger physical beat that follows straight on from the first half in the same place. State the exact final body positions, facing, screen direction and prop placement at the end of the first half, then describe only the next beat.
@@ -661,6 +666,7 @@ Return ONLY valid JSON in exactly this shape:
   "title": "<catchy title>",
   "logline": "<one sentence summary>",
   "storySoFar": "<2 to 4 sentences summarising the whole story so far, including this part, so a future writer can continue it>",
+  "location": "<35 to 70 word fixed primary location description for the series>",
   "characters": [ { "id": "c1", "name": "<n>", "role": "<role>", "gender": "male", "voice": "<how they sound>", "description": "<visual description>" } ],
   "scenes": [ ${sceneJsonShape} ],
   "hashtags": ["#tag1", "#tag2", "#tag3", "#tag4", "#tag5"],
@@ -681,6 +687,7 @@ Return ONLY valid JSON in exactly this shape:
   "title": "<catchy title>",
   "logline": "<one sentence summary>",
   "storySoFar": "<2 to 4 sentences summarising the whole story so far, including this part>",
+  "location": "<35 to 70 word fixed primary location description for the series>",
   "characters": [ { "id": "c1", "name": "<n>", "role": "<role>", "gender": "male", "voice": "<how they sound>", "description": "<visual description>" } ],
   "outline": [ { "sceneNumber": 1, "summary": "<one specific sentence: where, who is in it, what happens, what changes>" } ],
   "hashtags": ["#tag1", "#tag2", "#tag3", "#tag4", "#tag5"],
@@ -689,12 +696,13 @@ Return ONLY valid JSON in exactly this shape:
 }
 
 /** Long parts, step 2: writes scenes `from`..`to` (1-based, inclusive) of an existing outline. */
-export function chunkPrompt(a: WriterBase, plan: { title: string; logline: string; characters: { name: string; role: string; gender: string; voice?: string; description: string }[]; outline: { sceneNumber: number; summary: string }[] }, from: number, to: number): string {
+export function chunkPrompt(a: WriterBase, plan: { title: string; logline: string; location?: string; characters: { name: string; role: string; gender: string; voice?: string; description: string }[]; outline: { sceneNumber: number; summary: string }[] }, from: number, to: number): string {
   const cam = CAMERA_PROFILES[a.cameraProfile];
   const cast = plan.characters.map((c) => `- ${c.name} (${c.role}, ${c.gender}, voice: ${c.voice || 'natural'}): ${c.description || 'narrator, off screen'}`).join('\n');
   const outline = plan.outline.map((o) => `  ${o.sceneNumber}. ${o.summary}`).join('\n');
   return `${writerHead(a)}
 You are writing part of a story that is already planned. Title: "${plan.title}". ${plan.logline}
+FIXED PRIMARY LOCATION (keep its layout and fixed props unchanged): ${plan.location || a.continuity?.locationDescription || 'Use the same established location throughout this series unless the outline explicitly changes it.'}
 CAST (use exactly these names, voices and looks; copy each visual description word for word into every scene they appear in):
 ${cast}
 FULL OUTLINE (for context, so the scenes you write join up with the ones before and after):
