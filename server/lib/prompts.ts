@@ -748,6 +748,7 @@ Return ONLY valid JSON in exactly this shape:
   "title": "<title from the script, or a short fitting one>",
   "logline": "<one sentence summary>",
   "storySoFar": "<2 to 4 sentences summarising the story so far, including this part>",
+  "location": "<35 to 70 word fixed primary location description for the series>",
   "characters": [ { "id": "c1", "name": "<n>", "role": "<role>", "gender": "male", "voice": "<how they sound>", "description": "<visual description>" } ],
   "scenes": [ ${sceneJsonShape} ],
   "remainingScript": "<the rest of the script, verbatim, or empty>",
