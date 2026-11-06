@@ -1982,15 +1982,15 @@ async function stageRender(row: any, user: ReturnType<typeof toUser>, ep: any): 
     if (k === 0 && scenes[en.index].continuesPrevious === true && !previousUrl) continue;
     if (started >= MAX_STARTS_PER_STEP || left() < 14_000) break outer;
     const scene = scenes[en.index];
-    const visualForMatch = String(scene.visualPrompt || '').replace(/^CAST IDENTITY LOCK \\(do not redesign\\):[\\s\\S]*?named character\\.\\s*/i, '');
+    const visualForMatch = String(scene.visualPrompt || '').replace(/^CAST IDENTITY LOCK \(do not redesign\):[\s\S]*?named character\.\s*/i, '');
     const sceneText = [visualForMatch, ...(scene.lines || []).map((l: any) => l.speaker)].join(' ').toLowerCase();
     const cast: any[] = Array.isArray(ep.storyboard_json?.characters) ? ep.storyboard_json.characters : [];
-    const relevant = cast.filter((c) => c.referenceImageUrl && /^https:\\/\\//i.test(c.referenceImageUrl) && (sceneText.includes(String(c.name || '').toLowerCase()) || (scene.lines || []).some((l: any) => String(l.speaker || '').toLowerCase() === String(c.name || '').toLowerCase())));
-    const characterRefs = (relevant.length ? relevant : cast.filter((c) => c.referenceImageUrl && /^https:\\/\\//i.test(c.referenceImageUrl)).slice(0, 2)).slice(0, projectReferences.locationPlateUrl ? 3 : 4).map((c) => ({ name: str(c.name, 30), url: String(c.referenceImageUrl) }));
-    const locationRef = /^https:\\/\\//i.test(String(projectReferences.locationPlateUrl || '')) ? [{ name: 'the permanent location plate (room layout, furniture and props)', url: String(projectReferences.locationPlateUrl) }] : [];
+    const relevant = cast.filter((c) => c.referenceImageUrl && /^https:\/\//i.test(c.referenceImageUrl) && (sceneText.includes(String(c.name || '').toLowerCase()) || (scene.lines || []).some((l: any) => String(l.speaker || '').toLowerCase() === String(c.name || '').toLowerCase())));
+    const characterRefs = (relevant.length ? relevant : cast.filter((c) => c.referenceImageUrl && /^https:\/\//i.test(c.referenceImageUrl)).slice(0, 2)).slice(0, projectReferences.locationPlateUrl ? 3 : 4).map((c) => ({ name: str(c.name, 30), url: String(c.referenceImageUrl) }));
+    const locationRef = /^https:\/\//i.test(String(projectReferences.locationPlateUrl || '')) ? [{ name: 'the permanent location plate (room layout, furniture and props)', url: String(projectReferences.locationPlateUrl) }] : [];
     const selected = [...locationRef, ...characterRefs].slice(0, 4);
     const continuityPrompt = isEpisodeOpening && (previousUrl || startImageUrl) ? scene.parts[k].prompt + ' Continue directly from the supplied final frame of the previous episode. Preserve the established characters, faces, hair, wardrobe, screen direction, room geometry and prop placement. Do not introduce new people or change the camera axis unless the screenplay explicitly requires a transition.' : scene.parts[k].prompt;
-    const spec = { prompt: continuityPrompt, aspect, kind: previousUrl || startImageUrl ? 'continue' : 'text', prevUrl: previousUrl, startImageUrl, referenceImages: selected, multiPrompt: scene.parts[k].multiPrompt };
+    const spec: Parameters<typeof startPart>[2] = { prompt: continuityPrompt, aspect, kind: previousUrl || startImageUrl ? 'continue' : 'text', prevUrl: previousUrl, startImageUrl, referenceImages: selected, multiPrompt: scene.parts[k].multiPrompt };
     started++;
     pendingStarts.push((async () => {
       try {
