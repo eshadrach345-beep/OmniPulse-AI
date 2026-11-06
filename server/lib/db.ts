@@ -194,6 +194,7 @@ export function ensureSchema(): Promise<void> {
       await q`CREATE INDEX IF NOT EXISTS episodes_active_idx ON episodes (status) WHERE status IN ('PROCESSING', 'RENDERING')`;
       await q`ALTER TABLE projects ADD COLUMN IF NOT EXISTS target_parts INT NOT NULL DEFAULT 1`;
       await q`ALTER TABLE projects ADD COLUMN IF NOT EXISTS auto_continue BOOLEAN NOT NULL DEFAULT FALSE`;
+      await q`ALTER TABLE projects ADD COLUMN IF NOT EXISTS reference_assets JSONB NOT NULL DEFAULT '{}'::jsonb`;
       await q`CREATE TABLE IF NOT EXISTS webhook_events (
         id TEXT PRIMARY KEY,
         received_at TIMESTAMPTZ NOT NULL DEFAULT now()
