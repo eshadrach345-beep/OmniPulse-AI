@@ -1027,6 +1027,56 @@ export async function falReferenceVideoSubmit(prompt: string, referenceImageUrls
   return { requestId: String(d.request_id), statusUrl: String(d.status_url), responseUrl: String(d.response_url) };
 }
 
+/** Kling 4.0 reference-to-video with per-shot prompts for short-drama coverage. */
+export async function falKlingReferenceSubmit(
+  prompt: string,
+  referenceImageUrls: string[],
+  resolution: '720p' | '1080p' = '720p',
+  seconds = 10,
+  aspect = '9:16',
+  startImageUrl?: string,
+  referenceVideoUrls: string[] = [],
+  multiPrompt?: { prompt: string; duration: number }[],
+) {
+  const start = /^https:\/\//i.test(String(startImageUrl || '')) ? String(startImageUrl) : undefined;
+  const images = referenceImageUrls.filter((u) => /^https:\/\//i.test(String(u))).slice(0, start ? 9 : 10);
+  const videos = referenceVideoUrls.filter((u) => /^https:\/\//i.test(String(u))).slice(0, 5);
+  const shots = (multiPrompt || []).filter((x) => x && String(x.prompt || '').trim() && Number.isInteger(x.duration) && x.duration >= 1);
+  if (!String(prompt || '').trim() && !shots.length) throw new HttpError(400, 'Kling needs a visual prompt.');
+  if (shots.length && shots.reduce((n, x) => n + x.duration, 0) !== seconds) {
+    throw new HttpError(400, 'Kling shot durations must add up to the clip length.');
+  }
+  const body = {
+    ...(String(prompt || '').trim() ? { prompt } : {}),
+    ...(shots.length ? { multi_prompt: shots } : {}),
+    ...(images.length ? { image_urls: images } : {}),
+    ...(videos.length ? { video_urls: videos } : {}),
+    ...(start ? { start_image_url: start } : {}),
+    duration: seconds,
+    resolution,
+    aspect_ratio: aspect,
+  };
+  let r: Response;
+  try {
+    r = await fetch('https://queue.fal.run/kling/v4/reference-to-video', {
+      method: 'POST', headers: falHeaders(), body: JSON.stringify(body), signal: AbortSignal.timeout(30_000),
+    });
+  } catch (e: any) {
+    throw new HttpError(424, e?.name === 'TimeoutError' ? 'Kling 4.0 did not respond in time.' : 'Could not reach Kling 4.0.', 'FAL_KLING');
+  }
+  const d: any = await r.json().catch(() => ({}));
+  if (!r.ok || !d.request_id || !d.status_url || !d.response_url) {
+    console.error('fal Kling 4.0 submit failed', r.status, d);
+    const detail = typeof d?.detail === 'string' ? d.detail : d?.detail ? JSON.stringify(d.detail) : '';
+    throw new HttpError(424, r.status === 401 || r.status === 403
+      ? 'fal.ai rejected the Kling request. Check FAL_KEY and model access.'
+      : r.status === 402 || /exhausted balance|insufficient balance|user is locked/i.test(detail)
+        ? 'fal.ai does not have enough credit for Kling 4.0.'
+        : `Kling 4.0 request failed (${r.status}${detail ? `: ${detail.slice(0, 160)}` : ''}).`, 'FAL_KLING');
+  }
+  return { requestId: String(d.request_id), statusUrl: String(d.status_url), responseUrl: String(d.response_url) };
+}
+
 /** Generates two optional brand campaign stills; the FAL key stays server-side. */
 export async function falGenerateBrandImages(prompt: string, aspect: '9:16' | '16:9' | '1:1') {
   const imageSize = aspect === '9:16' ? 'portrait_16_9' : aspect === '16:9' ? 'landscape_16_9' : 'square_hd';

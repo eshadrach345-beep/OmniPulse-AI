@@ -188,7 +188,7 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
   const [deliver, setDeliver] = useState<'all' | 'one'>('one');
   const [mood, setMood] = useState<StoryMoodId>('cinematic_trailer');
   const [camera, setCamera] = useState<CameraProfileId>('kinetic_tracking');
-  const [presentation, setPresentation] = useState<PresentationId>('movie');
+  const [presentation, setPresentation] = useState<PresentationId>('shortdrama');
   const [genre, setGenre] = useState<GenreId>('auto');
   const [intensity, setIntensity] = useState<IntensityId>('balanced');
   const [dialogue, setDialogue] = useState<DialogueId>('normal');
@@ -197,7 +197,7 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
   const [animalsTalk, setAnimalsTalk] = useState(false);
   const [trope, setTrope] = useState<TropeId>('none');
   const [reviewFirst, setReviewFirst] = useState(true);
-  const [characterReferences, setCharacterReferences] = useState(false);
+  const [characterReferences, setCharacterReferences] = useState(true);
   const [locationEditInstruction, setLocationEditInstruction] = useState('Remove the used dishes and clutter from the table. Keep the exact same table, chairs, kitchen, camera angle, lighting and all other props unchanged.');
   const [locationEditBusy, setLocationEditBusy] = useState(false);
   const [locationEditMessage, setLocationEditMessage] = useState('');
@@ -782,7 +782,7 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
         </label>
         <label className="flex items-start gap-2 text-xs text-slate-300 cursor-pointer rounded-lg border border-indigo-500/30 bg-indigo-950/20 p-3">
           <input type="checkbox" checked={characterReferences} onChange={(e) => setCharacterReferences(e.target.checked)} className="mt-0.5 accent-indigo-500" />
-          <span><span className="font-semibold text-indigo-200">Generate character and location references.</span> Creates reusable character portraits and a wide location plate, then reuses them across episodes to help preserve faces, room layout, furniture and props. Uses additional fal.ai image credits. If reference generation fails, the film continues without it.</span>
+          <span><span className="font-semibold text-indigo-200">Use consistent cast and location references (recommended).</span> Creates reusable cast portraits and a master location image, then supplies them to each video clip to help keep faces, hair, wardrobe, room layout and props consistent. Uses additional fal.ai image credits; turn it off to save those credits, but expect less visual continuity.</span>
         </label>
         {errorBox}
         <button type="button" onClick={submit} disabled={busy} className="w-full py-3 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-xs font-semibold flex items-center justify-center gap-2">
