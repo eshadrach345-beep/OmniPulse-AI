@@ -926,6 +926,29 @@ export async function falImageVideoSubmit(imageUrl: string, prompt: string, seco
   return { requestId: String(d.request_id), statusUrl: String(d.status_url), responseUrl: String(d.response_url) };
 }
 
+/** Generates a reusable wide location plate for a series. */
+export async function falGenerateLocationPlate(description: string, look = 'cinematic') {
+  const prompt = `Create a photorealistic wide 16:9 master location reference plate for a fictional ${look} series. Environment: ${description.slice(0, 900)}. Show the complete room or location layout in one coherent establishing view, with stable architecture, furniture, doors, windows and important props clearly visible. No people, no faces, no text, no logos, no watermark. Neutral balanced natural light appropriate to the described setting, realistic materials, consistent spatial geometry, clean composition. This is a reusable continuity reference, not a dramatic movie frame.`;
+  let r: Response;
+  try {
+    r = await fetch('https://fal.run/fal-ai/flux/dev', {
+      method: 'POST', headers: falHeaders(),
+      body: JSON.stringify({ prompt, image_size: 'landscape_16_9', num_images: 1, num_inference_steps: 28, enable_safety_checker: true, output_format: 'jpeg' }),
+      signal: AbortSignal.timeout(25_000),
+    });
+  } catch (e: any) {
+    throw new HttpError(424, e?.name === 'TimeoutError' ? 'Location reference generation timed out.' : 'Could not reach the location reference generator.', 'FAL');
+  }
+  const d: any = await r.json().catch(() => ({}));
+  const url = String(d?.images?.[0]?.url || '');
+  if (!r.ok || !/^https:\/\//i.test(url)) {
+    console.error('fal location reference failed', r.status, d);
+    const detail = typeof d?.detail === 'string' ? d.detail : '';
+    throw new HttpError(424, r.status === 402 ? 'fal.ai image credits are exhausted.' : `Location reference generation failed (${r.status}${detail ? `: ${detail.slice(0, 140)}` : ''}).`, 'FAL');
+  }
+  return url;
+}
+
 /** Generates one reusable cast portrait. Called only when the creator opts into character references. */
 export async function falGenerateCharacterReference(name: string, role: string, gender: string, description: string) {
   const identity = [name, role, gender, description].filter(Boolean).join(', ');
