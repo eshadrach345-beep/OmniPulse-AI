@@ -1975,7 +1975,7 @@ async function stageScript(row: any, user: ReturnType<typeof toUser>, ep: any) {
     await sql()`UPDATE projects SET reference_assets = ${jsonb(projectRefs)}::jsonb, updated_at = now() WHERE id = ${ep.project_id}`;
   }
   // Character portraits and the master location plate are generated when the Series Studio reference option is enabled.
-  if (cfg.characterReferences === true && lookupEnv('FAL_KEY')) {
+  if (cfg.characterReferences === true && lookupEnv('FAL_KEY') && (process.env.VIDEO_PROVIDER || 'fal').trim().toLowerCase() !== 'deapi') {
     await rateLimit(`cast-reference:${row.id}`, 8, 3600);
     const refs = await Promise.all((Array.isArray(sb.characters) ? sb.characters : []).slice(0, 4).map(async (c: any) => {
       if (c.referenceImageUrl && /^https:\/\//i.test(c.referenceImageUrl)) return c;
@@ -2016,8 +2016,8 @@ async function reserveSource(row: any, user: ReturnType<typeof toUser>, seconds:
  * Starts one 10 second clip. The second half of a 20 second scene starts from the last picture of the first half (image-to-video),
  * so the scene carries on without a jump; if that is not possible it falls back to a normal clip with a "continue" prompt.
  */
-async function startPart(row: any, user: ReturnType<typeof toUser>, spec: { prompt: string; aspect: string; kind: 'text' | 'continue'; prevUrl?: string; startImageUrl?: string; referenceImages?: { name: string; url: string }[]; multiPrompt?: { prompt: string; duration: number }[] }) {
-  const source = await reserveSource(row, user, PART_SECONDS);
+async function startPart(row: any, user: ReturnType<typeof toUser>, spec: { prompt: string; aspect: string; kind: 'text' | 'continue'; prevUrl?: string; startImageUrl?: string; referenceImages?: { name: string; url: string }[]; multiPrompt?: { prompt: string; duration: number }[] }, reservation: { id: string; source: 'plan' | 'topup' }) {
+  const { id, source } = reservation;
   await rateLimit(`render:${row.id}`, 300, 3600);
   const reso = PLANS[user.tier]?.resolution || '480P';
   const provider = (process.env.VIDEO_PROVIDER || 'fal').trim().toLowerCase();
@@ -2025,7 +2025,7 @@ async function startPart(row: any, user: ReturnType<typeof toUser>, spec: { prom
 
   // Short-drama clips use Kling's multi-shot director and reusable reference assets.
   // If Kling is unavailable or out of credit, fall back to the existing H3 Max path.
-  if (spec.multiPrompt?.length && lookupEnv('FAL_KEY')) {
+  if (spec.multiPrompt?.length && lookupEnv('FAL_KEY') && provider !== 'deapi') {
     const refs = (spec.referenceImages || []).filter((x) => /^https:\/\//i.test(x.url)).slice(0, 10);
     const imageGuide = refs.map((x, i) => `@Image${i + 1} is ${x.name}. Use it as the exact identity or location reference; do not substitute or redesign it.`).join(' ');
     const videoGuide = spec.prevUrl ? '@Video1 is the immediately preceding scene clip. Continue its established action, actors, clothing, props and screen direction without resetting.' : '';
@@ -2089,8 +2089,7 @@ async function startPart(row: any, user: ReturnType<typeof toUser>, spec: { prom
       }
     } else job = await submitToProvider(spec.prompt, reso, PART_SECONDS, spec.aspect);
   }
-  const id = newId('job');
-  await sql()`INSERT INTO video_jobs (id, user_id, status_url, response_url, seconds, source) VALUES (${id}, ${row.id}, ${job.statusUrl}, ${job.responseUrl}, ${PART_SECONDS}, ${source})`;
+  await sql()`UPDATE video_jobs SET status_url = ${job.statusUrl}, response_url = ${job.responseUrl}, status = 'queued' WHERE id = ${id} AND user_id = ${row.id}`;
   return { jobId: id };
 }
 
@@ -2149,8 +2148,9 @@ async function stageRender(row: any, user: ReturnType<typeof toUser>, ep: any): 
     } catch (e: any) { console.error(`episode ${ep.id} status check failed:`, e?.message); p.checkAt = Date.now() + CHECK_EVERY_MS; } // provider hiccup: ask again later
   }
 
-  // 2. start the clips that are ready, one by one
+  // 2. Start independent ready clips concurrently; continuity-dependent clips stay gated above.
   let started = 0;
+  const pendingStarts: Promise<void>[] = [];
   outer: for (const en of entries) for (let k = 0; k < en.parts.length; k++) {
     const p = en.parts[k];
     if (p.jobId || p.url || p.tries >= MAX_PART_TRIES || (p.retryAt || 0) > Date.now()) continue;
@@ -2158,31 +2158,52 @@ async function stageRender(row: any, user: ReturnType<typeof toUser>, ep: any): 
     const isEpisodeOpening = en.index === 0 && k === 0;
     const startImageUrl = isEpisodeOpening ? openingReference : undefined;
     const previousUrl = k > 0 ? en.parts[k - 1]?.url : (scenes[en.index].continuesPrevious === true ? previousSceneLastUrl : (isEpisodeOpening && !startImageUrl ? previousEpisodeAnchorUrl : undefined));
-    if (k > 0 && !previousUrl) continue; // the second half starts from the first half's last picture
-    if (k === 0 && scenes[en.index].continuesPrevious === true && !previousUrl) continue; // connected action waits for the previous scene's final frame
+    if (k > 0 && !previousUrl) continue;
+    if (k === 0 && scenes[en.index].continuesPrevious === true && !previousUrl) continue;
     if (started >= MAX_STARTS_PER_STEP || left() < 14_000) break outer;
+    const scene = scenes[en.index];
+    const visualForMatch = String(scene.visualPrompt || '').replace(/^CAST IDENTITY LOCK \(do not redesign\):[\s\S]*?named character\.\s*/i, '');
+    const sceneText = [visualForMatch, ...(scene.lines || []).map((l: any) => l.speaker)].join(' ').toLowerCase();
+    const cast: any[] = Array.isArray(ep.storyboard_json?.characters) ? ep.storyboard_json.characters : [];
+    const relevant = cast.filter((c) => c.referenceImageUrl && /^https:\/\//i.test(c.referenceImageUrl) && (sceneText.includes(String(c.name || '').toLowerCase()) || (scene.lines || []).some((l: any) => String(l.speaker || '').toLowerCase() === String(c.name || '').toLowerCase())));
+    const characterRefs = (relevant.length ? relevant : cast.filter((c) => c.referenceImageUrl && /^https:\/\//i.test(c.referenceImageUrl)).slice(0, 2)).slice(0, projectReferences.locationPlateUrl ? 3 : 4).map((c) => ({ name: str(c.name, 30), url: String(c.referenceImageUrl) }));
+    const locationRef = /^https:\/\//i.test(String(projectReferences.locationPlateUrl || '')) ? [{ name: 'the permanent location plate (room layout, furniture and props)', url: String(projectReferences.locationPlateUrl) }] : [];
+    const selected = [...locationRef, ...characterRefs].slice(0, 4);
+    const continuityPrompt = isEpisodeOpening && (previousUrl || startImageUrl) ? scene.parts[k].prompt + ' Continue directly from the supplied final frame of the previous episode. Preserve the established characters, faces, hair, wardrobe, screen direction, room geometry and prop placement. Do not introduce new people or change the camera axis unless the screenplay explicitly requires a transition.' : scene.parts[k].prompt;
+    const spec: Parameters<typeof startPart>[2] = { prompt: continuityPrompt, aspect, kind: previousUrl || startImageUrl ? 'continue' : 'text', prevUrl: previousUrl, startImageUrl, referenceImages: selected, multiPrompt: scene.parts[k].multiPrompt };
+    let source: 'plan' | 'topup';
+    const reservation = { id: newId('job'), source: 'plan' as 'plan' | 'topup' };
     try {
-      const scene = scenes[en.index];
-      const visualForMatch = String(scene.visualPrompt || '').replace(/^CAST IDENTITY LOCK \(do not redesign\):[\s\S]*?named character\.\s*/i, '');
-      const sceneText = [visualForMatch, ...(scene.lines || []).map((l: any) => l.speaker)].join(' ').toLowerCase();
-      const cast: any[] = Array.isArray(ep.storyboard_json?.characters) ? ep.storyboard_json.characters : [];
-      const relevant = cast.filter((c) => c.referenceImageUrl && /^https:\/\//i.test(c.referenceImageUrl) && (sceneText.includes(String(c.name || '').toLowerCase()) || (scene.lines || []).some((l: any) => String(l.speaker || '').toLowerCase() === String(c.name || '').toLowerCase())));
-       const characterRefs = (relevant.length ? relevant : cast.filter((c) => c.referenceImageUrl && /^https:\/\//i.test(c.referenceImageUrl)).slice(0, 2)).slice(0, projectReferences.locationPlateUrl ? 3 : 4).map((c) => ({ name: str(c.name, 30), url: String(c.referenceImageUrl) }));
-       const locationRef = /^https:\/\//i.test(String(projectReferences.locationPlateUrl || '')) ? [{ name: 'the permanent location plate (room layout, furniture and props)', url: String(projectReferences.locationPlateUrl) }] : [];
-       const selected = [...locationRef, ...characterRefs].slice(0, 4);
-      const continuityPrompt = isEpisodeOpening && (previousUrl || startImageUrl) ? `${scene.parts[k].prompt} Continue directly from the supplied final frame of the previous episode. Preserve the established characters, faces, hair, wardrobe, screen direction, room geometry and prop placement. Do not introduce new people or change the camera axis unless the screenplay explicitly requires a transition.` : scene.parts[k].prompt;
-      const { jobId } = await startPart(row, user, { prompt: continuityPrompt, aspect, kind: previousUrl || startImageUrl ? 'continue' : 'text', prevUrl: previousUrl, startImageUrl, referenceImages: selected, multiPrompt: scene.parts[k].multiPrompt });
-      p.jobId = jobId; p.tries += 1; p.checkAt = Date.now() + FIRST_CHECK_MS; delete p.error; started++;
+      source = await reserveSource(row, user, PART_SECONDS);
+      reservation.source = source;
+      await sql()`INSERT INTO video_jobs (id, user_id, status_url, response_url, seconds, source) VALUES (${reservation.id}, ${row.id}, 'pending', 'pending', ${PART_SECONDS}, ${source})`;
     } catch (e: any) {
-      if (e instanceof RateLimited) {
-        wait = e.daily ? 900 : Math.max(10, Math.min(e.retryAfter + 2, 120));
-        note = e.daily ? e.message : `Waiting for the video engine's rate limit (about ${Math.round(wait)} seconds). Free video accounts allow one new clip a minute, so this is normal. Nothing is lost.`;
-        break outer;
-      }
-      if (e instanceof HttpError && [400, 402, 403, 409].includes(e.status)) { await save(); throw e; }
-      p.tries += 1; p.error = String(e?.message || 'Could not start this clip.').slice(0, 300); p.retryAt = Date.now() + 15_000;
+      await Promise.allSettled(pendingStarts);
+      await save();
+      throw e;
     }
+    started++;
+    pendingStarts.push((async () => {
+      try {
+        const { jobId } = await startPart(row, user, spec, reservation);
+        p.jobId = jobId; p.tries += 1; p.checkAt = Date.now() + FIRST_CHECK_MS; delete p.error;
+      } catch (e: any) {
+        await sql()`UPDATE video_jobs SET status = 'failed', error = ${String(e?.message || 'Submission failed.').slice(0, 300)} WHERE id = ${reservation.id} AND user_id = ${row.id}`;
+        if (e instanceof RateLimited) {
+          wait = Math.max(wait, e.daily ? 900 : Math.max(10, Math.min(e.retryAfter + 2, 120)));
+          note = e.daily ? e.message : 'Waiting for the video engine rate limit. Submitted clips will continue rendering; nothing is lost.';
+        } else if (e instanceof HttpError && [400, 402, 403, 409].includes(e.status)) {
+          p.tries += 1; p.error = String(e.message || 'Could not start this clip.').slice(0, 300); p.retryAt = Date.now() + 15_000;
+          throw e;
+        } else {
+          p.tries += 1; p.error = String(e?.message || 'Could not start this clip.').slice(0, 300); p.retryAt = Date.now() + 15_000;
+        }
+      }
+    })());
   }
+  const startResults = await Promise.allSettled(pendingStarts);
+  const fatalStart = startResults.find((r) => r.status === 'rejected');
+  if (fatalStart?.status === 'rejected') { await save(); throw fatalStart.reason; }
   await save();
 
   if (entries.every((en) => en.parts.every((p) => p.url))) { await completeEpisode(ep, entries); return { wait: 0 }; }
