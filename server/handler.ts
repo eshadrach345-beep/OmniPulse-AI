@@ -1090,13 +1090,16 @@ function finishStory(ctx: StoryCtx, d: any, input: StoryInput) {
     // Put the scene's physical action first. Long global cast descriptions used to be prepended
     // to every prompt, pushing the actual action chain toward truncation. Keep only identities visible
     // in this scene and append their compact visual anchors after the action.
-    const visibleCharacters = characters.filter((c) => c.name && vp.toLowerCase().includes(c.name.toLowerCase()));
+    const sceneSpeakers = new Set(lines.map((line) => line.speaker.toLowerCase()));
+    const visibleCharacters = characters.filter((c) => c.name && (vp.toLowerCase().includes(c.name.toLowerCase()) || sceneSpeakers.has(c.name.toLowerCase())));
     const identityAnchor = visibleCharacters.map((c) => `${c.name}: ${str(c.description, 260)}`).filter(Boolean).join(' ');
     const lockedProtagonist = brief.characterLock && !vp.toLowerCase().includes(lockKey)
       ? `Maintain the protagonist's established appearance: ${brief.characterLock.descriptor}.`
       : '';
     const continuesPrevious = sc?.continuesPrevious === true;
-    const visualBase = [vp, shownText, identityAnchor, lockedProtagonist].filter(Boolean).join(' ');
+    // "Shown" stage directions contain actions extracted from malformed speech fields;
+    // put them before visual decoration so they are not the first text lost to truncation.
+    const visualBase = [shownText, str(vp, 700), identityAnchor, lockedProtagonist].filter(Boolean).join(' ');
     const soundText = str(sc?.sound, 160);
     // The selected camera profile is the hard constraint. A model-written per-scene move
     // must not silently replace it (for example, adding a zoom to a locked-off shot).
