@@ -118,7 +118,7 @@ export async function muxDialogueIntoVideo(videoFile: string, tracks: DialogueAu
   try {
     const videoInfo = await inspect(bin, videoFile);
     const totalDuration = Math.max(1, videoInfo.seconds);
-    const inputs: { file: string; clipIndex: number; duration: number }[] = [];
+    const inputs: { file: string; clipIndex: number; duration: number; tempo: number }[] = [];
     let inputNumber = 1;
 
     // Save and probe each generated line so the next speaker starts after the real audio,
@@ -144,7 +144,7 @@ export async function muxDialogueIntoVideo(videoFile: string, tracks: DialogueAu
         throw new Error(`The dialogue in clip ${clipIndex + 1} is too long for its 10-second shot. Shorten the lines in the script and export again.`);
       }
       for (const line of prepared) {
-        inputs.push({ file: line.file, clipIndex, duration: line.duration / speed });
+        inputs.push({ file: line.file, clipIndex, duration: line.duration / speed, tempo: speed });
       }
     }
 
@@ -168,10 +168,7 @@ export async function muxDialogueIntoVideo(videoFile: string, tracks: DialogueAu
       }
       const label = `voice${index}`;
       const delay = Math.round(startAt * 1000);
-      const speed = Math.max(1, inputs
-        .filter((candidate) => candidate.clipIndex === input.clipIndex)
-        .reduce((sum, candidate) => sum + candidate.duration, 0) / Math.max(0.1, secondsPerClip - 0.65));
-      const tempo = Math.min(1.35, speed).toFixed(3);
+      const tempo = input.tempo.toFixed(3);
       filters.push(`[${index + 1}:a]aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo,atempo=${tempo},volume=1.35,adelay=${delay}|${delay},apad,atrim=duration=${totalDuration.toFixed(3)}[${label}]`);
       voiceLabels.push(`[${label}]`);
       cursorByClip[input.clipIndex] += input.duration + 0.16;
