@@ -1126,6 +1126,21 @@ function finishStory(ctx: StoryCtx, d: any, input: StoryInput) {
       ? `Maintain the protagonist's established appearance: ${brief.characterLock.descriptor}.`
       : '';
     const continuesPrevious = sc?.continuesPrevious === true;
+    const previousScene = scenes[scenes.length - 1];
+    const previousSceneText = previousScene ? [previousScene.visualPrompt, ...(previousScene.lines || []).map((line: any) => line.speaker)].join(' ').toLowerCase() : '';
+    const currentVisibleNames = [...visibleCharacters.map((c) => c.name), ...sceneSpeakers];
+    const sharesVisibleCharacter = currentVisibleNames.some((name) => name && previousSceneText.includes(name.toLowerCase()));
+    const placeWords = (value: string) => new Set(value.toLowerCase().split(/[^a-z0-9]+/).filter((word) => word.length > 3 && !['room', 'inside', 'outside', 'interior', 'exterior', 'area', 'scene'].includes(word)));
+    const currentPlaceWords = placeWords(sceneLocation);
+    const previousPlaceWords = placeWords(String(previousScene?.location || ''));
+    const relatedPlace = !currentPlaceWords.size || !previousPlaceWords.size || [...currentPlaceWords].some((word) => previousPlaceWords.has(word));
+    const sequenceText = [vp, sceneLocation, sc?.secondHalfAction].join(' ');
+    const explicitTimeJump = /\b(later|next day|following day|years later|months later|hours later|flashback|memory|dream|the next morning|next morning|that night|next evening)\b/i.test(sequenceText);
+    const explicitCostumeChange = /\b(changes? (?:her|his|their) (?:clothes|outfit|costume|uniform)|changes into|now wears|is now wearing|puts on|takes off|removes (?:her|his|their))\b/i.test(sequenceText);
+    const sceneTime = (sequenceText.match(/\b(dawn|sunrise|morning|afternoon|sunset|dusk|evening|night|midnight|day)\b/i)?.[1] || '').toLowerCase();
+    const priorTime = previousScene ? (String(previousScene.visualPrompt || '').match(/\b(dawn|sunrise|morning|afternoon|sunset|dusk|evening|night|midnight|day)\b/i)?.[1] || '').toLowerCase() : '';
+    const timeChanged = !!(sceneTime && priorTime && sceneTime !== priorTime);
+    const referencePrevious = scenes.length > 0 && !continuesPrevious && (sc?.referencePrevious === true || (sharesVisibleCharacter && relatedPlace && !explicitTimeJump && !explicitCostumeChange && !timeChanged));
     // "Shown" stage directions contain actions extracted from malformed speech fields;
     // put them before visual decoration so they are not the first text lost to truncation.
     const visualBase = [shownText, str(vp, 560), identityAnchor, propAnchor, locationAnchor, primaryLocationAnchor, lockedProtagonist].filter(Boolean).join(' ');
@@ -1135,10 +1150,10 @@ function finishStory(ctx: StoryCtx, d: any, input: StoryInput) {
     const cameraMotion = cam.direct;
     const second = str(sc?.secondHalfAction, 400);
 
-    const parts = assembleParts({ presentation, brief: { genre: brief.genre, intensity: brief.intensity }, mood: { render: mood.render }, look, aspect, cameraMotion, halves, lines, visualBase, second, soundText, characters, continuesPrevious, referencePrevious: sc?.referencePrevious === true && scenes.length > 0, sceneNumber: scenes.length + 1 });
+    const parts = assembleParts({ presentation, brief: { genre: brief.genre, intensity: brief.intensity }, mood: { render: mood.render }, look, aspect, cameraMotion, halves, lines, visualBase, second, soundText, characters, continuesPrevious, referencePrevious, sceneNumber: scenes.length + 1 });
     scenes.push({
       id: `s${scenes.length + 1}`, sceneId: `scene-${String(scenes.length + 1).padStart(2, '0')}`, sceneNumber: scenes.length + 1, beat: beats[i] || '',
-      visualPrompt: str(visualBase, 1450), location: sceneLocation, continuesPrevious, referencePrevious: sc?.referencePrevious === true && scenes.length > 0, secondHalfAction: second, voiceoverText: lines.map((l) => l.text).join(' '), cameraMotion, sound: soundText,
+      visualPrompt: str(visualBase, 1450), location: sceneLocation, continuesPrevious, referencePrevious, secondHalfAction: second, voiceoverText: lines.map((l) => l.text).join(' '), cameraMotion, sound: soundText,
       lines: lines.map((l) => ({ speaker: l.speaker, text: l.text, emotion: l.emotion || '', doing: l.doing || '', half: l.half })), clipSeconds: len, parts,
     });
   }
