@@ -1536,9 +1536,65 @@ const cronDispatch: Handler = async ({ req, res, query }) => {
 // ---------------------------------------------------------------- downloads
 const safeName = (s: string) => s.replace(/[^\w\- ]+/g, '').trim().slice(0, 60) || 'video';
 
+/** Creates a short-lived, user-authorized URL for a privately archived scene clip. */
+async function privateBlobVideoUrl(pathname: string): Promise<string> {
+  const token = await issueSignedToken({ operations: ['get'] });
+  const signed = await presignUrl(token, { pathname, operation: 'get', access: 'private', validUntil: Date.now() + 60 * 60 * 1000 });
+  return signed.presignedUrl;
+}
+
+/**
+ * Preserve completed clips in private Vercel Blob storage. Provider result URLs (especially deAPI result URLs)
+ * are temporary, so the app must not rely on them as the only copy of a finished scene.
+ */
+async function archiveVideoJob(j: any, sourceUrl: string): Promise<string | null> {
+  if (j.blob_pathname) return String(j.blob_pathname);
+  const blobToken = process.env.BLOB_READ_WRITE_TOKEN;
+  if (!blobToken || !sourceUrl) return null;
+  try {
+    const source = await fetch(sourceUrl, { signal: AbortSignal.timeout(25_000) });
+    if (!source.ok || !source.body) {
+      console.warn('scene archive source unavailable', j.id, source.status);
+      return null;
+    }
+    const declared = Number(source.headers.get('content-length') || 0);
+    if (declared > 150 * 1024 * 1024) {
+      console.warn('scene archive skipped: file exceeds limit', j.id, declared);
+      return null;
+    }
+    const bytes = new Uint8Array(await source.arrayBuffer());
+    if (!bytes.byteLength || bytes.byteLength > 150 * 1024 * 1024) return null;
+    const blob = await put(`series-clips/${j.user_id}/${j.id}.mp4`, new Blob([bytes], { type: 'video/mp4' }), {
+      access: 'private', token: blobToken, contentType: 'video/mp4', addRandomSuffix: false,
+    });
+    await sql()`UPDATE video_jobs SET blob_pathname = ${blob.pathname} WHERE id = ${j.id} AND user_id = ${j.user_id}`;
+    j.blob_pathname = blob.pathname;
+    return blob.pathname;
+  } catch (e: any) {
+    console.warn('scene archive failed', j.id, e?.message || 'unknown error');
+    return null;
+  }
+}
+
+/** Re-read a completed provider job only when its saved result URL has stopped working. This does not start a render. */
+async function refreshSavedVideoUrl(j: any): Promise<string> {
+  const status: any = String(j.status_url).startsWith('deapi:')
+    ? await deapiStatus(String(j.status_url).slice(6))
+    : await falStatus(j.status_url, j.response_url);
+  if (status.state !== 'done' || !status.videoUrl) {
+    throw new HttpError(424, 'The video provider no longer has a downloadable copy of this finished scene.', 'CLIP_EXPIRED');
+  }
+  const fresh = String(status.videoUrl);
+  await sql()`UPDATE video_jobs SET status = 'done', video_url = ${fresh}, error = NULL WHERE id = ${j.id} AND user_id = ${j.user_id}`;
+  j.status = 'done';
+  j.video_url = fresh;
+  return fresh;
+}
+
 async function jobVideoUrl(j: any): Promise<string> {
-  // A finished scene already has its video address saved. Use it: asking the video provider again for every download
-  // burns its status allowance (deAPI basic accounts get only a few hundred checks a day) and fails once the job record expires.
+  // Prefer our own permanent private copy; generate a fresh signed URL for each request.
+  if (j.blob_pathname) return privateBlobVideoUrl(String(j.blob_pathname));
+  // A provider URL is used only until the scene has been archived.
   if (j.status === 'done' && j.video_url) return String(j.video_url);
   let s: any;
   try { s = await refreshJob(j); }
@@ -1962,7 +2018,13 @@ async function stageRender(row: any, user: ReturnType<typeof toUser>, ep: any): 
     if (!j) { p.error = 'The render record is missing.'; delete p.jobId; p.retryAt = Date.now() + 5_000; continue; }
     try {
       const st = await refreshJob(j);
-      if (st.state === 'done' && st.videoUrl) { p.url = st.videoUrl; delete p.error; }
+      if (st.state === 'done' && st.videoUrl) {
+        p.url = st.videoUrl;
+        delete p.error;
+        // Archive immediately while the provider result URL is still valid; failure to archive
+        // must not turn a completed, paid-for scene into a failed render.
+        await archiveVideoJob(j, st.videoUrl);
+      }
       else if (st.state === 'failed') { p.error = st.error || 'The video engine could not render this clip.'; delete p.jobId; p.retryAt = Date.now() + 10_000; }
       else p.checkAt = Date.now() + CHECK_EVERY_MS;
     } catch (e: any) { console.error(`episode ${ep.id} status check failed:`, e?.message); p.checkAt = Date.now() + CHECK_EVERY_MS; } // provider hiccup: ask again later
@@ -2184,12 +2246,41 @@ const episodeVideo: Handler = async ({ req, res, query }) => {
   const scenes: any[] = Array.isArray(ep.storyboard_json?.scenes) ? ep.storyboard_json.scenes : [];
   const ids = normalizeEntries(ep.render_jobs, scenes).flatMap((en) => en.parts.map((p) => p.jobId).filter(Boolean)) as string[];
   if (!ids.length) throw new HttpError(409, 'This part has no scene clips.', 'SERIES_STATE');
-  const urls = await Promise.all(ids.map(async (id) => {
+  const jobs = await Promise.all(ids.map(async (id) => {
     const j = ((await sql()`SELECT * FROM video_jobs WHERE id = ${id} AND user_id = ${row.id}`) as any[])[0];
     if (!j) throw new HttpError(404, 'One of the clips was not found.');
-    return jobVideoUrl(j);
+    return j;
   }));
-  await streamMergedVideo(res, urls, `${ep.project_title || 'series'} part ${ep.part_number}`);
+  const urls = await Promise.all(jobs.map((j) => jobVideoUrl(j)));
+  const name = `${ep.project_title || 'series'} part ${ep.part_number}`;
+
+  // A stale provider URL can be refreshed from the original completed job, without spending render credits.
+  // Retry only the scene that returned 401/403; stop safely if the provider no longer retains that source file.
+  for (let attempt = 0; attempt <= jobs.length; attempt++) {
+    try {
+      await streamMergedVideo(res, urls, name);
+      return;
+    } catch (error: any) {
+      const match = String(error?.message || '').match(/Scene (\\d+) could not be downloaded \\((401|403)\\)/i);
+      if (!match || attempt === jobs.length) throw error;
+      const index = Number(match[1]) - 1;
+      const job = jobs[index];
+      if (!job || index < 0 || index >= urls.length) throw error;
+      const previousUrl = urls[index];
+      let freshUrl: string;
+      try {
+        freshUrl = await refreshSavedVideoUrl(job);
+      } catch {
+        throw new HttpError(424, `Scene ${index + 1}'s saved provider link has expired, and the provider did not return another downloadable copy. OmniPulse has not regenerated this scene or spent video credits.`, 'CLIP_EXPIRED');
+      }
+      const archivedPath = await archiveVideoJob(job, freshUrl);
+      if (archivedPath) urls[index] = await privateBlobVideoUrl(archivedPath);
+      else if (freshUrl !== previousUrl) urls[index] = freshUrl;
+      else {
+        throw new HttpError(424, `Scene ${index + 1}'s saved provider link is no longer accessible. The provider did not issue a replacement file. No new video was generated and no video credits were spent.`, 'CLIP_EXPIRED');
+      }
+    }
+  }
 };
 
 /** Pauses a part. Clips that were already sent to the video provider keep rendering there and are collected when the part is resumed. */
