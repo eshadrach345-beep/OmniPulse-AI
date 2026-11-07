@@ -80,11 +80,11 @@ check(!frameAnchoredCut[0].multiPrompt, 'frame-anchored cut does not add competi
 check(frameAnchoredCut[0].prompt.length <= A.RENDER_PROMPT_MAX, 'frame-anchored prompt respects the provider limit');
 
 const handlerSource = fs.readFileSync(new URL('../server/handler.ts', import.meta.url), 'utf8');
-check(handlerSource.includes('never add a duplicate, twin, clone or unlisted background person'), 'every clip prompt forbids duplicate and unlisted characters');
-check(handlerSource.includes('Wardrobe is locked across cuts and locations'), 'every clip prompt locks wardrobe across location changes');
-check(handlerSource.includes('Recurring props are fixed physical objects'), 'every clip prompt locks recurring prop geometry and materials');
-check(handlerSource.includes('five fingers each'), 'every clip prompt includes a hand anatomy guardrail');
-check(handlerSource.includes('light source direction, colour temperature and exposure'), 'every clip prompt preserves lighting continuity within a location');
+check(handlerSource.includes('no duplicates, clones or unlisted background people'), 'every clip prompt forbids duplicate and unlisted characters');
+check(handlerSource.includes('Keep exact wardrobe and accessories across cuts and location changes'), 'every clip prompt locks wardrobe across location changes');
+check(handlerSource.includes('same silhouette, dimensions, proportions, material, colour, texture and marks'), 'every clip prompt locks recurring prop geometry and materials');
+check(handlerSource.includes('five fingers per hand'), 'every clip prompt includes a hand anatomy guardrail');
+check(handlerSource.includes('preserve camera axis, screen direction, perspective and light direction'), 'every clip prompt preserves lighting continuity within a location');
 
 const savedContinuity = P.continuityBlock({
   partNumber: 2, previousTitle: 'The Lighthouse', previousLogline: 'A map is found.', storySoFar: 'The crew found a stone anchor.',
