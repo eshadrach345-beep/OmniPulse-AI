@@ -4,7 +4,6 @@ import { AspectRatioType, CameraProfileId, CastId, DialogueId, EndingId, GenreId
 import { StoryFormat } from '../services/aiService';
 import { Episode, ProjectDetail, ProjectSummary, Series, isActive, isOpen, type EditableScene } from '../services/seriesService';
 import { ScriptEditor } from './ScriptEditor';
-import { StudioAudioService } from '../services/aiService';
 import { ApiError } from '../services/api';
 import { MoviePoster } from './MoviePoster';
 import {
@@ -93,23 +92,6 @@ function episodeCaptionTracks(scenes: Episode['scenes']): CaptionCue[][] {
   return tracks;
 }
 
-/** Voice tracks follow the exact 10-second clip order. Every approved speaker gets a stable voice profile. */
-function episodeSpeechTracks(episode: Episode): { text: string; voiceId: string; momentum: number }[][] {
-  const tracks: { text: string; voiceId: string; momentum: number }[][] = [];
-  for (const scene of episode.scenes) {
-    const halves = Math.max(1, Math.ceil(scene.clipSeconds / 10));
-    for (let half = 1; half <= halves; half++) {
-      const lines = scene.lines.filter((line) => (line.half || 1) === half);
-      tracks.push(lines.map((line) => {
-        const character = episode.characters?.find((c) => c.name.toLowerCase() === line.speaker.toLowerCase());
-        const fallback = character?.gender?.toLowerCase() === 'female' ? 'EXAVITQu4vr4xnSDxMaL' : 'pNInz6obpgDQGcFmaJgB';
-        const voice = StudioAudioService.getVoice(character?.voice || fallback);
-        return { text: line.text, voiceId: voice.id, momentum: voice.recommendedMomentum || 1 };
-      }));
-    }
-  }
-  return tracks;
-}
 const vttTime = (seconds: number) => {
   const ms = Math.max(0, Math.round(seconds * 1000));
   const h = Math.floor(ms / 3_600_000), m = Math.floor((ms % 3_600_000) / 60_000), sec = Math.floor((ms % 60_000) / 1000), milli = ms % 1000;
@@ -120,11 +102,10 @@ const vttTime = (seconds: number) => {
  * Plays the finished clips one after another. Two video elements take turns: while one plays, the other is already loading the next clip,
  * so there is no blank wait between clips. A clip always plays to its very end, and a spinner shows whenever the connection is slow.
  */
-const ClipSequence: React.FC<{ clips: string[]; captions?: CaptionCue[][]; speechTracks?: { text: string; voiceId: string; momentum: number }[][]; voiceEnabled?: boolean }> = ({ clips, captions = [], speechTracks = [], voiceEnabled = true }) => {
+const ClipSequence: React.FC<{ clips: string[]; captions?: CaptionCue[][]; audioEnabled?: boolean }> = ({ clips, captions = [], audioEnabled = true }) => {
   const [i, setI] = useState(0);
   const [buffering, setBuffering] = useState(true);
   const [playhead, setPlayhead] = useState(0);
-  const spokenClips = useRef(new Set<number>());
   const refs = [useRef<HTMLVideoElement | null>(null), useRef<HTMLVideoElement | null>(null)];
   const clipKey = clips.join('|');
   const attach = (el: HTMLVideoElement | null, url?: string) => {
@@ -133,20 +114,23 @@ const ClipSequence: React.FC<{ clips: string[]; captions?: CaptionCue[][]; speec
   };
   useEffect(() => {
     refs.forEach((r) => { if (r.current) { delete r.current.dataset.src; r.current.pause(); } });
-    setI(0); setPlayhead(0); setBuffering(true); spokenClips.current.clear(); StudioAudioService.stop();
+    setI(0); setPlayhead(0); setBuffering(true);
     attach(refs[0].current, clips[0]);
     attach(refs[1].current, clips[1]);
   }, [clipKey]);
   useEffect(() => {
+    refs.forEach((r) => { if (r.current) r.current.muted = !audioEnabled; });
+  }, [audioEnabled, clipKey]);
+  useEffect(() => {
     const cur = refs[i % 2].current, other = refs[(i + 1) % 2].current;
     attach(cur, clips[i]);
+    if (cur) cur.muted = !audioEnabled;
     other?.pause();
     attach(other, clips[i + 1]);
+    if (other) other.muted = !audioEnabled;
     setPlayhead(0);
     if (i > 0 && cur) {
-      // The next clip is preloaded in the inactive player. Do not call play()
-      // until its decoder can actually present a frame; this avoids a black
-      // pause at every scene boundary on slower mobile connections.
+      // Do not start the next clip until its decoder can present a frame.
       let cancelled = false;
       const start = () => {
         if (cancelled || !cur) return;
@@ -161,9 +145,7 @@ const ClipSequence: React.FC<{ clips: string[]; captions?: CaptionCue[][]; speec
       }
       return () => { cancelled = true; cur.removeEventListener('canplay', start); };
     }
-  }, [i, clipKey]);
-  useEffect(() => { if (!voiceEnabled) StudioAudioService.stop(); }, [voiceEnabled]);
-  useEffect(() => () => { StudioAudioService.stop(); }, []);
+  }, [i, clipKey, audioEnabled]);
   if (!clips.length) return null;
   const caption = (captions[i] || []).find((cue) => playhead >= cue.start && playhead <= cue.end);
   return (
@@ -171,26 +153,10 @@ const ClipSequence: React.FC<{ clips: string[]; captions?: CaptionCue[][]; speec
       <div className="relative w-full max-h-[60vh] rounded-xl bg-black overflow-hidden" style={{ minHeight: 200 }}>
         {[0, 1].map((n) => (
           <video
-            key={n} ref={refs[n]} controls playsInline preload="auto"
+            key={n} ref={refs[n]} controls playsInline preload="auto" muted={!audioEnabled}
             onWaiting={() => { if (n === i % 2) setBuffering(true); }}
             onCanPlay={() => { if (n === i % 2) setBuffering(false); }}
-            onPlaying={() => {
-              if (n !== i % 2) return;
-              setBuffering(false);
-              if (spokenClips.current.has(i)) return;
-              spokenClips.current.add(i);
-              StudioAudioService.stop();
-              if (voiceEnabled) {
-                const lines = speechTracks[i] || [];
-                const speakNext = (index: number) => {
-                  const line = lines[index];
-                  if (!line) return;
-                  StudioAudioService.speak(line.text, line.voiceId, line.momentum, () => speakNext(index + 1));
-                };
-                speakNext(0);
-              }
-            }}
-            onPause={() => { if (n === i % 2) StudioAudioService.stop(); }}
+            onPlaying={() => { if (n === i % 2) setBuffering(false); }}
             onTimeUpdate={(e) => { if (n === i % 2) setPlayhead(e.currentTarget.currentTime); }}
             onEnded={() => { if (n === i % 2) { setBuffering(true); setPlayhead(0); setI((k) => (k + 1 < clips.length ? k + 1 : k)); } }}
             className={`${n === i % 2 ? 'relative' : 'absolute inset-0 opacity-0 pointer-events-none'} w-full max-h-[60vh] bg-black`}
@@ -199,7 +165,7 @@ const ClipSequence: React.FC<{ clips: string[]; captions?: CaptionCue[][]; speec
         {caption && <div aria-live="polite" className="absolute bottom-14 left-3 right-3 flex justify-center pointer-events-none"><span className="max-w-[92%] rounded-md bg-black/85 px-3 py-2 text-center text-sm sm:text-base font-semibold leading-snug text-white shadow-lg">{caption.text}</span></div>}
         {buffering && <div className="absolute inset-0 flex items-center justify-center pointer-events-none"><span className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-black/70 text-[11px] text-slate-200"><Loader2 className="w-3.5 h-3.5 animate-spin" />Loading video...</span></div>}
       </div>
-      <p className="text-[11px] text-slate-500 text-center">Clip {i + 1} of {clips.length}. Subtitles use the exact approved spoken lines, split into readable phrases. No generated subtitle text is used.</p>
+      <p className="text-[11px] text-slate-500 text-center">Clip {i + 1} of {clips.length}. Dialogue, music and sound effects come from the generated clip's synchronized soundtrack.</p>
     </div>
   );
 };
@@ -255,7 +221,7 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
   const [episodeId, setEpisodeId] = useState<string | null>(null);
   const [episode, setEpisode] = useState<Episode | null>(null);
   const [editorOrder, setEditorOrder] = useState<string[]>([]);
-  const [voiceEnabled, setVoiceEnabled] = useState(true);
+  const [audioEnabled, setAudioEnabled] = useState(true);
   useEffect(() => {
     setEditorOrder(episode?.status === 'COMPLETED' ? (episode.clipJobIds || []) : []);
   }, [episode?.id, episode?.status, episode?.clipJobIds?.join('|')]);
@@ -509,10 +475,10 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
             <div className="space-y-3">
               <p className="text-xs text-slate-300">{episode.logline}</p>
               <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-indigo-500/20 bg-indigo-950/20 p-3">
-                <div><p className="text-xs font-semibold text-white">Character dialogue audio</p><p className="text-[10px] text-slate-400">OmniPulse generates each approved line with its character's assigned voice as the clip plays.</p></div>
-                <button type="button" onClick={() => setVoiceEnabled((v) => !v)} aria-pressed={voiceEnabled} className={`rounded-lg px-3 py-2 text-xs font-semibold ${voiceEnabled ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-300'}`}>{voiceEnabled ? 'Dialogue audio on' : 'Dialogue audio off'}</button>
+                <div><p className="text-xs font-semibold text-white">Generated clip soundtrack</p><p className="text-[10px] text-slate-400">DeAPI creates dialogue, ambience and effects together with the video. The player uses that original synced audio instead of layering a second TTS voice over it.</p></div>
+                <button type="button" onClick={() => setAudioEnabled((v) => !v)} aria-pressed={audioEnabled} className={`rounded-lg px-3 py-2 text-xs font-semibold ${audioEnabled ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-300'}`}>{audioEnabled ? 'Clip audio on' : 'Clip audio off'}</button>
               </div>
-              <ClipSequence clips={episode.clips} captions={episodeCaptionTracks(episode.scenes)} speechTracks={episodeSpeechTracks(episode)} voiceEnabled={voiceEnabled} />
+              <ClipSequence clips={episode.clips} captions={episodeCaptionTracks(episode.scenes)} audioEnabled={audioEnabled} />
               {episode.clipJobIds?.length > 0 && (
                 <section className="rounded-xl border border-indigo-500/30 bg-slate-950/80 p-3 space-y-3">
                   <div className="flex flex-wrap items-center justify-between gap-2">
@@ -535,7 +501,7 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
                     <button type="button" onClick={() => setEditorOrder(episode.clipJobIds)} className="rounded-lg border border-slate-700 px-3 py-2 text-[11px] text-slate-300">Reset order</button>
                     <a href={editorOrder.length ? `/api/video/merge?ids=${encodeURIComponent(editorOrder.join(','))}&name=${encodeURIComponent(episode.title || 'omnipulse-edited')}` : undefined} aria-disabled={editorOrder.length === 0} className={`rounded-lg px-3 py-2 text-[11px] font-semibold text-white ${editorOrder.length ? 'bg-indigo-600 hover:bg-indigo-500' : 'bg-slate-700 opacity-40 pointer-events-none'}`}>Export edited MP4</a>
                   </div>
-                  <p className="text-[10px] text-slate-500">This first episode editor supports shot order and removal. Frame-accurate trimming, overlays and audio mixing are available in the advanced Video Studio editor.</p>
+                  <p className="text-[10px] text-slate-500">This episode editor supports shot order and removal. Original dialogue, ambience and music remain attached to their clips when you reorder or remove shots.</p>
                 </section>
               )}
               <div className="flex flex-wrap gap-2">
