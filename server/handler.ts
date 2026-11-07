@@ -1087,21 +1087,16 @@ function finishStory(ctx: StoryCtx, d: any, input: StoryInput) {
 
     const vp = str(sc?.visualPrompt, 900) || str(sc?.setting, 300);
     if (vp.length < 10) continue;
-    // Freeze the approved cast descriptions into every scene prompt. This is a text identity anchor;
-    // image-reference generation can be layered on later without silently spending credits during script creation.
-    const castIdentity = characters
-      .filter((c) => c.kind !== 'animal' || brief.cast === 'animals')
-      .map((c) => `${c.name}: ${str(c.description, 260) || 'Keep the exact appearance established in the first approved scene'}`)
-      .join(' | ');
-    const identityAnchor = castIdentity
-      ? `CAST IDENTITY LOCK (do not redesign): ${castIdentity}. Only show a character when the scene action explicitly requires them; never add a new face, substitute actor, duplicate, or background version of a named character. `
-      : '';
+    // Put the scene's physical action first. Long global cast descriptions used to be prepended
+    // to every prompt, pushing the actual action chain toward truncation. Keep only identities visible
+    // in this scene and append their compact visual anchors after the action.
+    const visibleCharacters = characters.filter((c) => c.name && vp.toLowerCase().includes(c.name.toLowerCase()));
+    const identityAnchor = visibleCharacters.map((c) => `${c.name}: ${str(c.description, 260)}`).filter(Boolean).join(' ');
     const lockedProtagonist = brief.characterLock && !vp.toLowerCase().includes(lockKey)
-      ? `Main character, identical in every scene: ${brief.characterLock.descriptor}. `
+      ? `Maintain the protagonist's established appearance: ${brief.characterLock.descriptor}.`
       : '';
-    const visualCore = `${identityAnchor}${lockedProtagonist}${vp}`;
     const continuesPrevious = sc?.continuesPrevious === true;
-    const visualBase = shownText ? `${visualCore} ${shownText}` : visualCore;
+    const visualBase = [vp, shownText, identityAnchor, lockedProtagonist].filter(Boolean).join(' ');
     const soundText = str(sc?.sound, 160);
     // The selected camera profile is the hard constraint. A model-written per-scene move
     // must not silently replace it (for example, adding a zoom to a locked-off shot).
