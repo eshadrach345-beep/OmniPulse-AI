@@ -36,6 +36,7 @@ check(dialogue[0].prompt.includes('"You told me you deleted this."'), 'approved 
 check(dialogue[0].prompt.includes('"Mara, give me a second."'), 'approved second dialogue is sent');
 check(dialogue[0].prompt.includes('keeps her eyes on the screen'), 'line-level physical acting is sent');
 check(dialogue[0].prompt.includes('reaches toward the phone, then stops'), 'listener action is sent');
+check(dialogue[0].prompt.includes('five distinct fingers'), 'renderer prompt retains an anatomy guardrail');
 check(dialogue[0].prompt.length <= A.RENDER_PROMPT_MAX, 'dialogue prompt respects the provider limit');
 check(!dialogue[0].multiPrompt, 'dialogue does not become a cut-up multi-shot prompt');
 
