@@ -9,6 +9,30 @@ export type Presentation = 'movie' | 'dialogue' | 'narrated' | 'shortdrama';
 
 const cut = (v: unknown, max: number) => String(v ?? '').trim().slice(0, max);
 
+/**
+ * Convert the silent two-shot coverage prompts into one chronological prose prompt.
+ * LTX-2.5 performs its cuts from the prompt itself; no extra generation or API request is made.
+ */
+export function toNativeMultiShotPrompt(shots: { prompt: string; duration: number }[]): string {
+  const valid = shots
+    .filter((shot) => shot && String(shot.prompt || '').trim() && Number.isFinite(shot.duration) && shot.duration > 0)
+    .slice(0, 4);
+  if (!valid.length) return '';
+  const globalRule = /^Vertical 9:16 premium live-action short drama\.\s*Preserve the same actors, faces, wardrobe, props, set geometry, light direction and screen direction across both shots\.\s*/i;
+  const prose = valid.map((shot, index) => {
+    const description = String(shot.prompt)
+      .replace(globalRule, '')
+      .replace(/^Continue from the exact action and body positions in Shot 1\.\s*/i, '')
+      .replace(/\b(?:First|Second) shot:\s*/i, '')
+      .trim();
+    const duration = Math.max(1, Math.round(shot.duration));
+    return index === 0
+      ? `The opening shot lasts about ${duration} seconds. ${description}`
+      : `A hard cut transitions to the next shot, which lasts about ${duration} seconds. ${description}`;
+  });
+  return prose.join(' ') + ' Keep the same named cast, exact faces, hair, wardrobe, props, location geometry, light direction and screen direction consistent across every cut.';
+}
+
 export interface AssembleInput {
   presentation: Presentation;
   brief: { genre: keyof typeof GENRES; intensity: keyof typeof INTENSITIES };
