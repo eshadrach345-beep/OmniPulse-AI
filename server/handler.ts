@@ -1145,12 +1145,12 @@ function finishStory(ctx: StoryCtx, d: any, input: StoryInput) {
     // put them before visual decoration so they are not the first text lost to truncation.
     // Repeat these constraints in every independently generated clip. Location changes may change the set, never silently recast actors or redesign story objects.
     const visualContinuityLock = [
-      'VISUAL CONTINUITY LOCK: Show only characters required by this scene; never add a duplicate, twin, clone or unlisted background person.',
-      'Every recurring character is the exact same person: preserve face shape, age, skin tone, eyes, hair colour, hair length and style, body proportions and distinctive features. No morphing or identity blending.',
-      'Wardrobe is locked across cuts and locations: preserve the exact outfit, colours, layers, footwear, accessories and backpack until the screenplay explicitly shows a change. A new room or exterior is not a costume change.',
-      'Recurring props are fixed physical objects: preserve exact silhouette, dimensions, proportions, material, colour, texture, wear and distinctive marks. Never reinterpret, replace, duplicate or deform a prop.',
-      'Use anatomically correct bodies, natural faces, two hands with five fingers each, believable joints and stable grips. No fused, missing, extra or distorted fingers or warped faces.',
-      'Maintain coherent screen direction, camera axis, lens perspective, light source direction, colour temperature and exposure within the same location. A location change may change the environment, not the cast or carried props.'
+      'CONTINUITY LOCK: only show the named people required by this scene; no duplicates, clones or unlisted background people.',
+      'Keep every recurring character the same person: identical face, age, skin tone, eyes, hair colour, hair length/style and body proportions.',
+      'Keep exact wardrobe and accessories across cuts and location changes until a costume change is explicitly shown.',
+      'Keep each recurring prop the exact same object: same silhouette, dimensions, proportions, material, colour, texture and marks; never morph, replace or duplicate it.',
+      'Natural anatomy only: stable faces, two hands, five fingers per hand, believable joints and grips; no warped features.',
+      'Within each location preserve camera axis, screen direction, perspective and light direction. Location changes do not change the cast, wardrobe or carried props.'
     ].join(' ');
     const visualBase = [shownText, visualContinuityLock, str(vp, 560), identityAnchor, propAnchor, locationAnchor, primaryLocationAnchor, lockedProtagonist].filter(Boolean).join(' ');
     const soundText = str(sc?.sound, 160);
