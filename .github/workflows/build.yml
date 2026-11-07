@@ -29,6 +29,10 @@ jobs:
         run: npm install --legacy-peer-deps
       - name: TypeScript check
         run: npm run typecheck
+      - name: Screenplay and LTX prompt regression tests
+        run: |
+          node scripts/test-screenplay.mjs
+          node scripts/test-assemble.mjs
       - name: Build API bundle
         run: npm run build:api
       - name: Build frontend

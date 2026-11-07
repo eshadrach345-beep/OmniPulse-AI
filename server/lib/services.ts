@@ -738,7 +738,7 @@ export class RateLimited extends HttpError {
 function deapiCanvas(resolution: string, aspect: string): [number, number] {
   let [width, height] = DEAPI_SIZES[resolution] || DEAPI_SIZES['480P'];
   if (aspect === '16:9') [width, height] = [height, width];
-  else if (aspect === '1:1') { const sq = resolution === '1080P' ? 1024 : resolution === '768P' ? 832 : 640; width = sq; height = sq; }
+  else if (aspect === '1:1') { const sq = resolution === '1080P' ? 960 : resolution === '768P' ? 832 : 640; width = sq; height = sq; }
   return [width, height];
 }
 
@@ -771,7 +771,11 @@ export async function deapiSubmit(prompt: string, resolution: string = '480P', s
   let extra: Record<string, unknown> = {};
   try { extra = JSON.parse(process.env.DEAPI_VIDEO_INPUT || '{}'); } catch { /* ignore bad JSON */ }
   const [width, height] = deapiCanvas(resolution, aspect);
-  const body = { prompt, width, height, ...deapiClip(seconds), ...extra };
+  // Do not let optional tuning JSON override the model, prompt or dimensions selected by the server.
+  // deAPI's LTX-2.5 pixel budget is 1,032,192 pixels; a 1024x1024 square exceeds it.
+  const reserved = new Set(['prompt', 'model', 'width', 'height', 'frames', 'fps']);
+  const tuning = Object.fromEntries(Object.entries(extra).filter(([key]) => !reserved.has(key)));
+  const body = { ...tuning, prompt, width, height, ...deapiClip(seconds) };
   let r: Response;
   try {
     r = await fetch(`${DEAPI_BASE}/videos/generations`, { method: 'POST', headers: deapiHeaders(), body: JSON.stringify(body), signal: AbortSignal.timeout(20_000) });
