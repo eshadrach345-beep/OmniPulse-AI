@@ -9,7 +9,7 @@ import { sql, ensureSchema } from './lib/db.js';
 import { PLANS, TIERS, Tier, Cycle, planId, tierFromPlanId, priceFor, BILLING_CURRENCY, TRIAL, TOPUPS, trialPrice } from './lib/plans.js';
 import { mail, flw, verifyFlwSignature, lookupEnv, geminiJson, geminiRaw, geminiFormat, webTrendResearch, aiWriterStatus, testAiWriters, falSubmit, falContinueSubmit, falReferenceVideoSubmit, falKlingReferenceSubmit, falGenerateCharacterReference, falGenerateLocationPlate, falEditLocationPlate, falStatus, falImageVideoSubmit, falGenerateBrandImages, deapiSubmit, deapiStatus, deapiAnimate, RateLimited, synthesize } from './lib/services.js';
 import { trendsFormatPrompt, scriptPrompt, adConceptPrompt, abPrompt, competitorPrompt, outrankPrompt, parseStoryBrief, type SeriesContinuity, type StoryBriefInput, storyBeats, STORY_MOODS, CAMERA_PROFILES, GENRES, INTENSITIES, ENDINGS, PRESENTATIONS, CASTS, TROPES, styleBlock, STORY_LIMITS, planScenes, castMinimum, storyboardPrompt, outlinePrompt, chunkPrompt, adaptPrompt, PART_SECONDS, SCENES_PER_WRITER_CALL, MAX_WORDS_PER_CLIP } from './lib/prompts.js';
-import { assembleParts } from './lib/assemble.js';
+import { assembleParts, toNativeMultiShotPrompt } from './lib/assemble.js';
 import { refineScene, shownInstruction, proseToUnits, thoughtToVisual, type SpokenLine } from './lib/screenplay.js';
 import { renderComposition } from './lib/compositor.js';
 import { mergeClips, lastFrameJpeg } from './lib/merge.js';
@@ -1130,17 +1130,14 @@ function finishStory(ctx: StoryCtx, d: any, input: StoryInput) {
     const previousSceneText = previousScene ? [previousScene.visualPrompt, ...(previousScene.lines || []).map((line: any) => line.speaker)].join(' ').toLowerCase() : '';
     const currentVisibleNames = [...visibleCharacters.map((c) => c.name), ...sceneSpeakers];
     const sharesVisibleCharacter = currentVisibleNames.some((name) => name && previousSceneText.includes(name.toLowerCase()));
-    const placeWords = (value: string) => new Set(value.toLowerCase().split(/[^a-z0-9]+/).filter((word) => word.length > 3 && !['room', 'inside', 'outside', 'interior', 'exterior', 'area', 'scene'].includes(word)));
-    const currentPlaceWords = placeWords(sceneLocation);
-    const previousPlaceWords = placeWords(String(previousScene?.location || ''));
-    const relatedPlace = !currentPlaceWords.size || !previousPlaceWords.size || [...currentPlaceWords].some((word) => previousPlaceWords.has(word));
+    // A scene may move to a new set while retaining the same actor; preserve the frame as an identity anchor.
     const sequenceText = [vp, sceneLocation, sc?.secondHalfAction].join(' ');
     const explicitTimeJump = /\b(later|next day|following day|years later|months later|hours later|flashback|memory|dream|the next morning|next morning|that night|next evening)\b/i.test(sequenceText);
     const explicitCostumeChange = /\b(changes? (?:her|his|their) (?:clothes|outfit|costume|uniform)|changes into|now wears|is now wearing|puts on|takes off|removes (?:her|his|their))\b/i.test(sequenceText);
     const sceneTime = (sequenceText.match(/\b(dawn|sunrise|morning|afternoon|sunset|dusk|evening|night|midnight|day)\b/i)?.[1] || '').toLowerCase();
     const priorTime = previousScene ? (String(previousScene.visualPrompt || '').match(/\b(dawn|sunrise|morning|afternoon|sunset|dusk|evening|night|midnight|day)\b/i)?.[1] || '').toLowerCase() : '';
     const timeChanged = !!(sceneTime && priorTime && sceneTime !== priorTime);
-    const referencePrevious = scenes.length > 0 && !continuesPrevious && (sc?.referencePrevious === true || (sharesVisibleCharacter && relatedPlace && !explicitTimeJump && !explicitCostumeChange && !timeChanged));
+    const referencePrevious = scenes.length > 0 && !continuesPrevious && (sc?.referencePrevious === true || (sharesVisibleCharacter && !explicitTimeJump && !explicitCostumeChange && !timeChanged));
     // "Shown" stage directions contain actions extracted from malformed speech fields;
     // put them before visual decoration so they are not the first text lost to truncation.
     // Repeat these constraints in every independently generated clip. Location changes may change the set, never silently recast actors or redesign story objects.
@@ -1320,9 +1317,9 @@ const tts: Handler = async ({ req, res, body }) => {
 
 // ---------------------------------------------------------------- video (fal.ai / deAPI queue)
 /** Sends one clip to the configured video provider (VIDEO_PROVIDER: fal, deapi or auto) and returns its queue addresses. */
-async function submitToProvider(prompt: string, reso: '480P' | '768P' | '1080P', seconds: 5 | 10, aspect: string): Promise<{ statusUrl: string; responseUrl: string }> {
+async function submitToProvider(prompt: string, reso: '480P' | '768P' | '1080P', seconds: 5 | 10, aspect: string, multiPrompt?: { prompt: string; duration: number }[]): Promise<{ statusUrl: string; responseUrl: string }> {
   const provider = (process.env.VIDEO_PROVIDER || 'fal').trim().toLowerCase();
-  const viaDeapi = async () => { const j = await deapiSubmit(prompt, reso, seconds, aspect); return { statusUrl: `deapi:${j.requestId}`, responseUrl: 'deapi' }; };
+  const viaDeapi = async () => { const deapiPrompt = multiPrompt?.length ? toNativeMultiShotPrompt(multiPrompt) : prompt; const j = await deapiSubmit(deapiPrompt, reso, seconds, aspect); return { statusUrl: `deapi:${j.requestId}`, responseUrl: 'deapi' }; };
   const viaFal = async () => { const j = await falSubmit(prompt, reso, seconds, aspect); return { statusUrl: j.statusUrl, responseUrl: j.responseUrl }; };
   if (provider === 'deapi') return viaDeapi();
   // Keep fal as the preferred engine, but automatically use the configured
@@ -2143,7 +2140,7 @@ async function startPart(row: any, user: ReturnType<typeof toUser>, spec: { prom
           job = { statusUrl: `deapi:${j.requestId}`, responseUrl: 'deapi' };
         } else throw e;
       }
-    } else job = await submitToProvider(spec.prompt, reso, PART_SECONDS, spec.aspect);
+    } else job = await submitToProvider(spec.prompt, reso, PART_SECONDS, spec.aspect, spec.multiPrompt);
   }
   const id = newId('job');
   await sql()`INSERT INTO video_jobs (id, user_id, status_url, response_url, seconds, source) VALUES (${id}, ${row.id}, ${job.statusUrl}, ${job.responseUrl}, ${PART_SECONDS}, ${source})`;
@@ -2227,7 +2224,10 @@ async function stageRender(row: any, user: ReturnType<typeof toUser>, ep: any): 
        const characterRefs = (relevant.length ? relevant : cast.filter((c) => c.referenceImageUrl && /^https:\/\//i.test(c.referenceImageUrl)).slice(0, 2)).slice(0, projectReferences.locationPlateUrl ? 3 : 4).map((c) => ({ name: str(c.name, 30), url: String(c.referenceImageUrl) }));
        const locationRef = /^https:\/\//i.test(String(projectReferences.locationPlateUrl || '')) ? [{ name: 'the permanent location plate (room layout, furniture and props)', url: String(projectReferences.locationPlateUrl) }] : [];
        const selected = [...locationRef, ...characterRefs].slice(0, 4);
-      const continuityPrompt = isEpisodeOpening && (previousUrl || startImageUrl) ? `${scene.parts[k].prompt} Continue directly from the supplied final frame of the previous episode. Preserve the established characters, faces, hair, wardrobe, screen direction, room geometry and prop placement. Do not introduce new people or change the camera axis unless the screenplay explicitly requires a transition.` : scene.parts[k].prompt;
+      const currentLocation = str(scene.location, 260);
+      const continuityPrompt = previousUrl || startImageUrl
+        ? `${scene.parts[k].prompt} Continue from the supplied reference frame. Preserve the exact visible character identities, faces, hair, wardrobe, carried props and screen direction. The intended current scene location is ${currentLocation || 'the location described in this scene'}. If it differs from the reference frame, make a clear motivated transition into this current location and replace the old background; do not carry the previous set into the new scene. Keep only the named people required by this scene.`
+        : scene.parts[k].prompt;
       const { jobId } = await startPart(row, user, { prompt: continuityPrompt, aspect, kind: previousUrl || startImageUrl ? 'continue' : 'text', prevUrl: previousUrl, startImageUrl, referenceImages: selected, multiPrompt: scene.parts[k].multiPrompt });
       p.jobId = jobId; p.tries += 1; p.checkAt = Date.now() + FIRST_CHECK_MS; delete p.error; started++;
     } catch (e: any) {
