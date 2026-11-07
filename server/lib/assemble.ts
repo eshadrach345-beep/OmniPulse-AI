@@ -70,7 +70,7 @@ export function assembleParts(o: AssembleInput) {
   // Keep lip-synced performances in one continuous take. Silent scenes can use
   // LTX-2.5's native multi-shot cuts, with the same soundscape carried across them.
   const shotPlan = hasOnScreenDialogue
-    ? `Use the camera angle and composition established in the opening visual description above. Hold that single, continuous performance take while the character speaks; keep the speaker's face and mouth visible and the listener's reaction readable. Let the actors' expressions and small physical actions carry the moment instead of cutting away during speech.`
+    ? `Use the opening composition established in the storyboard, not a generic frontal interview setup. Keep the active speaker's face and mouth visible for each spoken line; only that speaker's mouth moves. Do not cut during a line. At a natural pause, make one motivated editorial cut to ${coverageProse.response}, then continue the exchange from the same 180-degree axis with the same screen geography. If the scene works better as one take, keep the authored composition and let the actors' physical behaviour create the variation.`
     : `The opening visual description above establishes the first shot. After about five seconds, a clear hard cut transitions to ${coverageProse.response}. The second shot reveals the result of the first action; the same actors, location, props, light and screen direction remain consistent, while the natural soundscape continues smoothly across the cut.`;
 
   const fixed = `${openers[presentation]} ${shotPlan} The camera uses ${cameraMotion.replace(/,\s*no cuts?\.?$/i, '')}. The scene is lit by ${mood.render}, with ${genreLook || 'natural cinematic detail'} and a ${look} finish. ${aspect === '9:16' ? 'Compose for a vertical 9:16 phone frame, keeping faces, hands and story-critical props in the central safe area.' : aspect === '1:1' ? 'Compose for a square 1:1 frame.' : 'Compose for a wide 16:9 frame.'} Preserve the established faces, ages, hair, builds, wardrobe, location geometry and prop placement. Show the action through clear physical behaviour, visible reactions and cause and effect. Characters speak to each other, not to the camera.`;
@@ -91,7 +91,7 @@ export function assembleParts(o: AssembleInput) {
         const score = presentation === 'shortdrama' || presentation === 'movie'
           ? 'A restrained cinematic score stays low beneath the voices.'
           : 'Subtle room tone remains audible beneath the voices.';
-        return `${soundscape} ${score} ${dialogue} The voices sound human and conversational, with natural pauses and distinct character identities. Complete the spoken lines before the final second, then leave a brief beat of silence.`;
+        return `${soundscape} ${score} ${dialogue} Speak every quoted line exactly once and verbatim; do not paraphrase, repeat, add filler words or invent extra dialogue. The named speaker alone moves their mouth while delivering that line. Use distinct, stable character voices, emotionally truthful delivery, natural breaths, varied pacing and short pauses that fit the action. Complete the spoken lines before the final second, then leave a brief beat of silence.`;
       }
       return `${soundscape} Let the real action sounds lead; add a restrained score only if it suits the moment. There is no dialogue.`;
     };
