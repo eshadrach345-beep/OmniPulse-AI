@@ -38,7 +38,7 @@ export function assembleParts(o: AssembleInput) {
     if (line.speaker.toLowerCase() === 'narrator') {
       return 'The off-screen narrator, using ' + voice + ', speaks in English with a ' + delivery + ' delivery: "' + words + '".';
     }
-    const acting = line.doing ? ' As the line is delivered, ' + line.speaker + ' is ' + line.doing.replace(/[.\s]+$/, '') + '.' : '';
+    const acting = line.doing ? ' The visible action during this line is ' + line.speaker + ' ' + line.doing.replace(/[.\s]+$/, '') + '.' : '';
     return line.speaker + ', using the same ' + voice + ' voice, speaks in English with a ' + delivery + ' delivery: "' + words + '".' + acting;
   }).join(' ');
 
