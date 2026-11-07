@@ -2261,7 +2261,7 @@ const episodeVideo: Handler = async ({ req, res, query }) => {
       await streamMergedVideo(res, urls, name);
       return;
     } catch (error: any) {
-      const match = String(error?.message || '').match(/Scene (\\d+) could not be downloaded \\((401|403)\\)/i);
+      const match = String(error?.message || '').match(/Scene (\d+) could not be downloaded \((401|403)\)/i);
       if (!match || attempt === jobs.length) throw error;
       const index = Number(match[1]) - 1;
       const job = jobs[index];
