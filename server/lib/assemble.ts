@@ -30,102 +30,122 @@ export interface AssembleInput {
 export function assembleParts(o: AssembleInput) {
   const { presentation, brief, mood, look, aspect, cameraMotion, halves, lines, visualBase, second, soundText, characters, continuesPrevious } = o;
   const sceneNumber = Math.max(1, Math.floor(o.sceneNumber || 1));
-  // LTX-2.5 responds best to screenplay-style dialogue in flowing prose, not rigid field labels.
   const spokenFor = (ls: SceneLine[]) => ls.map((line) => {
     const character = characters.find((item) => item.name.toLowerCase() === line.speaker.toLowerCase());
     const voice = character?.voice || (character?.gender === 'female' ? 'a warm female voice' : 'a grounded male voice');
     const words = line.text.replace(/"/g, "'");
     const delivery = line.emotion ? line.emotion.replace(/[.\s]+$/, '') : 'natural and conversational';
     if (line.speaker.toLowerCase() === 'narrator') {
-      return `The off-screen narrator, using ${voice}, speaks in English with a ${delivery} delivery: "${words}".`;
+      return 'The off-screen narrator, using ' + voice + ', speaks in English with a ' + delivery + ' delivery: "' + words + '".';
     }
-    return `${line.speaker}, using the same ${voice} voice established for this character, speaks in English with a ${delivery} delivery: "${words}".`;
+    const acting = line.doing ? ' As the line is delivered, ' + line.speaker + ' is ' + line.doing.replace(/[.\s]+$/, '') + '.' : '';
+    return line.speaker + ', using the same ' + voice + ' voice, speaks in English with a ' + delivery + ' delivery: "' + words + '".' + acting;
   }).join(' ');
-  const genreLook = GENRES[brief.genre]?.render;
-  const openers = {
-    movie: 'Cinematic live-action movie scene with purposeful, physically believable action. Characters move only when the story calls for it; use restrained gestures and grounded body movement, never idle crowds or constant motion.',
-    dialogue: 'Cinematic dramatic scene with natural, believable acting: the people talk to each other in the place, with natural gestures and movement, never looking into the camera.',
-    narrated: 'Cinematic film footage of the story with natural movement: nobody speaks on camera and no lips move.',
-    shortdrama: 'Cinematic vertical short-drama scene built around a consequential event, a revealing choice or a sharp human interaction. Use emotionally specific, controlled acting and purposeful movement; do not stage every scene as the same face-to-face confrontation or talking-head exchange. Never look into the camera.',
-  } as const;
-  const coverage = [
-    { primary: "Use a medium-wide side-angle master with clear foreground and background depth.", first: "Open on a medium-wide side-angle master that reveals the geography and both characters' positions; let the action enter or cross the frame.", second: "Cut to a detailed insert of the consequential object or hand movement, keeping the active character identifiable in the composition." },
-    { primary: "Use an over-the-shoulder composition with a strong foreground layer.", first: "Open over the protagonist's shoulder, with the other character held in a distinct depth plane and the eyeline readable.", second: "Cut across the 180-degree axis to a reverse over-the-shoulder view; capture the other person's genuine response, not a repeated frontal pose." },
-    { primary: "Use a moving profile composition that tracks the character through the environment.", first: "Open in profile and track laterally as the character moves through the space; keep obstacles and landmarks visible.", second: "Cut to a low-angle medium view of the decision or physical consequence, preserving travel direction and screen geography." },
-    { primary: "Use a subjective point-of-view composition or a frame through a doorway, window or foreground object.", first: "Open from the protagonist's point of view, looking toward the discovery or threat; show enough context to understand what is being seen.", second: "Cut to a close reaction from a three-quarter angle, with the eyeline fixed on the discovery and no face-to-face pose." },
-    { primary: "Use a high-angle geography shot with strong diagonal composition.", first: "Open from a motivated high angle that maps the characters, exits and important props in the space.", second: "Cut to a tight detail insert on the clue, object or physical choice that changes the scene." },
-    { primary: "Use a low-angle reveal with a distinct foreground silhouette.", first: "Open low and slightly off-axis as the character or threat enters the frame; reveal scale and intention through movement.", second: "Cut to a wider reaction composition that shows both the acting character and the environment changing around them." },
-    { primary: "Use a restrained long-lens profile or compressed two-shot, not a frontal talking-head setup.", first: "Open with a compressed profile two-shot, using a natural foreground edge to separate the characters while preserving personal space.", second: "Cut to a moving three-quarter medium close-up that follows the affected character's turn or withdrawal." },
-  ][(sceneNumber - 1) % 7];
-  const coverageProse = [
-    { opening: 'a medium-wide side-angle master revealing the geography and both characters’ positions as the action enters frame', response: 'a detailed insert of the consequential object or hand movement, with the active character still identifiable' },
-    { opening: 'an over-the-shoulder view of the protagonist, with the other character in a distinct depth plane and their eyeline readable', response: 'a reverse over-the-shoulder view capturing the listener’s genuine reaction from the same action axis' },
-    { opening: 'a lateral profile tracking shot following the character through the space, with obstacles and landmarks visible', response: 'a low-angle medium view of the decision or physical consequence, preserving travel direction' },
-    { opening: 'a subjective point-of-view shot framed through a doorway or foreground object, revealing the discovery or threat', response: 'a three-quarter reaction close-up with the eyeline fixed on the discovery' },
-    { opening: 'a motivated high-angle geography shot mapping the characters, exits and key props in the space', response: 'a tight detail insert on the clue, object or physical choice that changes the scene' },
-    { opening: 'a low, slightly off-axis reveal as the character or threat enters frame, establishing scale through movement', response: 'a wider reaction composition showing both the acting character and the environment changing around them' },
-    { opening: 'a compressed profile two-shot with a natural foreground edge separating the characters while preserving personal space', response: 'a moving three-quarter medium close-up following the affected character’s turn or withdrawal' },
-  ][(sceneNumber - 1) % 7];
-  const hasOnScreenDialogue = lines.some((line) => line.speaker.toLowerCase() !== 'narrator');
-  // Keep lip-synced performances in one continuous take. Silent scenes can use
-  // LTX-2.5's native multi-shot cuts, with the same soundscape carried across them.
-  const shotPlan = hasOnScreenDialogue
-    ? `Use the opening composition established in the storyboard, not a generic frontal interview setup. Keep the active speaker's face and mouth visible for each spoken line; only that speaker's mouth moves. Do not cut during a line. At a natural pause, make one motivated editorial cut to ${coverageProse.response}, then continue the exchange from the same 180-degree axis with the same screen geography. If the scene works better as one take, keep the authored composition and let the actors' physical behaviour create the variation.`
-    : `The opening visual description above establishes the first shot. After about five seconds, a clear hard cut transitions to ${coverageProse.response}. The second shot reveals the result of the first action; the same actors, location, props, light and screen direction remain consistent, while the natural soundscape continues smoothly across the cut.`;
 
-  const fixed = `${openers[presentation]} ${shotPlan} The camera uses ${cameraMotion.replace(/,\s*no cuts?\.?$/i, '')}. The scene is lit by ${mood.render}, with ${genreLook || 'natural cinematic detail'} and a ${look} finish. ${aspect === '9:16' ? 'Compose for a vertical 9:16 phone frame, keeping faces, hands and story-critical props in the central safe area.' : aspect === '1:1' ? 'Compose for a square 1:1 frame.' : 'Compose for a wide 16:9 frame.'} Preserve the established faces, ages, hair, builds, wardrobe, location geometry and prop placement. Show the action through clear physical behaviour, visible reactions and cause and effect. Characters speak to each other, not to the camera.`;
+  const coverage = [
+    {
+      primary: 'a medium-wide side-angle master with clear foreground and background depth',
+      first: "a medium-wide side-angle master that reveals the room geography and the characters' starting positions",
+      second: 'a close insert of the consequential object or hand movement, keeping the active character identifiable',
+    },
+    {
+      primary: 'an over-the-shoulder composition with the listener in a distinct depth plane and both eyelines readable',
+      first: 'an over-the-shoulder view of the protagonist, with the other character in a separate depth plane',
+      second: "a reverse over-the-shoulder view of the listener's genuine reaction from the same action axis",
+    },
+    {
+      primary: 'a moving profile composition that tracks the subject through the environment',
+      first: 'a lateral profile shot that follows the subject through the space and keeps nearby landmarks visible',
+      second: 'a low-angle medium view of the decision or physical consequence, preserving travel direction',
+    },
+    {
+      primary: 'a subjective point-of-view composition framed through a doorway or foreground object',
+      first: 'a subjective point-of-view shot that reveals the discovery or threat from the protagonist’s eyeline',
+      second: 'a three-quarter reaction close-up with the eyes fixed on the discovery',
+    },
+    {
+      primary: 'a motivated high-angle geography shot with a strong diagonal composition',
+      first: 'a high-angle view that maps the characters, exits and important props in the space',
+      second: 'a tight detail insert on the clue, object or physical choice that changes the scene',
+    },
+    {
+      primary: 'a low, slightly off-axis reveal with a distinct foreground silhouette',
+      first: 'a low reveal as the character or threat enters the frame, establishing scale through movement',
+      second: 'a wider reaction composition showing the character and the environment changing around them',
+    },
+    {
+      primary: 'a compressed profile two-shot with a natural foreground edge separating the characters',
+      first: 'a compressed profile two-shot that preserves personal space and clearly separates the characters',
+      second: 'a moving three-quarter medium close-up that follows the affected character’s turn or withdrawal',
+    },
+  ][(sceneNumber - 1) % 7];
+
+  const hasOnScreenDialogue = lines.some((line) => line.speaker.toLowerCase() !== 'narrator');
+  const frame = aspect === '9:16'
+    ? 'Compose for a vertical 9:16 frame, keeping faces, hands and story-critical props inside the central safe area.'
+    : aspect === '1:1' ? 'Compose for a square frame.' : 'Compose for a wide 16:9 frame.';
+  const visualStyle = 'The camera ' + cameraMotion.replace(/,\s*no cuts?\.?$/i, '') + '. Lighting: ' + mood.render + '. Finish: ' + (GENRES[brief.genre]?.render || 'natural cinematic detail') + ', ' + look + '. ' + frame;
+
+  const shotDirection = hasOnScreenDialogue
+    ? 'Hold one uninterrupted ' + coverage.primary + ' for the entire speaking performance. Keep the current speaker’s face and mouth readable while the listener stays in frame and reacts through eye movement, breathing and posture. Let gestures and blocking create visual variation within the take.'
+    : 'Begin with ' + coverage.first + '. A clear hard cut transitions to ' + coverage.second + '; the second composition reveals the consequence of the first action. Carry the same characters, props, light direction and screen geography across the edit.';
+
+  const soundscape = soundText
+    ? 'The close soundscape is ' + soundText.replace(/[.\s]+$/, '') + '.'
+    : 'The close soundscape follows the visible action with natural room or outdoor ambience and clear action foley.';
+  const audioFor = (spokenLines: SceneLine[]) => {
+    const dialogue = spokenFor(spokenLines);
+    if (presentation === 'narrated') {
+      return spokenLines.length
+        ? soundscape + ' The picture remains a silent performance while ' + dialogue + ' The narrator stays off-screen.'
+        : soundscape + ' The picture is a silent performance.';
+    }
+    if (spokenLines.length) {
+      const score = presentation === 'shortdrama' || presentation === 'movie'
+        ? 'A restrained cinematic score stays low beneath the voices.'
+        : 'Subtle room tone remains beneath the voices.';
+      return dialogue + ' The quoted English lines are the complete spoken performance for this clip and occur once in this order. Each named character delivers their own line while the listener remains silent and reacts physically. Speech ends after the final quoted line, leaving a brief quiet beat. ' + soundscape + ' ' + score;
+    }
+    return 'There is no spoken dialogue; all story information is carried by the visible performance. ' + soundscape + ' Natural action sounds lead, with a restrained score only when it suits the moment.';
+  };
+
   const parts = [];
   for (let h = 1; h <= halves; h++) {
-    const mine = lines.filter((l) => l.half === h);
-    const audioFor = (spokenLines: SceneLine[]) => {
-      const dialogue = spokenFor(spokenLines);
-      const soundscape = soundText
-        ? `The close soundscape includes ${soundText.replace(/[.\s]+$/, '')}, clearly caused by the action in frame.`
-        : 'The close soundscape follows the visible action and the natural room or outdoor ambience.';
-      if (presentation === 'narrated') {
-        return spokenLines.length
-          ? `${soundscape} The picture remains silent while ${dialogue} The narrator's voice continues smoothly through any visual cut without restarting.`
-          : `${soundscape} No one speaks on screen.`;
-      }
-      if (spokenLines.length) {
-        const score = presentation === 'shortdrama' || presentation === 'movie'
-          ? 'A restrained cinematic score stays low beneath the voices.'
-          : 'Subtle room tone remains audible beneath the voices.';
-        return `${soundscape} ${score} ${dialogue} STRICT TRANSCRIPT LOCK: the quoted lines above are the complete and exclusive spoken script for this clip. Speak each quote once, verbatim, in the listed order, using only its named speaker. No extra or improvised words: no ad-libs, filler, muttered replies, paraphrases, repeated lines, off-screen narration, background chatter, overlapping speech or invented conversation. Do not speak descriptions, stage directions, emotions, sound cues or anything outside the quotation marks. Only the named speaker moves their mouth during their own line; every other character keeps their mouth still. After the final quoted word, all speech stops; only natural nonverbal action sounds, ambience and quiet score may continue. Use distinct, stable character voices, emotionally truthful delivery, natural breaths and pauses that fit the visible action. Finish the approved lines before the final second and leave a brief silent beat.`;
-      }
-      return `${soundscape} Let the real action sounds lead; add a restrained score only if it suits the moment. SILENCE LOCK: there are no spoken words in this clip. No dialogue, narration, muttering, background chatter or speech-like mouth movements. Only nonverbal action sounds, ambience and score are allowed.`;
-    };
+    const mine = lines.filter((line) => line.half === h);
     const tail = audioFor(mine);
-    const lead = h === 1 && continuesPrevious ? 'CONTINUATION: begin on the exact previous scene final frame. Preserve the same faces, clothing, pose, props, location, light, camera side and screen direction. Continue the action; no reset, reversal, teleport or new person. ' : h === 1 ? '' : `CONTINUATION: begin on the exact previous clip final frame. Preserve identity, pose, props, camera and direction. No cut or location change. Next physical beat: ${(second || 'continue the action naturally').replace(/[.\s]+$/, '')}. `;
-    // Reserve space for the complete action description and spoken lines; never let the final truncation cut the audio direction.
-    // Audio directions must survive even when the scene description is long.
-    const fixedBudget = Math.max(0, RENDER_PROMPT_MAX - lead.length - tail.length - 260);
+    const imageContinuation = h > 1 || (h === 1 && continuesPrevious);
+    const actionForClip = h > 1 ? (second || 'Continue the same physical action to a clear end state.') : visualBase;
+    const lead = imageContinuation
+      ? (h > 1
+        ? 'Continue from the exact supplied final frame. The next physical beat is: ' + actionForClip.replace(/[.\s]+$/, '') + '.'
+        : 'Continue from the exact supplied final frame of the preceding scene. The next visible action is: ' + actionForClip.replace(/[.\s]+$/, '') + '.')
+      : '';
+    const visual = imageContinuation
+      ? 'The supplied frame already establishes the people, faces, wardrobe, location, lighting and prop positions; preserve them as they are.'
+      : actionForClip;
+    const fixed = imageContinuation
+      ? 'Keep the same camera side, screen direction and take. Continue the action with natural body movement and a clear final position. ' + frame
+      : shotDirection + ' ' + visualStyle + ' Preserve the established faces, wardrobe, room geography and carried props.';
+
+    // Protect the story action and approved dialogue first. Style detail is the first material shortened
+    // when a prompt approaches the provider limit; action and spoken lines are never cut to make room for adjectives.
+    const safeLead = cut(lead, 520);
+    const maxVisual = Math.max(0, Math.min(1000, RENDER_PROMPT_MAX - safeLead.length - tail.length - 260));
+    const safeVisual = cut(visual, maxVisual);
+    const fixedBudget = Math.max(0, RENDER_PROMPT_MAX - safeLead.length - safeVisual.length - tail.length - 3);
     const safeFixed = cut(fixed, fixedBudget);
-    const visualBudget = Math.max(0, RENDER_PROMPT_MAX - lead.length - safeFixed.length - tail.length - 8);
-    const visual = h === 1 ? cut(visualBase, visualBudget) : cut('Same characters, location and light as the exact frame it starts from.', visualBudget);
-    const prompt = [lead, visual, safeFixed, tail].filter(Boolean).join(' ');
+    const prompt = [safeLead, safeVisual, safeFixed, tail].filter(Boolean).join(' ');
     let multiPrompt: { prompt: string; duration: number }[] | undefined;
-    if (presentation === 'shortdrama') {
-      // Kling receives explicit editorial coverage: establish the action, then cut to the emotional consequence.
-      // Dialogue is distributed between shots so a single five-second shot is not overloaded.
-      const totalWords = mine.reduce((n, line) => n + line.text.trim().split(/\s+/).filter(Boolean).length, 0);
-      const firstLines: SceneLine[] = [], secondLines: SceneLine[] = [];
-      let firstWords = 0;
-      for (const line of mine) {
-        const count = line.text.trim().split(/\s+/).filter(Boolean).length;
-        if (firstWords < totalWords / 2 && (firstLines.length === 0 || firstWords + count <= totalWords / 2 + 5)) {
-          firstLines.push(line); firstWords += count;
-        } else secondLines.push(line);
-      }
-      if (mine.length === 1) { firstLines.length = 0; secondLines.splice(0, secondLines.length, ...mine); }
-      const firstDuration = totalWords === 0 ? 5 : Math.max(3, Math.min(7, Math.round(10 * firstWords / totalWords) || 3));
-      const secondDuration = 10 - firstDuration;
-      const globalContinuity = 'Vertical 9:16 premium live-action short drama. Preserve the same actors, exact faces, age, hair, skin tone, build, wardrobe, props, set geometry, light direction and screen direction across both shots. This is one continuous moment with a motivated edit, not a montage or a new scene.';
-      const shotOne = `${globalContinuity} ${lead}${visual} ${fixed} SHOT 1: ${coverage.first} Show the first clear action and its cause. ${audioFor(firstLines)}${soundText && h === 1 ? ` Location sound: ${soundText}.` : ''}`;
-      const shotTwo = `${globalContinuity} Continue from the exact action and body positions in Shot 1. ${visual} SHOT 2: ${coverage.second} Preserve the 180-degree axis, gaze direction and prop positions; show the consequence, not a reset. ${audioFor(secondLines)}`;
-      multiPrompt = [{ prompt: shotOne, duration: firstDuration }, { prompt: shotTwo, duration: secondDuration }];
+
+    // Use explicit multi-shot coverage only for silent short-drama clips. Dialogue stays in one take
+    // so the active speaker remains visible for the whole synchronized performance.
+    if (presentation === 'shortdrama' && !hasOnScreenDialogue && !imageContinuation) {
+      const globalContinuity = 'Vertical 9:16 premium live-action short drama. Preserve the same actors, faces, wardrobe, props, set geometry, light direction and screen direction across both shots.';
+      const shotOne = globalContinuity + ' ' + visual + ' ' + visualStyle + ' First shot: ' + coverage.first + '. ' + soundscape;
+      const shotTwo = globalContinuity + ' Continue from the exact action and body positions in Shot 1. Second shot: ' + coverage.second + '. Preserve the prop positions and show the physical consequence. ' + soundscape;
+      multiPrompt = [{ prompt: shotOne, duration: 5 }, { prompt: shotTwo, duration: 5 }];
     }
-    parts.push({ seconds: PART_SECONDS, kind: h === 1 ? 'text' : 'continue', prompt, multiPrompt, lines: mine.map((l) => ({ speaker: l.speaker, text: l.text })) });
+    parts.push({ seconds: PART_SECONDS, kind: h === 1 ? 'text' : 'continue', prompt, multiPrompt, lines: mine.map((line) => ({ speaker: line.speaker, text: line.text })) });
   }
   return parts;
 }
