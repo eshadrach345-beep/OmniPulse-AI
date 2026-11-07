@@ -1646,12 +1646,8 @@ const episodeClip: Handler = async ({ req, res, query }) => {
     ? await privateBlobVideoUrl(String(j.blob_pathname))
     : await jobVideoUrl(j);
 
-  // Older episodes may predate successful archiving. Preserve their clip the first
-  // time it is reopened, while its provider URL is still valid.
-  if (!j.blob_pathname) {
-    const archived = await archiveVideoJob(j, sourceUrl);
-    if (archived) sourceUrl = await privateBlobVideoUrl(archived);
-  }
+  // Do not delay playback by copying a provider file when its current link still works.
+  // If it has expired, the recovery path below refreshes and archives it once.
 
   const range = typeof req.headers.range === 'string' ? req.headers.range : undefined;
   const fetchSource = () => fetch(sourceUrl, {
