@@ -79,6 +79,26 @@ check(frameAnchoredCut[0].prompt.includes('exact wardrobe, prop designs, locatio
 check(!frameAnchoredCut[0].multiPrompt, 'frame-anchored cut does not add competing multi-shot instructions');
 check(frameAnchoredCut[0].prompt.length <= A.RENDER_PROMPT_MAX, 'frame-anchored prompt respects the provider limit');
 
+const nativeMultiShot = A.toNativeMultiShotPrompt([
+  { prompt: 'Vertical 9:16 premium live-action short drama. Preserve the same actors, faces, wardrobe, props, set geometry, light direction and screen direction across both shots. Mara crosses the lighthouse room. First shot: a medium-wide side angle. Wind and footsteps.', duration: 5 },
+  { prompt: 'Vertical 9:16 premium live-action short drama. Preserve the same actors, faces, wardrobe, props, set geometry, light direction and screen direction across both shots. Continue from the exact action and body positions in Shot 1. Second shot: a close insert of the same stone anchor. Wind and stone scraping.', duration: 5 },
+]);
+check(nativeMultiShot.includes('The opening shot lasts about 5 seconds'), 'DeAPI LTX receives an opening shot in native multi-shot prose');
+check(nativeMultiShot.includes('A hard cut transitions to the next shot'), 'DeAPI LTX receives an explicit cut in the same generation');
+check(!nativeMultiShot.includes('Continue from the exact action and body positions'), 'native multi-shot prose removes redundant shot-list phrasing');
+check(nativeMultiShot.includes('same named cast, exact faces, hair, wardrobe, props'), 'native multi-shot prose locks identity and key props across cuts');
+
+const handlerSource = fs.readFileSync(new URL('../server/handler.ts', import.meta.url), 'utf8');
+check(handlerSource.includes('no duplicates, clones or unlisted background people'), 'every clip prompt forbids duplicate and unlisted characters');
+check(handlerSource.includes('Keep exact wardrobe and accessories across cuts and location changes'), 'every clip prompt locks wardrobe across location changes');
+check(handlerSource.includes('same silhouette, dimensions, proportions, material, colour, texture and marks'), 'every clip prompt locks recurring prop geometry and materials');
+check(handlerSource.includes('five fingers per hand'), 'every clip prompt includes a hand anatomy guardrail');
+check(handlerSource.includes('preserve camera axis, screen direction, perspective and light direction'), 'every clip prompt preserves lighting continuity within a location');
+
+check(handlerSource.includes('sharesVisibleCharacter && !explicitTimeJump && !explicitCostumeChange && !timeChanged'), 'same character keeps a frame anchor through a location change');
+check(handlerSource.includes('replace the old background; do not carry the previous set'), 'a location transition replaces the previous scene background');
+check(handlerSource.includes('toNativeMultiShotPrompt(multiPrompt)'), 'DeAPI receives native multi-shot prose when a coverage pair exists');
+
 const savedContinuity = P.continuityBlock({
   partNumber: 2, previousTitle: 'The Lighthouse', previousLogline: 'A map is found.', storySoFar: 'The crew found a stone anchor.',
   endingScene: { visualPrompt: 'Mara holds the anchor.', voiceoverText: '' }, characters: [],
