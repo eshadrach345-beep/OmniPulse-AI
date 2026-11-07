@@ -96,6 +96,108 @@ export async function mergeClips(urls: string[]): Promise<MergeResult> {
   return made;
 }
 
+/**
+ * Muxes per-clip character dialogue into a completed episode without regenerating its video.
+ * Each clip's lines are laid out sequentially, just like Series Studio playback. Original clip
+ * audio is kept quietly underneath the dialogue (or silence is supplied when the clip has no audio).
+ */
+export interface DialogueAudioLine { buffer: Buffer; type: string }
+export type DialogueAudioTracks = DialogueAudioLine[][];
+
+export async function muxDialogueIntoVideo(videoFile: string, tracks: DialogueAudioTracks, secondsPerClip = 10): Promise<MergeResult> {
+  const populated = tracks.some((clip) => clip.length > 0);
+  if (!populated) return { file: videoFile, cleanup: async () => undefined };
+
+  const bin = await ffmpegBinary();
+  const fs = await import('node:fs/promises');
+  const os = await import('node:os');
+  const path = await import('node:path');
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'op-dialogue-'));
+  const cleanup = async () => { await fs.rm(dir, { recursive: true, force: true }).catch(() => undefined); };
+
+  try {
+    const videoInfo = await inspect(bin, videoFile);
+    const totalDuration = Math.max(1, videoInfo.seconds);
+    const inputs: { file: string; clipIndex: number; duration: number }[] = [];
+    let inputNumber = 1;
+
+    // Save and probe each generated line so the next speaker starts after the real audio,
+    // rather than a guessed word-count duration that can drift out of sync.
+    for (let clipIndex = 0; clipIndex < tracks.length; clipIndex++) {
+      const clipLines = tracks[clipIndex] || [];
+      const prepared: { file: string; duration: number }[] = [];
+      for (let lineIndex = 0; lineIndex < clipLines.length; lineIndex++) {
+        const line = clipLines[lineIndex];
+        const ext = /wav/i.test(line.type) ? 'wav' : /ogg/i.test(line.type) ? 'ogg' : /mp4|m4a|aac/i.test(line.type) ? 'm4a' : 'mp3';
+        const file = path.join(dir, `voice-${clipIndex}-${lineIndex}.${ext}`);
+        await fs.writeFile(file, line.buffer);
+        const details = await inspect(bin, file);
+        if (!details.seconds || details.seconds <= 0 || details.seconds > 20) {
+          throw new Error(`Dialogue line ${lineIndex + 1} in clip ${clipIndex + 1} has an invalid audio duration.`);
+        }
+        prepared.push({ file, duration: details.seconds });
+      }
+      const spoken = prepared.reduce((sum, line) => sum + line.duration, 0) + Math.max(0, prepared.length - 1) * 0.16;
+      const usable = Math.max(1, secondsPerClip - 0.65);
+      const speed = Math.max(1, spoken / usable);
+      if (speed > 1.35) {
+        throw new Error(`The dialogue in clip ${clipIndex + 1} is too long for its 10-second shot. Shorten the lines in the script and export again.`);
+      }
+      for (const line of prepared) {
+        inputs.push({ file: line.file, clipIndex, duration: line.duration / speed });
+      }
+    }
+
+    const args = ['-hide_banner', '-y', '-i', videoFile];
+    inputs.forEach((input) => args.push('-i', input.file));
+    const filters: string[] = [];
+    if (videoInfo.audio) {
+      filters.push('[0:a]aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo,volume=0.22[abase]');
+    } else {
+      filters.push(`anullsrc=r=44100:cl=stereo,atrim=duration=${totalDuration.toFixed(3)},aformat=sample_fmts=fltp:channel_layouts=stereo[abase]`);
+    }
+
+    const voiceLabels: string[] = [];
+    let cursorByClip = tracks.map(() => 0.28);
+    inputs.forEach((input, index) => {
+      const startAt = input.clipIndex * secondsPerClip + cursorByClip[input.clipIndex];
+      const available = Math.max(0.1, Math.min(secondsPerClip, totalDuration - input.clipIndex * secondsPerClip) - cursorByClip[input.clipIndex]);
+      const duration = Math.min(input.duration, available);
+      if (duration < input.duration - 0.08) {
+        throw new Error(`Dialogue in clip ${input.clipIndex + 1} would be cut off. Shorten that scene's dialogue and export again.`);
+      }
+      const label = `voice${index}`;
+      const delay = Math.round(startAt * 1000);
+      const speed = Math.max(1, inputs
+        .filter((candidate) => candidate.clipIndex === input.clipIndex)
+        .reduce((sum, candidate) => sum + candidate.duration, 0) / Math.max(0.1, secondsPerClip - 0.65));
+      const tempo = Math.min(1.35, speed).toFixed(3);
+      filters.push(`[${index + 1}:a]aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo,atempo=${tempo},volume=1.35,adelay=${delay}|${delay},apad,atrim=duration=${totalDuration.toFixed(3)}[${label}]`);
+      voiceLabels.push(`[${label}]`);
+      cursorByClip[input.clipIndex] += input.duration + 0.16;
+    });
+
+    const mixInputs = ['[abase]', ...voiceLabels].join('');
+    filters.push(`${mixInputs}amix=inputs=${voiceLabels.length + 1}:duration=first:dropout_transition=0:normalize=0,alimiter=limit=0.95,aresample=44100[aout]`);
+    const output = path.join(dir, 'episode-with-dialogue.mp4');
+    args.push(
+      '-filter_complex', filters.join(';'),
+      '-map', '0:v:0', '-map', '[aout]',
+      '-c:v', 'copy', '-c:a', 'aac', '-b:a', '192k',
+      '-movflags', '+faststart', output,
+    );
+    const result = await run(bin, args, 55_000);
+    const stat = await fs.stat(output).catch(() => null);
+    if (result.code !== 0 || !stat || stat.size < 2_000) {
+      throw new Error(result.err.slice(-1200) || 'The dialogue audio could not be added to the episode.');
+    }
+    return { file: output, cleanup };
+  } catch (error) {
+    await cleanup();
+    throw error;
+  }
+}
+
 async function mergeClipsFresh(urls: string[]): Promise<MergeResult> {
   const bin = await ffmpegBinary();
   const fs = await import('node:fs/promises');
