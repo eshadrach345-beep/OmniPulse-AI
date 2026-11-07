@@ -924,9 +924,12 @@ async function adaptScriptLocally(row: any, user: { secondsLimit: number }, inpu
     const priorNames: string[] = Array.isArray(priorVisual?._visibleNames) ? priorVisual._visibleNames : [];
     const sharesCharacter = !!priorVisual && who.some((name) => priorNames.includes(name));
     const transitionText = [setting, ...acts].join(' ');
-    const explicitTimeJump = /\b(later|next day|following day|years later|months later|flashback|memory|dream|the next morning)\b/i.test(transitionText);
-    const explicitCostumeChange = /\b(changes? (?:her|his|their) clothes|puts on (?:a|the) (?:new )?(?:jacket|coat|shirt|dress|uniform)|takes off (?:her|his|their) (?:jacket|coat|shirt|dress|uniform)|changes into)\b/i.test(transitionText);
-    const referencePrevious = sharesCharacter && !explicitTimeJump && !explicitCostumeChange;
+    const explicitTimeJump = /\b(later|next day|following day|years later|months later|flashback|memory|dream|the next morning|next morning|that night|next evening)\b/i.test(transitionText);
+    const explicitCostumeChange = /\b(changes? (?:her|his|their) (?:clothes|outfit|costume|uniform)|changes into|now wears|is now wearing|puts on|takes off (?:her|his|their))\b/i.test(transitionText);
+    const timeOfDay = (transitionText.match(/\b(dawn|sunrise|morning|afternoon|sunset|dusk|evening|night|midnight|day)\b/i)?.[1] || '').toLowerCase();
+    const priorTimeOfDay = String(priorVisual?._timeOfDay || '').toLowerCase();
+    const timeOfDayChanged = !!(timeOfDay && priorTimeOfDay && timeOfDay !== priorTimeOfDay);
+    const referencePrevious = sharesCharacter && !explicitTimeJump && !explicitCostumeChange && !timeOfDayChanged;
     const first = here.find((u) => u.text) || here[0];
     const mood = /!/.test(first.text) ? 'intense, charged emotion, raised energy' : /\?/.test(first.text) ? 'uncertain, searching, tense' : 'quiet, restrained, believable emotion';
     // Conservative fallback blocking reduces identity drift caused by crowded frames and complex camera movement.
@@ -942,6 +945,7 @@ async function adaptScriptLocally(row: any, user: { secondsLimit: number }, inpu
       location: setting,
       referencePrevious,
       _visibleNames: who,
+      _timeOfDay: timeOfDay,
       lines,
       visualPrompt: `${shot}. ${setting && k !== 0 ? `Setting: ${setting}. ` : ''}${people ? `${people}. ` : ''}${doing}. Mood: ${mood}. Photorealistic live-action film, real human proportions, natural skin texture and expressions, realistic fabric and hair movement, motivated natural lighting, shallow depth of field, shot on a 35mm cinema camera.`.replace(/\s+/g, ' '),
       secondHalfAction: (() => {
