@@ -1068,7 +1068,9 @@ function finishStory(ctx: StoryCtx, d: any, input: StoryInput) {
 
     // dialogue: structured lines first, then plain voiceover text read by the narrator
     let lines: Line[] = (Array.isArray(sc?.lines) ? sc.lines : []).map((l: any) => ({ speaker: str(l?.speaker, 30), text: str(l?.text, 260), emotion: str(l?.emotion, 30), doing: str(l?.doing, 70), half: Number(l?.half) === 2 ? 2 : 1 })).filter((l: any) => l.speaker && l.text);
-    if (!lines.length && str(sc?.voiceoverText, 400)) lines = [{ speaker: 'Narrator', text: str(sc.voiceoverText, 260), half: 1 }];
+    // Only genuinely narrated productions may use the legacy voiceoverText fallback.
+    // Character-led drama must stay silent unless a speaker and exact words exist in lines[].
+    if (!lines.length && presentation === 'narrated' && str(sc?.voiceoverText, 400)) lines = [{ speaker: 'Narrator', text: str(sc.voiceoverText, 260), half: 1 }];
     // dialogue amount and presentation decide who may speak
     if (presentation === 'narrated') lines = lines.map((l) => ({ ...l, speaker: 'Narrator' }));
     else if (brief.dialogue === 'none') lines = [];
