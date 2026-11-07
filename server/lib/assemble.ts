@@ -23,12 +23,14 @@ export interface AssembleInput {
   soundText: string;
   characters: { name: string; voice?: string; gender?: string }[];
   continuesPrevious?: boolean;
+  /** Use the previous scene's final frame as a visual anchor across a motivated cut. */
+  referencePrevious?: boolean;
   /** 1-based storyboard scene number, used to rotate editorial coverage deliberately. */
   sceneNumber?: number;
 }
 
 export function assembleParts(o: AssembleInput) {
-  const { presentation, brief, mood, look, aspect, cameraMotion, halves, lines, visualBase, second, soundText, characters, continuesPrevious } = o;
+  const { presentation, brief, mood, look, aspect, cameraMotion, halves, lines, visualBase, second, soundText, characters, continuesPrevious, referencePrevious } = o;
   const sceneNumber = Math.max(1, Math.floor(o.sceneNumber || 1));
   const spokenFor = (ls: SceneLine[]) => ls.map((line) => {
     const character = characters.find((item) => item.name.toLowerCase() === line.speaker.toLowerCase());
@@ -113,24 +115,31 @@ export function assembleParts(o: AssembleInput) {
   for (let h = 1; h <= halves; h++) {
     const mine = lines.filter((line) => line.half === h);
     const tail = audioFor(mine);
-    const imageContinuation = h > 1 || (h === 1 && continuesPrevious);
+    const frameReference = h === 1 && referencePrevious === true && continuesPrevious !== true;
+    const imageContinuation = h > 1 || (h === 1 && continuesPrevious) || frameReference;
     const actionForClip = h > 1 ? (second || 'Continue the same physical action to a clear end state.') : visualBase;
     const lead = imageContinuation
       ? (h > 1
         ? 'Continue from the exact supplied final frame. The next physical beat is: ' + actionForClip.replace(/[.\s]+$/, '') + '.'
-        : 'Continue from the exact supplied final frame of the preceding scene. The next visible action is: ' + actionForClip.replace(/[.\s]+$/, '') + '.')
+        : frameReference
+          ? 'Use the exact supplied final frame of the preceding scene as the visual starting anchor. Preserve the same people, faces, hair, wardrobe, carried props, object designs and time of day. If the screenplay calls for a new angle or adjacent room, make one motivated cut or reframe without changing those identities or possessions. The next scene action is: ' + actionForClip.replace(/[.\s]+$/, '') + '.'
+          : 'Continue from the exact supplied final frame of the preceding scene. The next visible action is: ' + actionForClip.replace(/[.\s]+$/, '') + '.')
       : '';
     const visual = imageContinuation
-      ? 'The supplied frame already establishes the people, faces, wardrobe, location, lighting and prop positions; preserve them as they are.'
+      ? (frameReference
+        ? actionForClip
+        : 'The supplied frame already establishes the people, faces, wardrobe, location, lighting and prop positions; preserve them as they are.')
       : actionForClip;
     const fixed = imageContinuation
-      ? 'Keep the same camera side, screen direction and take. Continue the action with natural body movement and a clear final position. ' + frame
-      : shotDirection + ' ' + visualStyle + ' Preserve the established faces, wardrobe, room geography and carried props.';
+      ? (frameReference
+        ? 'Preserve the established character identities, exact wardrobe, prop designs, location geometry, light direction and screen geography. Follow the new shot composition without duplicating anyone or reversing the 180-degree action axis. Natural stable faces and anatomy; two arms, five distinct fingers, believable grips; no extra limbs, fused fingers, warped faces or duplicate people. ' + frame
+        : 'Keep the same camera side, screen direction and take. Continue the action with natural body movement and a clear final position. Natural stable faces and anatomy; two arms, five distinct fingers, believable grips; no extra limbs, fused fingers, warped faces or duplicate people. ' + frame)
+      : 'Natural stable faces and anatomy; two arms, five distinct fingers, believable grips; no extra limbs, fused fingers, warped faces or duplicate people. ' + shotDirection + ' ' + visualStyle + ' Preserve the established faces, wardrobe, room geography and carried props.';
 
     // Protect the story action and approved dialogue first. Style detail is the first material shortened
     // when a prompt approaches the provider limit; action and spoken lines are never cut to make room for adjectives.
     const safeLead = cut(lead, 520);
-    const maxVisual = Math.max(0, Math.min(1000, RENDER_PROMPT_MAX - safeLead.length - tail.length - 260));
+    const maxVisual = Math.max(0, Math.min(1320, RENDER_PROMPT_MAX - safeLead.length - tail.length - 260));
     const safeVisual = cut(visual, maxVisual);
     const fixedBudget = Math.max(0, RENDER_PROMPT_MAX - safeLead.length - safeVisual.length - tail.length - 3);
     const safeFixed = cut(fixed, fixedBudget);

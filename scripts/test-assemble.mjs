@@ -9,6 +9,7 @@ const compile = (source, fileName) => ts.transpileModule(source, {
 }).outputText;
 const prompts = compile(fs.readFileSync(new URL('../server/lib/prompts.ts', import.meta.url), 'utf8'), 'prompts.ts');
 const promptsUrl = 'data:text/javascript;base64,' + Buffer.from(prompts).toString('base64');
+const P = await import(promptsUrl);
 const source = fs.readFileSync(new URL('../server/lib/assemble.ts', import.meta.url), 'utf8').replace("from './prompts.js'", "from '" + promptsUrl + "'");
 const js = compile(source, 'assemble.ts');
 const A = await import('data:text/javascript;base64,' + Buffer.from(js).toString('base64'));
@@ -35,6 +36,7 @@ check(dialogue[0].prompt.includes('"You told me you deleted this."'), 'approved 
 check(dialogue[0].prompt.includes('"Mara, give me a second."'), 'approved second dialogue is sent');
 check(dialogue[0].prompt.includes('keeps her eyes on the screen'), 'line-level physical acting is sent');
 check(dialogue[0].prompt.includes('reaches toward the phone, then stops'), 'listener action is sent');
+check(dialogue[0].prompt.includes('five distinct fingers'), 'renderer prompt retains an anatomy guardrail');
 check(dialogue[0].prompt.length <= A.RENDER_PROMPT_MAX, 'dialogue prompt respects the provider limit');
 check(!dialogue[0].multiPrompt, 'dialogue does not become a cut-up multi-shot prompt');
 
@@ -64,5 +66,26 @@ check(!continuation[1].prompt.includes('A side-angle shot'), 'continuation does 
 check(!/hard cut transitions/i.test(continuation[1].prompt), 'continuation has no conflicting cut direction');
 check(continuation[1].prompt.length <= A.RENDER_PROMPT_MAX, 'continuation prompt respects provider limit');
 
+const frameAnchoredCut = A.assembleParts({
+  ...base, presentation: 'shortdrama', halves: 1,
+  visualBase: 'A new low-angle view of Mara entering the lighthouse keeper room, still wearing the same olive jacket and carrying the same stone anchor.',
+  second: '', soundText: 'quiet room tone', lines: [],
+  continuesPrevious: false, referencePrevious: true,
+});
+check(frameAnchoredCut.length === 1, 'a motivated cut remains one clip');
+check(frameAnchoredCut[0].prompt.includes('exact supplied final frame of the preceding scene'), 'motivated cut receives the previous final frame as its visual anchor');
+check(frameAnchoredCut[0].prompt.includes('new low-angle view of Mara'), 'motivated cut keeps its newly requested shot composition');
+check(frameAnchoredCut[0].prompt.includes('exact wardrobe, prop designs, location geometry'), 'motivated cut preserves identities, props and set details');
+check(!frameAnchoredCut[0].multiPrompt, 'frame-anchored cut does not add competing multi-shot instructions');
+check(frameAnchoredCut[0].prompt.length <= A.RENDER_PROMPT_MAX, 'frame-anchored prompt respects the provider limit');
+
+const savedContinuity = P.continuityBlock({
+  partNumber: 2, previousTitle: 'The Lighthouse', previousLogline: 'A map is found.', storySoFar: 'The crew found a stone anchor.',
+  endingScene: { visualPrompt: 'Mara holds the anchor.', voiceoverText: '' }, characters: [],
+  keyProps: [{ name: 'Stone anchor', description: 'A solid, weathered grey stone anchor with two short blunt flukes; never a ring.' }],
+  locationDescription: 'A stone lighthouse keeper room with a narrow north window.'
+});
+check(savedContinuity.includes('LOCKED RECURRING PROPS'), 'later parts receive the previous part recurring prop inventory');
+check(savedContinuity.includes('never a ring'), 'canonical prop geometry carries into later parts');
 if (failed) { console.error(failed + ' prompt regression checks failed.'); process.exit(1); }
 console.log('All LTX render-prompt regression checks passed.');

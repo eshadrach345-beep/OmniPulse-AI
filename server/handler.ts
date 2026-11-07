@@ -760,7 +760,7 @@ async function writeStoryboard(row: any, user: { secondsLimit: number }, input: 
   const have = (draft.scenes || []).length;
   const ranges: [number, number][] = [];
   for (let f = have + 1; f <= total && ranges.length < 2; f += CHUNK) ranges.push([f, Math.min(total, f + CHUNK - 1)]);
-  const writerPlan = { title: str(draft.title, 100), logline: str(draft.logline, 300), location: str(draft.location || '', 900), characters: draft.characters || [], outline: draft.outline };
+  const writerPlan = { title: str(draft.title, 100), logline: str(draft.logline, 300), location: str(draft.location || '', 900), keyProps: Array.isArray(draft.keyProps) ? draft.keyProps : [], characters: draft.characters || [], outline: draft.outline };
   const outs = await Promise.all(ranges.map(([f, t]) => geminiRaw(chunkPrompt(base, writerPlan, f, t), { timeoutMs: 40_000, deadlineMs: 50_000, maxTokens: 9_000 })));
   const scenes = [...(draft.scenes || [])];
   outs.forEach((o, i) => {
@@ -918,7 +918,18 @@ async function adaptScriptLocally(row: any, user: { secondsLimit: number }, inpu
     const setting = here.find((u) => u.setting)?.setting || '';
     const acts = here.map((u) => u.action).filter(Boolean);
     const cues = here.map((u) => u.cue).filter(Boolean);
-    const who = [...new Set(here.map((u) => u.speaker).filter((x) => x !== 'Narrator' && lookOf.has(x)))].slice(0, 2);
+    const hereText = here.map((u) => u.text + ' ' + u.action).join(' ').toLowerCase();
+    const who = [...new Set([...here.map((u) => u.speaker).filter((x) => x !== 'Narrator' && lookOf.has(x)), ...cast.filter((c) => hereText.includes(c.name.toLowerCase())).map((c) => c.name)])].slice(0, 2);
+    const priorVisual = rawScenes[rawScenes.length - 1];
+    const priorNames: string[] = Array.isArray(priorVisual?._visibleNames) ? priorVisual._visibleNames : [];
+    const sharesCharacter = !!priorVisual && who.some((name) => priorNames.includes(name));
+    const transitionText = [setting, ...acts].join(' ');
+    const explicitTimeJump = /\b(later|next day|following day|years later|months later|flashback|memory|dream|the next morning|next morning|that night|next evening)\b/i.test(transitionText);
+    const explicitCostumeChange = /\b(changes? (?:her|his|their) (?:clothes|outfit|costume|uniform)|changes into|now wears|is now wearing|puts on|takes off (?:her|his|their))\b/i.test(transitionText);
+    const timeOfDay = (transitionText.match(/\b(dawn|sunrise|morning|afternoon|sunset|dusk|evening|night|midnight|day)\b/i)?.[1] || '').toLowerCase();
+    const priorTimeOfDay = String(priorVisual?._timeOfDay || '').toLowerCase();
+    const timeOfDayChanged = !!(timeOfDay && priorTimeOfDay && timeOfDay !== priorTimeOfDay);
+    const referencePrevious = sharesCharacter && !explicitTimeJump && !explicitCostumeChange && !timeOfDayChanged;
     const first = here.find((u) => u.text) || here[0];
     const mood = /!/.test(first.text) ? 'intense, charged emotion, raised energy' : /\?/.test(first.text) ? 'uncertain, searching, tense' : 'quiet, restrained, believable emotion';
     // Conservative fallback blocking reduces identity drift caused by crowded frames and complex camera movement.
@@ -931,6 +942,10 @@ async function adaptScriptLocally(row: any, user: { secondsLimit: number }, inpu
     const firstActs = acts.slice(0, split), laterActs = acts.slice(split);
     const doing = (acts.length ? firstActs.join(' ') : cues.length ? `${who[0] || 'The speaker'} is ${cues[0]}` : `${who[0] || 'The character'} performs one simple, readable action in place while speaking; keep movements controlled and grounded`).replace(/[.\s]+$/, '');
     rawScenes.push({
+      location: setting,
+      referencePrevious,
+      _visibleNames: who,
+      _timeOfDay: timeOfDay,
       lines,
       visualPrompt: `${shot}. ${setting && k !== 0 ? `Setting: ${setting}. ` : ''}${people ? `${people}. ` : ''}${doing}. Mood: ${mood}. Photorealistic live-action film, real human proportions, natural skin texture and expressions, realistic fabric and hair movement, motivated natural lighting, shallow depth of field, shot on a 35mm cinema camera.`.replace(/\s+/g, ' '),
       secondHalfAction: (() => {
@@ -951,7 +966,7 @@ async function adaptScriptLocally(row: any, user: { secondsLimit: number }, inpu
   const used = new Set(units.slice(0, at).map((u) => u.speaker));
   const sb = finishStory(shortCtx, {
     title, logline: str(words(script).slice(0, 30).join(' '), 300), storySoFar: str(words(units.slice(0, at).map((u) => u.text).join(' ')).slice(0, 120).join(' '), 900),
-    characters: cast.filter((c) => used.has(c.name)), scenes: rawScenes, remainingScript, hashtags: [], callToAction: '',
+    characters: cast.filter((c) => used.has(c.name)), keyProps: ctx.continuity?.keyProps || [], scenes: rawScenes, remainingScript, hashtags: [], callToAction: '',
   }, input);
   sb.notes = [...(sb.notes || []), 'Your script was used exactly as you wrote it: spoken lines are said by the characters, and action lines are shown on screen instead of being read out.'];
   return sb;
@@ -1056,6 +1071,12 @@ function finishStory(ctx: StoryCtx, d: any, input: StoryInput) {
     modelChars.slice(1).forEach((c: any) => addChar(c?.name, c?.role, c?.gender, c?.description, c?.voice, c?.kind));
   } else modelChars.forEach((c: any) => addChar(c?.name, c?.role, c?.gender, c?.description, c?.voice, c?.kind));
   const protagonist = brief.characterLock || continuity?.characters.length ? characters[0] : undefined;
+  const propMap = new Map<string, { name: string; description: string }>();
+  for (const p of [...(continuity?.keyProps || []), ...(Array.isArray(d.keyProps) ? d.keyProps : [])]) {
+    const name = str(p?.name, 60), description = str(p?.description, 260);
+    if (name && description && !propMap.has(name.toLowerCase())) propMap.set(name.toLowerCase(), { name, description });
+  }
+  const keyProps = [...propMap.values()].slice(0, 8);
 
   const beats = storyBeats(plan.scenes.length);
   const lockKey = brief.characterLock ? brief.characterLock.descriptor.toLowerCase().slice(0, 40) : '';
@@ -1093,23 +1114,46 @@ function finishStory(ctx: StoryCtx, d: any, input: StoryInput) {
     const sceneSpeakers = new Set(lines.map((line) => line.speaker.toLowerCase()));
     const visibleCharacters = characters.filter((c) => c.name && (vp.toLowerCase().includes(c.name.toLowerCase()) || sceneSpeakers.has(c.name.toLowerCase())));
     const identityAnchor = visibleCharacters.map((c) => `${c.name}: ${str(c.description, 260)}`).filter(Boolean).join(' ');
+    const sceneLocation = str(sc?.location || sc?.setting, 180);
+    const primaryLocation = str(d.location || continuity?.locationDescription, 420);
+    const sceneContext = [vp, sc?.secondHalfAction, sceneLocation, ...lines.map((line) => line.text)].join(' ').toLowerCase();
+    const sceneTerms = new Set(sceneContext.split(/[^a-z0-9]+/).filter(Boolean));
+    const relevantProps = keyProps.filter((p) => p.name.toLowerCase().split(/[^a-z0-9]+/).filter((token) => token.length >= 3).some((token) => sceneTerms.has(token)));
+    const propAnchor = relevantProps.map((p) => 'LOCKED PROP ' + p.name + ': ' + p.description + '. Keep its exact shape, scale, material, texture and marks.').join(' ');
+    const locationAnchor = sceneLocation ? 'Specific scene location: ' + sceneLocation + '. Preserve its established architecture, layout and perspective whenever it recurs.' : '';
+    const primaryLocationAnchor = primaryLocation ? 'Primary series set reference (apply only when this scene is within that set; do not transplant it to another named place): ' + primaryLocation : '';
     const lockedProtagonist = brief.characterLock && !vp.toLowerCase().includes(lockKey)
       ? `Maintain the protagonist's established appearance: ${brief.characterLock.descriptor}.`
       : '';
     const continuesPrevious = sc?.continuesPrevious === true;
+    const previousScene = scenes[scenes.length - 1];
+    const previousSceneText = previousScene ? [previousScene.visualPrompt, ...(previousScene.lines || []).map((line: any) => line.speaker)].join(' ').toLowerCase() : '';
+    const currentVisibleNames = [...visibleCharacters.map((c) => c.name), ...sceneSpeakers];
+    const sharesVisibleCharacter = currentVisibleNames.some((name) => name && previousSceneText.includes(name.toLowerCase()));
+    const placeWords = (value: string) => new Set(value.toLowerCase().split(/[^a-z0-9]+/).filter((word) => word.length > 3 && !['room', 'inside', 'outside', 'interior', 'exterior', 'area', 'scene'].includes(word)));
+    const currentPlaceWords = placeWords(sceneLocation);
+    const previousPlaceWords = placeWords(String(previousScene?.location || ''));
+    const relatedPlace = !currentPlaceWords.size || !previousPlaceWords.size || [...currentPlaceWords].some((word) => previousPlaceWords.has(word));
+    const sequenceText = [vp, sceneLocation, sc?.secondHalfAction].join(' ');
+    const explicitTimeJump = /\b(later|next day|following day|years later|months later|hours later|flashback|memory|dream|the next morning|next morning|that night|next evening)\b/i.test(sequenceText);
+    const explicitCostumeChange = /\b(changes? (?:her|his|their) (?:clothes|outfit|costume|uniform)|changes into|now wears|is now wearing|puts on|takes off|removes (?:her|his|their))\b/i.test(sequenceText);
+    const sceneTime = (sequenceText.match(/\b(dawn|sunrise|morning|afternoon|sunset|dusk|evening|night|midnight|day)\b/i)?.[1] || '').toLowerCase();
+    const priorTime = previousScene ? (String(previousScene.visualPrompt || '').match(/\b(dawn|sunrise|morning|afternoon|sunset|dusk|evening|night|midnight|day)\b/i)?.[1] || '').toLowerCase() : '';
+    const timeChanged = !!(sceneTime && priorTime && sceneTime !== priorTime);
+    const referencePrevious = scenes.length > 0 && !continuesPrevious && (sc?.referencePrevious === true || (sharesVisibleCharacter && relatedPlace && !explicitTimeJump && !explicitCostumeChange && !timeChanged));
     // "Shown" stage directions contain actions extracted from malformed speech fields;
     // put them before visual decoration so they are not the first text lost to truncation.
-    const visualBase = [shownText, str(vp, 700), identityAnchor, lockedProtagonist].filter(Boolean).join(' ');
+    const visualBase = [shownText, str(vp, 560), identityAnchor, propAnchor, locationAnchor, primaryLocationAnchor, lockedProtagonist].filter(Boolean).join(' ');
     const soundText = str(sc?.sound, 160);
     // The selected camera profile is the hard constraint. A model-written per-scene move
     // must not silently replace it (for example, adding a zoom to a locked-off shot).
     const cameraMotion = cam.direct;
     const second = str(sc?.secondHalfAction, 400);
 
-    const parts = assembleParts({ presentation, brief: { genre: brief.genre, intensity: brief.intensity }, mood: { render: mood.render }, look, aspect, cameraMotion, halves, lines, visualBase, second, soundText, characters, continuesPrevious, sceneNumber: scenes.length + 1 });
+    const parts = assembleParts({ presentation, brief: { genre: brief.genre, intensity: brief.intensity }, mood: { render: mood.render }, look, aspect, cameraMotion, halves, lines, visualBase, second, soundText, characters, continuesPrevious, referencePrevious, sceneNumber: scenes.length + 1 });
     scenes.push({
       id: `s${scenes.length + 1}`, sceneId: `scene-${String(scenes.length + 1).padStart(2, '0')}`, sceneNumber: scenes.length + 1, beat: beats[i] || '',
-      visualPrompt: str(visualBase, 900), continuesPrevious, secondHalfAction: second, voiceoverText: lines.map((l) => l.text).join(' '), cameraMotion, sound: soundText,
+      visualPrompt: str(visualBase, 1450), location: sceneLocation, continuesPrevious, referencePrevious, secondHalfAction: second, voiceoverText: lines.map((l) => l.text).join(' '), cameraMotion, sound: soundText,
       lines: lines.map((l) => ({ speaker: l.speaker, text: l.text, emotion: l.emotion || '', doing: l.doing || '', half: l.half })), clipSeconds: len, parts,
     });
   }
@@ -1126,6 +1170,7 @@ function finishStory(ctx: StoryCtx, d: any, input: StoryInput) {
   if (!silentCast && !script && !continuity && scenes.length >= 2 && cast.length < Math.max(2, castMin - 1)) throw new HttpError(424, `The script only had ${cast.length} speaking characters, fewer than the ${castMin} it needs. Retrying with a bigger cast.`, 'AI_PROVIDER_UNAVAILABLE');
   return {
     success: true, title: str(d.title, 100) || 'Untitled production', logline: str(d.logline, 300), storySoFar: str(d.storySoFar, 900), location: str(d.location || (rawScenes.slice(0, 3).map((scene: any) => str(scene?.visualPrompt || scene?.setting, 260)).join(' ')), 900), format,
+    keyProps,
     remainingScript: script ? str(d.remainingScript, 20000) : '',
     brief: {
       durationMode: brief.durationMode, requestedSeconds: brief.requestedSeconds, targetSeconds: plan.targetSeconds, sceneSeconds: brief.sceneSeconds,
@@ -1870,7 +1915,7 @@ function episodeView(e: any) {
     notes: Array.isArray(sb.notes) ? sb.notes.map(String) : [],
     scenes: scenes.map((sc) => ({
       sceneId: String(sc.sceneId || ''), sceneNumber: Number(sc.sceneNumber) || 0, beat: String(sc.beat || ''), clipSeconds: Number(sc.clipSeconds) || 0, continuesPrevious: sc.continuesPrevious === true,
-      visualPrompt: String(sc.visualPrompt || ''), voiceoverText: String(sc.voiceoverText || ''), cameraMotion: String(sc.cameraMotion || ''),
+      visualPrompt: String(sc.visualPrompt || ''), location: String(sc.location || ''), referencePrevious: sc.referencePrevious === true, voiceoverText: String(sc.voiceoverText || ''), cameraMotion: String(sc.cameraMotion || ''),
       lines: (Array.isArray(sc.lines) ? sc.lines : []).map((l: any) => ({ speaker: String(l.speaker || ''), text: String(l.text || ''), half: Number(l.half) === 2 ? 2 : 1 })),
     })),
     // Finished clips in story order. A 20 second scene contributes its two clips one after the other, so every scene plays to its end.
@@ -1890,6 +1935,7 @@ async function buildContinuity(project: any, partNumber: number): Promise<Series
   return {
     partNumber,
     previousTitle: String(sb.title || ''), previousLogline: String(sb.logline || ''), storySoFar: String(sb.storySoFar || ''), locationDescription: str(project.reference_assets?.locationDescription || sb.location || scenes.slice(0, 3).map((scene) => str(scene?.visualPrompt, 260)).join(' '), 900),
+    keyProps: (Array.isArray(sb.keyProps) ? sb.keyProps : []).map((p: any) => ({ name: str(p?.name, 60), description: str(p?.description, 260) })).filter((p: any) => p.name && p.description).slice(0, 8),
     endingScene: { visualPrompt: String(last.visualPrompt || ''), voiceoverText: String(last.voiceoverText || '') },
     characters: stored.map((c) => ({ name: str(c?.name, 30), role: str(c?.role, 60), gender: c?.gender === 'female' ? 'female' : 'male', voice: str(c?.voice, 90), description: str(c?.description, 400), referenceImageUrl: /^https:\/\//i.test(String(c?.referenceImageUrl || '')) ? String(c.referenceImageUrl) : undefined })).filter((c) => c.name),
   };
@@ -2158,9 +2204,10 @@ async function stageRender(row: any, user: ReturnType<typeof toUser>, ep: any): 
     const previousSceneLastUrl = en.index > 0 ? entries[en.index - 1]?.parts.slice(-1)[0]?.url : undefined;
     const isEpisodeOpening = en.index === 0 && k === 0;
     const startImageUrl = isEpisodeOpening ? openingReference : undefined;
-    const previousUrl = k > 0 ? en.parts[k - 1]?.url : (scenes[en.index].continuesPrevious === true ? previousSceneLastUrl : (isEpisodeOpening && !startImageUrl ? previousEpisodeAnchorUrl : undefined));
+    const carriesVisualReference = scenes[en.index].continuesPrevious === true || scenes[en.index].referencePrevious === true;
+    const previousUrl = k > 0 ? en.parts[k - 1]?.url : (carriesVisualReference ? previousSceneLastUrl : (isEpisodeOpening && !startImageUrl ? previousEpisodeAnchorUrl : undefined));
     if (k > 0 && !previousUrl) continue; // the second half starts from the first half's last picture
-    if (k === 0 && scenes[en.index].continuesPrevious === true && !previousUrl) continue; // connected action waits for the previous scene's final frame
+    if (k === 0 && carriesVisualReference && !previousUrl) continue; // connected action waits for the previous scene's final frame
     if (started >= MAX_STARTS_PER_STEP || left() < 14_000) break outer;
     try {
       const scene = scenes[en.index];
@@ -2418,9 +2465,9 @@ const episodeEdit: Handler = async ({ req, res, body }) => {
     const e = edits[i] || {};
     const halves = (sc.parts || []).length || 1;
     const lines = packLines((Array.isArray(e.lines) ? e.lines : []).slice(0, 8).map((l: any) => ({ speaker: names.get(str(l?.speaker, 30).toLowerCase()) || '', text: str(l?.text, 260), emotion: str(l?.emotion, 30), doing: str(l?.doing, 70) })).filter((l: any) => l.speaker && l.text), halves);
-    const visual = str(e.visual, 900) || sc.visualPrompt, second = str(e.second, 300), camera = str(e.camera, 200) || sc.cameraMotion, sound = str(e.sound, 160);
-    const parts = assembleParts({ presentation: sb.brief?.presentation || 'movie', brief: { genre: sb.brief?.genre || 'auto', intensity: sb.brief?.intensity || 'balanced' }, mood: { render: mood.render }, look: cfg.look || 'cinematic', aspect: cfg.aspect || '9:16', cameraMotion: camera, halves, lines, visualBase: visual, second, soundText: sound, characters: sb.characters || [], sceneNumber: i + 1 });
-    return { ...sc, visualPrompt: str(visual, 900), secondHalfAction: second, cameraMotion: camera, sound, voiceoverText: lines.map((l) => l.text).join(' '), lines: lines.map((l) => ({ speaker: l.speaker, text: l.text, emotion: l.emotion || '', doing: l.doing || '', half: l.half })), parts };
+    const visual = str(e.visual, 1450) || sc.visualPrompt, second = str(e.second, 300), camera = str(e.camera, 200) || sc.cameraMotion, sound = str(e.sound, 160);
+    const parts = assembleParts({ presentation: sb.brief?.presentation || 'movie', brief: { genre: sb.brief?.genre || 'auto', intensity: sb.brief?.intensity || 'balanced' }, mood: { render: mood.render }, look: cfg.look || 'cinematic', aspect: cfg.aspect || '9:16', cameraMotion: camera, halves, lines, visualBase: visual, second, soundText: sound, characters: sb.characters || [], continuesPrevious: sc.continuesPrevious === true, referencePrevious: sc.referencePrevious === true && i > 0, sceneNumber: i + 1 });
+    return { ...sc, visualPrompt: str(visual, 1450), secondHalfAction: second, cameraMotion: camera, sound, voiceoverText: lines.map((l) => l.text).join(' '), lines: lines.map((l) => ({ speaker: l.speaker, text: l.text, emotion: l.emotion || '', doing: l.doing || '', half: l.half })), parts };
   });
   const updated = { ...sb, title: str(body.title, 100) || sb.title, scenes };
   const start = body.start === true && ep.status === 'REVIEW';
