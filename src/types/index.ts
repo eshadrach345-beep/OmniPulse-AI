@@ -237,6 +237,13 @@ export interface VideoScene {
   overlayPosition?: 'top' | 'center' | 'bottom';
   /** Visual treatment used for the title in the editor preview and exported MP4. */
   overlayStyle?: 'cinematic' | 'minimal' | 'lower_third';
+  /** Professional colour and sound controls applied by the FFmpeg export. */
+  audioGain?: number;
+  normalizeAudio?: boolean;
+  brightness?: number;
+  contrast?: number;
+  saturation?: number;
+  exportQuality?: 'high' | 'standard' | 'small';
   soundEffectCue: string;
   motionStyle: 'Dynamic Zoom' | 'Hand Sketch Draw' | 'Kinetic Kinetic Typography' | 'Isometric Pan';
   bgGradient: string;

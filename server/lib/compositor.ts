@@ -10,10 +10,17 @@ export interface CompositionInput {
   captions: VideoCaptionCue[];
   title?: string;
   titlePosition?: 'top' | 'center' | 'bottom';
+  titleStyle?: 'cinematic' | 'minimal' | 'lower_third';
   duration: number;
   width: number;
   height: number;
   output: string;
+  audioGain?: number;
+  normalizeAudio?: boolean;
+  brightness?: number;
+  contrast?: number;
+  saturation?: number;
+  quality?: 'high' | 'standard' | 'small';
 }
 
 async function ffmpegPath(): Promise<string> {
@@ -50,9 +57,15 @@ export async function renderComposition(input: CompositionInput): Promise<void> 
   const width = Math.max(480, Math.min(1920, Math.round(input.width / 2) * 2));
   const height = Math.max(480, Math.min(1920, Math.round(input.height / 2) * 2));
   const args = ['-hide_banner', '-y'];
+  const audioGain = Math.max(0, Math.min(2.5, Number(input.audioGain ?? 1)));
+  const normalizeAudio = input.normalizeAudio !== false;
+  const brightness = Math.max(-0.15, Math.min(0.15, Number(input.brightness ?? 0)));
+  const contrast = Math.max(0.5, Math.min(1.8, Number(input.contrast ?? 1)));
+  const saturation = Math.max(0, Math.min(2, Number(input.saturation ?? 1)));
+  const qualityCrf = input.quality === 'high' ? 18 : input.quality === 'small' ? 28 : 23;
   if (input.baseIsImage) args.push('-loop', '1', '-t', String(duration), '-i', input.base);
   else args.push('-ss', String(Math.max(0, input.baseSourceIn || 0)), '-t', String(duration), '-i', input.base);
-  const filter: string[] = [`[0:v]tpad=stop_mode=clone:stop_duration=${duration},trim=duration=${duration},setpts=PTS-STARTPTS,scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30,format=yuv420p[v0]`];
+  const filter: string[] = [`[0:v]tpad=stop_mode=clone:stop_duration=${duration},trim=duration=${duration},setpts=PTS-STARTPTS,scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30,eq=brightness=${brightness}:contrast=${contrast}:saturation=${saturation},format=yuv420p[v0]`];
   let videoLabel = 'v0';
   let nextInput = 1;
 
@@ -86,7 +99,12 @@ export async function renderComposition(input: CompositionInput): Promise<void> 
       const captionPath = path.join(path.dirname(input.output), `captions-${Date.now()}.srt`);
       await fs.writeFile(captionPath, srt, 'utf8');
       const escaped = captionPath.replace(/\\/g, '/').replace(/:/g, '\\:').replace(/'/g, "\\'");
-      filter.push(`[${videoLabel}]subtitles=filename='${escaped}':force_style='FontName=Arial,FontSize=22,Outline=2,Shadow=1,Alignment=2,MarginV=38'[vfinal]`);
+      const style = input.titleStyle === 'minimal'
+        ? 'FontName=Arial,FontSize=20,PrimaryColour=&H00FFFFFF,Outline=0,Shadow=1,Alignment=2,MarginV=42'
+        : input.titleStyle === 'lower_third'
+          ? 'FontName=Arial,FontSize=22,PrimaryColour=&H00FFFFFF,BackColour=&HCC111827,BorderStyle=3,Outline=1,Shadow=0,Alignment=1,MarginL=54,MarginV=54'
+          : 'FontName=Arial,FontSize=24,PrimaryColour=&H00FFFFFF,BackColour=&HCC090D18,BorderStyle=3,Outline=2,Shadow=1,Alignment=2,MarginV=42';
+      filter.push(`[${videoLabel}]subtitles=filename='${escaped}':force_style='${style}'[vfinal]`);
       videoLabel = 'vfinal';
     }
   }
@@ -107,7 +125,7 @@ export async function renderComposition(input: CompositionInput): Promise<void> 
   });
   const hasBaseAudio = /Audio:\s/.test(probe);
   const audioLabels: string[] = [];
-  if (hasBaseAudio) { filter.push(`[0:a]atrim=duration=${duration},apad=pad_dur=${duration},atrim=duration=${duration},asetpts=PTS-STARTPTS[abase]`); audioLabels.push('[abase]'); }
+  if (hasBaseAudio) { filter.push(`[0:a]atrim=duration=${duration},apad=pad_dur=${duration},atrim=duration=${duration},asetpts=PTS-STARTPTS,volume=${audioGain}[abase]`); audioLabels.push('[abase]'); }
   for (const { index, layer } of audioInputs) {
     const label = `a${index}`;
     const startMs = Math.round(Math.max(0, Math.min(duration, layer.startAt || 0)) * 1000);
@@ -119,12 +137,12 @@ export async function renderComposition(input: CompositionInput): Promise<void> 
     filter.push(`[${index}:a]atrim=duration=${audioDuration},asetpts=PTS-STARTPTS${envelope ? `,${envelope}` : ''},adelay=${startMs}|${startMs},volume=${volume}[${label}]`);
     audioLabels.push(`[${label}]`);
   }
-  if (audioLabels.length > 1) filter.push(`${audioLabels.join('')}amix=inputs=${audioLabels.length}:duration=longest:dropout_transition=0,alimiter=limit=0.95[aout]`);
-  else if (audioLabels.length === 1) filter.push(`${audioLabels[0]}anull[aout]`);
+  if (audioLabels.length > 1) filter.push(`${audioLabels.join('')}amix=inputs=${audioLabels.length}:duration=longest:dropout_transition=0${normalizeAudio ? ',loudnorm=I=-16:TP=-1.5:LRA=11' : ''},alimiter=limit=0.95[aout]`);
+  else if (audioLabels.length === 1) filter.push(`${audioLabels[0]}${normalizeAudio ? 'loudnorm=I=-16:TP=-1.5:LRA=11,' : ''}alimiter=limit=0.95[aout]`);
 
   args.push('-filter_complex', filter.join(';'), '-map', `[${videoLabel}]`);
   if (audioLabels.length) args.push('-map', '[aout]');
   else if (hasBaseAudio) args.push('-map', '0:a?');
-  args.push('-t', String(duration), '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '160k', '-movflags', '+faststart', '-max_muxing_queue_size', '2048', input.output);
+  args.push('-t', String(duration), '-c:v', 'libx264', '-preset', 'veryfast', '-crf', String(qualityCrf), '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '160k', '-movflags', '+faststart', '-max_muxing_queue_size', '2048', input.output);
   await run(bin, args, 240_000);
 }
