@@ -66,15 +66,14 @@ export function assembleParts(o: AssembleInput) {
     { opening: 'a low, slightly off-axis reveal as the character or threat enters frame, establishing scale through movement', response: 'a wider reaction composition showing both the acting character and the environment changing around them' },
     { opening: 'a compressed profile two-shot with a natural foreground edge separating the characters while preserving personal space', response: 'a moving three-quarter medium close-up following the affected character’s turn or withdrawal' },
   ][(sceneNumber - 1) % 7];
-  const hasDialogue = lines.length > 0;
   const hasOnScreenDialogue = lines.some((line) => line.speaker.toLowerCase() !== 'narrator');
-  // Dialogue plays in one readable framing for reliable mouth movement. A cut comes
-  // after the line has finished, or a silent clip can use two fully described shots.
+  // Keep lip-synced performances in one continuous take. Silent scenes can use
+  // LTX-2.5's native multi-shot cuts, with the same soundscape carried across them.
   const shotPlan = hasOnScreenDialogue
-    ? `The scene opens in ${coverageProse.opening}. Keep the speaking character's face and mouth visible, with the listener's reaction readable while the line is delivered. After the final spoken line, a hard cut reveals ${coverageProse.response}. The same action, faces, wardrobe, props, lighting and screen direction carry across the cut.`
-    : `The first image is ${coverageProse.opening}. A moment later, a hard cut transitions to ${coverageProse.response}. The second shot reveals the result of the first action; the same actors, location, props, light and screen direction remain consistent.`;
+    ? `The scene plays as one continuous ${coverageProse.opening}. Keep the speaking character's face and mouth visible, while the listener's reaction remains readable in the frame. The action and eyelines evolve naturally without cutting away during speech.`
+    : `The first image is ${coverageProse.opening}. After about five seconds, a clear hard cut transitions to ${coverageProse.response}. The second shot reveals the result of the first action; the same actors, location, props, light and screen direction remain consistent, while the natural soundscape continues smoothly across the cut.`;
 
-  const fixed = `${openers[presentation]} ${shotPlan} The camera uses ${cameraMotion}. The scene is lit by ${mood.render}, with ${genreLook || 'natural cinematic detail'} and a ${look} finish. ${aspect === '9:16' ? 'Compose for a vertical 9:16 phone frame, keeping faces, hands and story-critical props in the central safe area.' : aspect === '1:1' ? 'Compose for a square 1:1 frame.' : 'Compose for a wide 16:9 frame.'} Preserve the established faces, ages, hair, builds, wardrobe, location geometry and prop placement. Show the action through clear physical behaviour, visible reactions and cause and effect. Characters speak to each other, not to the camera.`;
+  const fixed = `${openers[presentation]} ${shotPlan} The camera uses ${cameraMotion.replace(/,\\s*no cuts?\\.?$/i, '')}. The scene is lit by ${mood.render}, with ${genreLook || 'natural cinematic detail'} and a ${look} finish. ${aspect === '9:16' ? 'Compose for a vertical 9:16 phone frame, keeping faces, hands and story-critical props in the central safe area.' : aspect === '1:1' ? 'Compose for a square 1:1 frame.' : 'Compose for a wide 16:9 frame.'} Preserve the established faces, ages, hair, builds, wardrobe, location geometry and prop placement. Show the action through clear physical behaviour, visible reactions and cause and effect. Characters speak to each other, not to the camera.`;
   const parts = [];
   for (let h = 1; h <= halves; h++) {
     const mine = lines.filter((l) => l.half === h);
@@ -85,7 +84,7 @@ export function assembleParts(o: AssembleInput) {
         : 'The close soundscape follows the visible action and the natural room or outdoor ambience.';
       if (presentation === 'narrated') {
         return spokenLines.length
-          ? `${soundscape} The picture remains silent while ${dialogue}`
+          ? `${soundscape} The picture remains silent while ${dialogue} The narrator's voice continues smoothly through any visual cut without restarting.`
           : `${soundscape} No one speaks on screen.`;
       }
       if (spokenLines.length) {
