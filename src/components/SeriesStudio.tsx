@@ -93,7 +93,21 @@ function episodeCaptionTracks(scenes: Episode['scenes']): CaptionCue[][] {
   return tracks;
 }
 
-/** Voice tracks follow the exact 10-second clip order. Every approved speaker gets a stable voice profile. */
+const SERIES_VOICE_IDS = {
+  male: ['pNInz6obpgDQGcFmaJgB', 'iP95p4xoKVk53GoZ742B', 'nPczCjzI2devNBz1zQrb', 'IKne3meq5aSn9XLyUdCD'],
+  female: ['EXAVitQu4vr4xnSDxMaL', 'Xb7hH8MSUJpSbSDYk0k2', 'hpp4J3VqNfWAUOO0d1Us', 'cgSgspJ2msm6clMCkdW9'],
+};
+
+/** Assign every character a distinct, repeatable voice. This same order is used in the server-side MP4 mix. */
+function episodeVoiceId(episode: Episode, speaker: string): string {
+  const characters = episode.characters || [];
+  const index = characters.findIndex((c) => c.name.toLowerCase() === speaker.toLowerCase());
+  const gender: 'male' | 'female' = index >= 0 && characters[index].gender?.toLowerCase() === 'female' ? 'female' : 'male';
+  const preceding = index < 0 ? 0 : characters.slice(0, index).filter((c) => (c.gender?.toLowerCase() === 'female' ? 'female' : 'male') === gender).length;
+  return SERIES_VOICE_IDS[gender][preceding % SERIES_VOICE_IDS[gender].length];
+}
+
+/** Voice tracks follow the exact 10-second clip order. Every approved speaker keeps one distinct voice. */
 function episodeSpeechTracks(episode: Episode): { text: string; voiceId: string; momentum: number }[][] {
   const tracks: { text: string; voiceId: string; momentum: number }[][] = [];
   for (const scene of episode.scenes) {
@@ -101,15 +115,14 @@ function episodeSpeechTracks(episode: Episode): { text: string; voiceId: string;
     for (let half = 1; half <= halves; half++) {
       const lines = scene.lines.filter((line) => (line.half || 1) === half);
       tracks.push(lines.map((line) => {
-        const character = episode.characters?.find((c) => c.name.toLowerCase() === line.speaker.toLowerCase());
-        const fallback = character?.gender?.toLowerCase() === 'female' ? 'EXAVITQu4vr4xnSDxMaL' : 'pNInz6obpgDQGcFmaJgB';
-        const voice = StudioAudioService.getVoice(character?.voice || fallback);
+        const voice = StudioAudioService.getVoice(episodeVoiceId(episode, line.speaker));
         return { text: line.text, voiceId: voice.id, momentum: voice.recommendedMomentum || 1 };
       }));
     }
   }
   return tracks;
 }
+
 const vttTime = (seconds: number) => {
   const ms = Math.max(0, Math.round(seconds * 1000));
   const h = Math.floor(ms / 3_600_000), m = Math.floor((ms % 3_600_000) / 60_000), sec = Math.floor((ms % 60_000) / 1000), milli = ms % 1000;
@@ -192,7 +205,7 @@ const ClipSequence: React.FC<{ clips: string[]; captions?: CaptionCue[][]; speec
             }}
             onPause={() => { if (n === i % 2) StudioAudioService.stop(); }}
             onTimeUpdate={(e) => { if (n === i % 2) setPlayhead(e.currentTarget.currentTime); }}
-            onEnded={() => { if (n === i % 2) { setBuffering(true); setPlayhead(0); setI((k) => (k + 1 < clips.length ? k + 1 : k)); } }}
+            onEnded={() => { if (n === i % 2) { StudioAudioService.stop(); setBuffering(true); setPlayhead(0); setI((k) => (k + 1 < clips.length ? k + 1 : k)); } }}
             className={`${n === i % 2 ? 'relative' : 'absolute inset-0 opacity-0 pointer-events-none'} w-full max-h-[60vh] bg-black`}
           />
         ))}
@@ -428,7 +441,7 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
 
   const downloadFull = async (ep: Episode) => {
     if (!ep.finalVideoUrl) return;
-    setDl({ busy: true, msg: 'Step 1 of 2: joining your scenes into one video. This usually takes 10 to 30 seconds.' });
+    setDl({ busy: true, msg: ep.scenes.some((scene) => scene.lines.length) ? 'Step 1 of 3: generating the character voices and mixing dialogue into the MP4. This uses voice credits, not video seconds.' : 'Step 1 of 3: joining your scenes into one MP4.' });
     try {
       const r = await fetch(ep.finalVideoUrl, { credentials: 'same-origin' });
       if (!r.ok) {
@@ -451,6 +464,25 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
       saveBlob(blob, `${(ep.title || 'omnipulse-video').replace(/[^\w\- ]+/g, '').trim().slice(0, 60) || 'omnipulse-video'}.mp4`);
       setDl({ busy: false, msg: '' });
     } catch (e) { setDl({ busy: false, msg: e instanceof Error ? e.message : 'The clips could not be joined.' }); }
+  };
+
+  const downloadEdited = async (ep: Episode, ids: string[]) => {
+    if (!ids.length) return;
+    setDl({ busy: true, msg: 'Preparing the edited MP4 with character dialogue. This uses voice credits only; the video clips are reused.' });
+    try {
+      const url = `/api/episodes/video?id=${encodeURIComponent(ep.id)}&ids=${encodeURIComponent(ids.join(','))}`;
+      const r = await fetch(url, { credentials: 'same-origin' });
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({} as { error?: string }));
+        throw new Error(d.error || `The edited video could not be exported (error ${r.status}).`);
+      }
+      const blob = await r.blob();
+      const base = (ep.title || 'omnipulse-edited').replace(/[^\w\- ]+/g, '').trim().slice(0, 60) || 'omnipulse-edited';
+      saveBlob(blob, `${base}-edited.mp4`);
+      setDl({ busy: false, msg: '' });
+    } catch (e) {
+      setDl({ busy: false, msg: e instanceof Error ? e.message : 'The edited video could not be exported.' });
+    }
   };
 
   const errorBox = error && (
@@ -509,7 +541,7 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
             <div className="space-y-3">
               <p className="text-xs text-slate-300">{episode.logline}</p>
               <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-indigo-500/20 bg-indigo-950/20 p-3">
-                <div><p className="text-xs font-semibold text-white">Character dialogue audio</p><p className="text-[10px] text-slate-400">OmniPulse generates each approved line with its character's assigned voice as the clip plays.</p></div>
+                <div><p className="text-xs font-semibold text-white">Character dialogue audio</p><p className="text-[10px] text-slate-400">Each character now has a distinct, consistent voice. The downloadable MP4 also mixes those spoken lines into the soundtrack.</p></div>
                 <button type="button" onClick={() => setVoiceEnabled((v) => !v)} aria-pressed={voiceEnabled} className={`rounded-lg px-3 py-2 text-xs font-semibold ${voiceEnabled ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-300'}`}>{voiceEnabled ? 'Dialogue audio on' : 'Dialogue audio off'}</button>
               </div>
               <ClipSequence clips={episode.clips} captions={episodeCaptionTracks(episode.scenes)} speechTracks={episodeSpeechTracks(episode)} voiceEnabled={voiceEnabled} />
@@ -533,15 +565,15 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
                   </ol>
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <button type="button" onClick={() => setEditorOrder(episode.clipJobIds)} className="rounded-lg border border-slate-700 px-3 py-2 text-[11px] text-slate-300">Reset order</button>
-                    <a href={editorOrder.length ? `/api/video/merge?ids=${encodeURIComponent(editorOrder.join(','))}&name=${encodeURIComponent(episode.title || 'omnipulse-edited')}` : undefined} aria-disabled={editorOrder.length === 0} className={`rounded-lg px-3 py-2 text-[11px] font-semibold text-white ${editorOrder.length ? 'bg-indigo-600 hover:bg-indigo-500' : 'bg-slate-700 opacity-40 pointer-events-none'}`}>Export edited MP4</a>
+                    <button type="button" onClick={() => void downloadEdited(episode, editorOrder)} disabled={!editorOrder.length || dl.busy} className={`px-3 py-2 text-[11px] font-semibold text-white rounded-lg disabled:opacity-40 ${editorOrder.length ? 'bg-indigo-600 hover:bg-indigo-500' : 'bg-slate-700'}`}>Export edited MP4 with dialogue</button>
                   </div>
-                  <p className="text-[10px] text-slate-500">This first episode editor supports shot order and removal. Frame-accurate trimming, overlays and audio mixing are available in the advanced Video Studio editor.</p>
+                  <p className="text-[10px] text-slate-500">Reorder or remove clips before export. Dialogue is generated for the selected shots and mixed into the MP4. Voice generation uses voice-provider credits; it does not regenerate the video.</p>
                 </section>
               )}
               <div className="flex flex-wrap gap-2">
                 {episode.finalVideoUrl && (
                   <button type="button" onClick={() => downloadFull(episode)} disabled={dl.busy} className="px-3 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-60 text-xs font-semibold text-white flex items-center gap-1.5">
-                    {dl.busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}Download full video (one MP4)
+                    {dl.busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}Download full video with dialogue
                   </button>
                 )}
                 <button type="button" onClick={() => {
