@@ -12,7 +12,7 @@ import { trendsFormatPrompt, scriptPrompt, adConceptPrompt, abPrompt, competitor
 import { assembleParts } from './lib/assemble.js';
 import { refineScene, shownInstruction, proseToUnits, thoughtToVisual, type SpokenLine } from './lib/screenplay.js';
 import { renderComposition } from './lib/compositor.js';
-import { mergeClips, lastFrameJpeg, muxDialogueIntoVideo, type DialogueAudioTracks } from './lib/merge.js';
+import { mergeClips, lastFrameJpeg } from './lib/merge.js';
 import { PROVIDERS, PLATFORM_IDS, Platform, isPlatform, isConfigured, redirectUri, socialPkce, socialAuthorizeUrl, exchangeSocialCode, saveSocialConnection, listSocialAccounts, removeSocialConnection, publishToPlatform, socialMetrics } from './lib/social.js';
 import { zernioConfigured, zernioConnectUrl, zernioSyncAccounts, zernioListAccounts, zernioDisconnect, zernioPublish, zernioHealth, zernioDeleteCustomer } from './lib/zernio.js';
 
@@ -1736,11 +1736,11 @@ const videoMerge: Handler = async ({ req, res, query }) => {
  * Retry assembly after refreshing only the failed scene from its original provider job.
  * deAPI may reject an expired result URL with HTTP 400 as well as 401/403.
  */
-async function streamMergedVideoWithRecovery(res: Res, jobs: any[], urls: string[], name: string, dialogueTracks?: DialogueAudioTracks): Promise<void> {
+async function streamMergedVideoWithRecovery(res: Res, jobs: any[], urls: string[], name: string): Promise<void> {
   const refreshed = new Set<number>();
   for (;;) {
     try {
-      await streamMergedVideo(res, urls, name, dialogueTracks);
+      await streamMergedVideo(res, urls, name);
       return;
     } catch (error: any) {
       const match = String(error?.message || '').match(/Scene (\d+) could not be downloaded \((400|401|403|404|410)\)/i);
@@ -1764,7 +1764,7 @@ async function streamMergedVideoWithRecovery(res: Res, jobs: any[], urls: string
 }
 
 /** Joins the clips into one MP4 (fluent-ffmpeg concat) and streams it to the browser as a download. */
-async function streamMergedVideo(res: Res, urls: string[], name: string, dialogueTracks?: DialogueAudioTracks) {
+async function streamMergedVideo(res: Res, urls: string[], name: string) {
   let merged: { file: string; cleanup: () => Promise<void> };
   try { merged = await mergeClips(urls); }
   catch (e: any) {
@@ -1772,30 +1772,18 @@ async function streamMergedVideo(res: Res, urls: string[], name: string, dialogu
     console.error('merge failed', e?.message);
     throw new HttpError(424, e?.message || 'The scenes could not be joined.', 'MERGE');
   }
-  let dubbed: { file: string; cleanup: () => Promise<void> } | undefined;
   try {
-    if (dialogueTracks?.some((clip) => clip.length > 0)) {
-      try { dubbed = await muxDialogueIntoVideo(merged.file, dialogueTracks, PART_SECONDS); }
-      catch (error: any) {
-        console.error('series dialogue mix failed:', error?.message);
-        throw new HttpError(424, error?.message || 'Character dialogue could not be mixed into the exported MP4.', 'DIALOGUE_MIX');
-      }
-    }
-    const outputFile = dubbed?.file || merged.file;
     const fsp = await import('node:fs/promises');
     const { createReadStream } = await import('node:fs');
-    const size = (await fsp.stat(outputFile)).size;
+    const size = (await fsp.stat(merged.file)).size;
     res.statusCode = 200;
     res.setHeader('Content-Type', 'video/mp4');
     res.setHeader('Content-Length', String(size));
     res.setHeader('Content-Disposition', `attachment; filename="${safeName(name)}.mp4"`);
     res.setHeader('Cache-Control', 'private, no-store');
     res.setHeader('X-Join-Cache', (merged as any).cached ? 'hit' : 'miss');
-    await new Promise<void>((resolve, reject) => { const rs = createReadStream(outputFile); rs.on('error', reject); rs.on('end', () => resolve()); res.on('close', () => resolve()); rs.pipe(res); });
-  } finally {
-    if (dubbed) await dubbed.cleanup();
-    await merged.cleanup();
-  }
+    await new Promise<void>((resolve, reject) => { const rs = createReadStream(merged.file); rs.on('error', reject); rs.on('end', () => resolve()); res.on('close', () => resolve()); rs.pipe(res); });
+  } finally { await merged.cleanup(); }
 }
 
 // ---------------------------------------------------------------- series: projects, episodes and episodic memory
@@ -2369,96 +2357,25 @@ const projectGet: Handler = async ({ req, res, query }) => {
   });
 };
 
-/** Stable, distinct TTS voices for each character. The same mapping is used by preview playback and MP4 export. */
-const SERIES_VOICES = {
-  male: ['pNInz6obpgDQGcFmaJgB', 'iP95p4xoKVk53GoZ742B', 'nPczCjzI2devNBz1zQrb', 'IKne3meq5aSn9XLyUdCD'],
-  female: ['EXAVITQu4vr4xnSDxMaL', 'Xb7hH8MSUJpSbSDYk0k2', 'hpp4J3VqNfWAUOO0d1Us', 'cgSgspJ2msm6clMCkdW9'],
-};
-
-function seriesVoiceFor(characters: any[], speaker: string): { voiceId: string; gender: 'male' | 'female' } {
-  const index = characters.findIndex((c) => String(c?.name || '').toLowerCase() === speaker.toLowerCase());
-  const character = index >= 0 ? characters[index] : null;
-  const gender: 'male' | 'female' = String(character?.gender || '').toLowerCase() === 'female' ? 'female' : 'male';
-  const preceding = index < 0 ? 0 : characters.slice(0, index).filter((c) => (String(c?.gender || '').toLowerCase() === 'female' ? 'female' : 'male') === gender).length;
-  return { voiceId: SERIES_VOICES[gender][preceding % SERIES_VOICES[gender].length], gender };
-}
-
-type EpisodeAudioPart = { jobId: string; scene: any; half: number };
-async function buildEpisodeDialogueTracks(parts: EpisodeAudioPart[], storyboard: any): Promise<DialogueAudioTracks> {
-  const characters: any[] = Array.isArray(storyboard?.characters) ? storyboard.characters : [];
-  const tracks: DialogueAudioTracks = parts.map(() => []);
-  const tasks: { clipIndex: number; text: string; voiceId: string; gender: 'male' | 'female' }[] = [];
-  parts.forEach((part, clipIndex) => {
-    const lines: any[] = Array.isArray(part.scene?.lines) ? part.scene.lines : [];
-    for (const line of lines) {
-      if (Number(line?.half || 1) !== part.half) continue;
-      const text = str(line?.text, 500).trim();
-      if (!text) continue;
-      const voice = seriesVoiceFor(characters, str(line?.speaker, 60));
-      tasks.push({ clipIndex, text, ...voice });
-    }
-  });
-  if (!tasks.length) return tracks;
-
-  // Keep requests bounded for Vercel and the speech provider. Video clips are reused;
-  // only the approved dialogue lines are synthesized when a person chooses MP4 export.
-  const results: ({ buffer: Buffer; type: string } | null)[] = new Array(tasks.length).fill(null);
-  let cursor = 0;
-  const workers = Array.from({ length: Math.min(3, tasks.length) }, async () => {
-    while (cursor < tasks.length) {
-      const index = cursor++;
-      const task = tasks[index];
-      const generated = await synthesize(task.text, task.voiceId, task.gender);
-      results[index] = { buffer: generated.audio, type: generated.type };
-    }
-  });
-  try { await Promise.all(workers); }
-  catch (error: any) {
-    throw new HttpError(424, error?.message || 'Character dialogue could not be generated for this export.', 'DIALOGUE_TTS');
-  }
-
-  // Preserve screenplay order, even though the speech requests completed concurrently.
-  results.forEach((result, index) => {
-    if (result) tracks[tasks[index].clipIndex].push(result);
-  });
-  return tracks;
-}
-
-/** Downloads the whole episode as one MP4 and embeds character dialogue in the exported soundtrack. */
+/** Downloads the whole episode as one MP4: the scene clips are joined by fluent-ffmpeg in this request, not while the episode is being made. */
 const episodeVideo: Handler = async ({ req, res, query }) => {
   const { row } = await requireAccess(req);
   await rateLimit(`merge:${row.id}`, 12, 3600);
   const ep = await loadOwnedEpisode(row.id, query.get('id') || '');
   if (ep.status !== 'COMPLETED') throw new HttpError(409, 'This part is not finished yet.', 'SERIES_STATE');
   const scenes: any[] = Array.isArray(ep.storyboard_json?.scenes) ? ep.storyboard_json.scenes : [];
-  const entries = normalizeEntries(ep.render_jobs, scenes);
-  const allParts: EpisodeAudioPart[] = entries.flatMap((entry) => entry.parts.map((part, partIndex) => ({
-    jobId: String(part.jobId || ''), scene: scenes[entry.index], half: partIndex + 1,
-  })).filter((part) => !!part.jobId));
-  if (!allParts.length) throw new HttpError(409, 'This part has no scene clips.', 'SERIES_STATE');
-
-  // The timeline editor can pass an ordered subset. Validate every ID against this episode;
-  // arbitrary job IDs from another account or project can never be included.
-  const requested = (query.get('ids') || '').split(',').map((id) => id.trim()).filter(Boolean);
-  let parts = allParts;
-  if (requested.length) {
-    if (requested.length > 14 || new Set(requested).size !== requested.length) throw new HttpError(400, 'Choose up to 14 unique clips for the edited export.');
-    const byId = new Map(allParts.map((part) => [part.jobId, part]));
-    if (requested.some((id) => !byId.has(id))) throw new HttpError(403, 'An edited clip does not belong to this episode.', 'CLIP_OWNERSHIP');
-    parts = requested.map((id) => byId.get(id)!);
-  }
-
-  const jobs = await Promise.all(parts.map(async (part) => {
-    const j = ((await sql()`SELECT * FROM video_jobs WHERE id = ${part.jobId} AND user_id = ${row.id}`) as any[])[0];
+  const ids = normalizeEntries(ep.render_jobs, scenes).flatMap((en) => en.parts.map((p) => p.jobId).filter(Boolean)) as string[];
+  if (!ids.length) throw new HttpError(409, 'This part has no scene clips.', 'SERIES_STATE');
+  const jobs = await Promise.all(ids.map(async (id) => {
+    const j = ((await sql()`SELECT * FROM video_jobs WHERE id = ${id} AND user_id = ${row.id}`) as any[])[0];
     if (!j) throw new HttpError(404, 'One of the clips was not found.');
     return j;
   }));
   const urls = await Promise.all(jobs.map((j) => jobVideoUrl(j)));
-  const dialogueTracks = query.get('audio') === '0' ? undefined : await buildEpisodeDialogueTracks(parts, ep.storyboard_json);
   const name = `${ep.project_title || 'series'} part ${ep.part_number}`;
 
-  // This only reuses completed video jobs. Exporting does not create or charge for new video clips.
-  await streamMergedVideoWithRecovery(res, jobs, urls, name, dialogueTracks);
+  // Refresh failed clips from their original provider jobs, without generating replacements.
+  await streamMergedVideoWithRecovery(res, jobs, urls, name);
 };
 
 /** Pauses a part. Clips that were already sent to the video provider keep rendering there and are collected when the part is resumed. */
