@@ -139,7 +139,7 @@ export function assembleParts(o: AssembleInput) {
     // Protect the story action and approved dialogue first. Style detail is the first material shortened
     // when a prompt approaches the provider limit; action and spoken lines are never cut to make room for adjectives.
     const safeLead = cut(lead, 520);
-    const maxVisual = Math.max(0, Math.min(1000, RENDER_PROMPT_MAX - safeLead.length - tail.length - 260));
+    const maxVisual = Math.max(0, Math.min(1320, RENDER_PROMPT_MAX - safeLead.length - tail.length - 260));
     const safeVisual = cut(visual, maxVisual);
     const fixedBudget = Math.max(0, RENDER_PROMPT_MAX - safeLead.length - safeVisual.length - tail.length - 3);
     const safeFixed = cut(fixed, fixedBudget);
