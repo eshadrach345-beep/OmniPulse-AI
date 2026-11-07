@@ -12,7 +12,7 @@ const check = (ok, msg) => { if (!ok) { failed++; console.error('FAIL:', msg); }
 const names = ['Mara', 'Jonah', 'Dex'];
 
 // descriptions of what happens are ACTIONS: they must never be spoken
-for (const t of ['The lion fell.', 'The lion falls', 'A door slams.', 'Mara opens the door.', 'Mara and Jonah run toward the gate.', 'She was running toward the gate.', 'He fell.', 'His hand shook.', 'The big lion roared.', 'The car skidded off the road.', 'Dex grabbed the knife.', 'The old tree collapsed.'])
+for (const t of ['The lion fell.', 'The lion falls', 'A door slams.', 'Mara opens the door.', 'Mara and Jonah run toward the gate.', 'She was running toward the gate.', 'He fell.', 'His hand shook.', 'The big lion roared.', 'The car skidded off the road.', 'Dex grabbed the knife.', 'The old tree collapsed.', 'Mara reads the message.', 'She scrolls through the chat.', 'Mara unlocks the phone.', 'He swipes to the next photo.', 'She taps the reply field.', 'Jonah types a response.', 'Her thumb deletes the draft.'])
   check(S.isStageDirection(t, 'Mara', names), `should be an action, not speech: "${t}"`);
 
 // real speech must stay speech
