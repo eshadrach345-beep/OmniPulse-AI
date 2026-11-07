@@ -828,9 +828,15 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
               </div>
               <div className="flex flex-wrap gap-1.5">
                 {p.episodes.map((e) => (
-                  <span key={e.id} className={`px-2 py-0.5 rounded-full text-[10px] border ${e.status === 'COMPLETED' ? 'bg-emerald-950/50 border-emerald-800 text-emerald-300' : e.status === 'FAILED' ? 'bg-red-950/50 border-red-900 text-red-300' : 'bg-slate-900 border-slate-700 text-slate-300'}`}>
+                  <button
+                    key={e.id}
+                    type="button"
+                    onClick={() => openEpisode(e.id)}
+                    aria-label={`Open Part ${e.partNumber}${e.title ? `: ${e.title}` : ''} — ${e.status.toLowerCase()}`}
+                    className={`px-2 py-1 rounded-full text-[10px] border transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-400 ${e.status === 'COMPLETED' ? 'bg-emerald-950/50 border-emerald-800 text-emerald-300 hover:bg-emerald-900/70 cursor-pointer' : e.status === 'FAILED' ? 'bg-red-950/50 border-red-900 text-red-300 hover:bg-red-900/50 cursor-pointer' : 'bg-slate-900 border-slate-700 text-slate-300 hover:border-slate-500 cursor-pointer'}`}
+                  >
                     {e.status === 'COMPLETED' && <Check className="w-2.5 h-2.5 inline mr-0.5" />}Part {e.partNumber}{e.title ? `: ${e.title}` : ''}
-                  </span>
+                  </button>
                 ))}
               </div>
               {active ? (
