@@ -86,5 +86,26 @@ const savedContinuity = P.continuityBlock({
 });
 check(savedContinuity.includes('LOCKED RECURRING PROPS'), 'later parts receive the previous part recurring prop inventory');
 check(savedContinuity.includes('never a ring'), 'canonical prop geometry carries into later parts');
+const frameAnchoredCut = A.assembleParts({
+  ...base, presentation: 'shortdrama', halves: 1,
+  visualBase: 'A new low-angle view of Mara entering the lighthouse keeper room, still wearing the same olive jacket and carrying the same stone anchor.',
+  second: '', soundText: 'quiet room tone', lines: [],
+  continuesPrevious: false, referencePrevious: true,
+});
+check(frameAnchoredCut.length === 1, 'a motivated cut remains one clip');
+check(frameAnchoredCut[0].prompt.includes('exact supplied final frame of the preceding scene'), 'motivated cut receives the previous final frame as its visual anchor');
+check(frameAnchoredCut[0].prompt.includes('new low-angle view of Mara'), 'motivated cut keeps its newly requested shot composition');
+check(frameAnchoredCut[0].prompt.includes('exact wardrobe, prop designs, location geometry'), 'motivated cut preserves identities, props and set details');
+check(!frameAnchoredCut[0].multiPrompt, 'frame-anchored cut does not add competing multi-shot instructions');
+check(frameAnchoredCut[0].prompt.length <= A.RENDER_PROMPT_MAX, 'frame-anchored prompt respects the provider limit');
+
+const savedContinuity = P.continuityBlock({
+  partNumber: 2, previousTitle: 'The Lighthouse', previousLogline: 'A map is found.', storySoFar: 'The crew found a stone anchor.',
+  endingScene: { visualPrompt: 'Mara holds the anchor.', voiceoverText: '' }, characters: [],
+  keyProps: [{ name: 'Stone anchor', description: 'A solid, weathered grey stone anchor with two short blunt flukes; never a ring.' }],
+  locationDescription: 'A stone lighthouse keeper room with a narrow north window.'
+});
+check(savedContinuity.includes('LOCKED RECURRING PROPS'), 'later parts receive the previous part recurring prop inventory');
+check(savedContinuity.includes('never a ring'), 'canonical prop geometry carries into later parts');
 if (failed) { console.error(failed + ' prompt regression checks failed.'); process.exit(1); }
 console.log('All LTX render-prompt regression checks passed.');
