@@ -30,26 +30,24 @@ export interface AssembleInput {
 export function assembleParts(o: AssembleInput) {
   const { presentation, brief, mood, look, aspect, cameraMotion, halves, lines, visualBase, second, soundText, characters, continuesPrevious } = o;
   const sceneNumber = Math.max(1, Math.floor(o.sceneNumber || 1));
-  const aspectHint = aspect === '9:16' ? 'Vertical 9:16 framing.' : aspect === '1:1' ? 'Square 1:1 framing.' : 'Wide 16:9 framing.';
   // LTX-2.5 responds best to screenplay-style dialogue in flowing prose, not rigid field labels.
   const spokenFor = (ls: SceneLine[]) => ls.map((line) => {
     const character = characters.find((item) => item.name.toLowerCase() === line.speaker.toLowerCase());
     const voice = character?.voice || (character?.gender === 'female' ? 'a warm female voice' : 'a grounded male voice');
     const words = line.text.replace(/"/g, "'");
-    const delivery = line.emotion ? line.emotion.replace(/[.\\s]+$/, '') : 'natural and conversational';
+    const delivery = line.emotion ? line.emotion.replace(/[.\s]+$/, '') : 'natural and conversational';
     if (line.speaker.toLowerCase() === 'narrator') {
       return `The off-screen narrator, using ${voice}, speaks in English with a ${delivery} delivery: "${words}".`;
     }
     return `${line.speaker}, using the same ${voice} voice established for this character, speaks in English with a ${delivery} delivery: "${words}".`;
   }).join(' ');
-  const genreLook = GENRES[brief.genre]?.render, energy = presentation === 'movie' ? INTENSITIES[brief.intensity]?.render : '';
+  const genreLook = GENRES[brief.genre]?.render;
   const openers = {
     movie: 'Cinematic live-action movie scene with purposeful, physically believable action. Characters move only when the story calls for it; use restrained gestures and grounded body movement, never idle crowds or constant motion.',
     dialogue: 'Cinematic dramatic scene with natural, believable acting: the people talk to each other in the place, with natural gestures and movement, never looking into the camera.',
     narrated: 'Cinematic film footage of the story with natural movement: nobody speaks on camera and no lips move.',
     shortdrama: 'Cinematic vertical short-drama scene built around a consequential event, a revealing choice or a sharp human interaction. Use emotionally specific, controlled acting and purposeful movement; do not stage every scene as the same face-to-face confrontation or talking-head exchange. Never look into the camera.',
   } as const;
-  const verticalCraft = aspect === '9:16' ? 'Vertical 9:16 composition: keep faces, hands and essential props in the central safe area. Use 35mm for geography, 50mm for emotional coverage, controlled depth of field, motivated light, natural skin and fabric texture, and believable 24fps motion blur. Never crop the story-critical action. ' : ''; 
   const coverage = [
     { primary: "Use a medium-wide side-angle master with clear foreground and background depth.", first: "Open on a medium-wide side-angle master that reveals the geography and both characters' positions; let the action enter or cross the frame.", second: "Cut to a detailed insert of the consequential object or hand movement, keeping the active character identifiable in the composition." },
     { primary: "Use an over-the-shoulder composition with a strong foreground layer.", first: "Open over the protagonist's shoulder, with the other character held in a distinct depth plane and the eyeline readable.", second: "Cut across the 180-degree axis to a reverse over-the-shoulder view; capture the other person's genuine response, not a repeated frontal pose." },
@@ -69,13 +67,14 @@ export function assembleParts(o: AssembleInput) {
     { opening: 'a compressed profile two-shot with a natural foreground edge separating the characters while preserving personal space', response: 'a moving three-quarter medium close-up following the affected character’s turn or withdrawal' },
   ][(sceneNumber - 1) % 7];
   const hasDialogue = lines.length > 0;
+  const hasOnScreenDialogue = lines.some((line) => line.speaker.toLowerCase() !== 'narrator');
   // Dialogue plays in one readable framing for reliable mouth movement. A cut comes
   // after the line has finished, or a silent clip can use two fully described shots.
-  const shotPlan = hasDialogue
+  const shotPlan = hasOnScreenDialogue
     ? `The scene opens in ${coverageProse.opening}. Keep the speaking character's face and mouth visible, with the listener's reaction readable while the line is delivered. After the final spoken line, a hard cut reveals ${coverageProse.response}. The same action, faces, wardrobe, props, lighting and screen direction carry across the cut.`
     : `The first image is ${coverageProse.opening}. A moment later, a hard cut transitions to ${coverageProse.response}. The second shot reveals the result of the first action; the same actors, location, props, light and screen direction remain consistent.`;
 
-  const fixed = `${openers[presentation]} ${shotPlan} The camera follows this movement: ${cameraMotion}. The scene is lit by ${mood.render}, with ${genreLook || 'natural cinematic detail'} and a ${look} finish. ${aspect === '9:16' ? 'Compose for a vertical 9:16 phone frame, keeping faces, hands and story-critical props in the central safe area.' : aspect === '1:1' ? 'Compose for a square 1:1 frame.' : 'Compose for a wide 16:9 frame.'} Preserve the established faces, ages, hair, builds, wardrobe, location geometry and prop placement. Show the action through clear physical behaviour, visible reactions and cause and effect. Characters speak to each other, not to the camera.`;
+  const fixed = `${openers[presentation]} ${shotPlan} The camera uses ${cameraMotion}. The scene is lit by ${mood.render}, with ${genreLook || 'natural cinematic detail'} and a ${look} finish. ${aspect === '9:16' ? 'Compose for a vertical 9:16 phone frame, keeping faces, hands and story-critical props in the central safe area.' : aspect === '1:1' ? 'Compose for a square 1:1 frame.' : 'Compose for a wide 16:9 frame.'} Preserve the established faces, ages, hair, builds, wardrobe, location geometry and prop placement. Show the action through clear physical behaviour, visible reactions and cause and effect. Characters speak to each other, not to the camera.`;
   const parts = [];
   for (let h = 1; h <= halves; h++) {
     const mine = lines.filter((l) => l.half === h);
@@ -97,7 +96,7 @@ export function assembleParts(o: AssembleInput) {
       }
       return `${soundscape} Let the real action sounds lead; add a restrained score only if it suits the moment. There is no dialogue.`;
     };
-    const tail = `${audioFor(mine)}${soundText && h === 1 ? ` Scene sounds: ${soundText}.` : ''}`;
+    const tail = audioFor(mine);
     const lead = h === 1 && continuesPrevious ? 'CONTINUATION: begin on the exact previous scene final frame. Preserve the same faces, clothing, pose, props, location, light, camera side and screen direction. Continue the action; no reset, reversal, teleport or new person. ' : h === 1 ? '' : `CONTINUATION: begin on the exact previous clip final frame. Preserve identity, pose, props, camera and direction. No cut or location change. Next physical beat: ${(second || 'continue the action naturally').replace(/[.\\s]+$/, '')}. `;
     // Reserve space for the complete action description and spoken lines; never let the final truncation cut the audio direction.
     // Audio directions must survive even when the scene description is long.
