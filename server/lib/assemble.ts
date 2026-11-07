@@ -59,22 +59,21 @@ export function assembleParts(o: AssembleInput) {
     { primary: "Use a low-angle reveal with a distinct foreground silhouette.", first: "Open low and slightly off-axis as the character or threat enters the frame; reveal scale and intention through movement.", second: "Cut to a wider reaction composition that shows both the acting character and the environment changing around them." },
     { primary: "Use a restrained long-lens profile or compressed two-shot, not a frontal talking-head setup.", first: "Open with a compressed profile two-shot, using a natural foreground edge to separate the characters while preserving personal space.", second: "Cut to a moving three-quarter medium close-up that follows the affected character's turn or withdrawal." },
   ][(sceneNumber - 1) % 7];
-  const hasDialogue = lines.length > 0;
-  const primaryShot = [
-    'a medium-wide side-angle master with strong foreground and background depth',
-    'an over-the-shoulder frame with the listening character in soft foreground',
-    'a moving profile composition tracking the character through the space',
-    'a subjective view framed through a doorway or nearby object',
-    'a high-angle geography shot with a clear diagonal composition',
-    'a low-angle reveal with a distinct foreground silhouette',
-    'a compressed profile two-shot with natural personal space',
+  const coverageProse = [
+    { opening: 'a medium-wide side-angle master revealing the geography and both characters’ positions as the action enters frame', response: 'a detailed insert of the consequential object or hand movement, with the active character still identifiable' },
+    { opening: 'an over-the-shoulder view of the protagonist, with the other character in a distinct depth plane and their eyeline readable', response: 'a reverse over-the-shoulder view capturing the listener’s genuine reaction from the same action axis' },
+    { opening: 'a lateral profile tracking shot following the character through the space, with obstacles and landmarks visible', response: 'a low-angle medium view of the decision or physical consequence, preserving travel direction' },
+    { opening: 'a subjective point-of-view shot framed through a doorway or foreground object, revealing the discovery or threat', response: 'a three-quarter reaction close-up with the eyeline fixed on the discovery' },
+    { opening: 'a motivated high-angle geography shot mapping the characters, exits and key props in the space', response: 'a tight detail insert on the clue, object or physical choice that changes the scene' },
+    { opening: 'a low, slightly off-axis reveal as the character or threat enters frame, establishing scale through movement', response: 'a wider reaction composition showing both the acting character and the environment changing around them' },
+    { opening: 'a compressed profile two-shot with a natural foreground edge separating the characters while preserving personal space', response: 'a moving three-quarter medium close-up following the affected character’s turn or withdrawal' },
   ][(sceneNumber - 1) % 7];
-
+  const hasDialogue = lines.length > 0;
   // Dialogue plays in one readable framing for reliable mouth movement. A cut comes
   // after the line has finished, or a silent clip can use two fully described shots.
   const shotPlan = hasDialogue
-    ? `The scene opens in ${primaryShot}. Keep the speaking character's face and mouth visible, with the listener's reaction readable while the line is delivered. After the final spoken line, a hard cut reveals ${coverage.second.toLowerCase()} The same action, faces, wardrobe, props, lighting and screen direction carry across the cut.`
-    : `The first image shows ${coverage.first.toLowerCase()} A moment later, a hard cut transitions to ${coverage.second.toLowerCase()} The second shot reveals the result of the first action; keep the same actors, location, props, light and screen direction consistent.`;
+    ? `The scene opens in ${coverageProse.opening}. Keep the speaking character's face and mouth visible, with the listener's reaction readable while the line is delivered. After the final spoken line, a hard cut reveals ${coverageProse.response}. The same action, faces, wardrobe, props, lighting and screen direction carry across the cut.`
+    : `The first image is ${coverageProse.opening}. A moment later, a hard cut transitions to ${coverageProse.response}. The second shot reveals the result of the first action; the same actors, location, props, light and screen direction remain consistent.`;
 
   const fixed = `${openers[presentation]} ${shotPlan} The camera follows this movement: ${cameraMotion}. The scene is lit by ${mood.render}, with ${genreLook || 'natural cinematic detail'} and a ${look} finish. ${aspect === '9:16' ? 'Compose for a vertical 9:16 phone frame, keeping faces, hands and story-critical props in the central safe area.' : aspect === '1:1' ? 'Compose for a square 1:1 frame.' : 'Compose for a wide 16:9 frame.'} Preserve the established faces, ages, hair, builds, wardrobe, location geometry and prop placement. Show the action through clear physical behaviour, visible reactions and cause and effect. Characters speak to each other, not to the camera.`;
   const parts = [];
