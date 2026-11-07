@@ -918,7 +918,8 @@ async function adaptScriptLocally(row: any, user: { secondsLimit: number }, inpu
     const setting = here.find((u) => u.setting)?.setting || '';
     const acts = here.map((u) => u.action).filter(Boolean);
     const cues = here.map((u) => u.cue).filter(Boolean);
-    const who = [...new Set(here.map((u) => u.speaker).filter((x) => x !== 'Narrator' && lookOf.has(x)))].slice(0, 2);
+    const hereText = here.map((u) => u.text + ' ' + u.action).join(' ').toLowerCase();
+    const who = [...new Set([...here.map((u) => u.speaker).filter((x) => x !== 'Narrator' && lookOf.has(x)), ...cast.filter((c) => hereText.includes(c.name.toLowerCase())).map((c) => c.name)])].slice(0, 2);
     const priorVisual = rawScenes[rawScenes.length - 1];
     const priorNames: string[] = Array.isArray(priorVisual?._visibleNames) ? priorVisual._visibleNames : [];
     const sharesCharacter = !!priorVisual && who.some((name) => priorNames.includes(name));
