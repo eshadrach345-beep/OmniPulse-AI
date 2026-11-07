@@ -132,9 +132,9 @@ export function assembleParts(o: AssembleInput) {
       : actionForClip;
     const fixed = imageContinuation
       ? (frameReference
-        ? 'Preserve the established character identities, exact wardrobe, prop designs, location geometry, light direction and screen geography. Follow the new shot composition described above without duplicating anyone or reversing the 180-degree action axis. ' + frame
-        : 'Keep the same camera side, screen direction and take. Continue the action with natural body movement and a clear final position. ' + frame)
-      : shotDirection + ' ' + visualStyle + ' Preserve the established faces, wardrobe, room geography and carried props.';
+        ? 'Preserve the established character identities, exact wardrobe, prop designs, location geometry, light direction and screen geography. Follow the new shot composition without duplicating anyone or reversing the 180-degree action axis. Natural stable faces and anatomy; two arms, five distinct fingers, believable grips; no extra limbs, fused fingers, warped faces or duplicate people. ' + frame
+        : 'Keep the same camera side, screen direction and take. Continue the action with natural body movement and a clear final position. Natural stable faces and anatomy; two arms, five distinct fingers, believable grips; no extra limbs, fused fingers, warped faces or duplicate people. ' + frame)
+      : 'Natural stable faces and anatomy; two arms, five distinct fingers, believable grips; no extra limbs, fused fingers, warped faces or duplicate people. ' + shotDirection + ' ' + visualStyle + ' Preserve the established faces, wardrobe, room geography and carried props.';
 
     // Protect the story action and approved dialogue first. Style detail is the first material shortened
     // when a prompt approaches the provider limit; action and spoken lines are never cut to make room for adjectives.
