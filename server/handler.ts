@@ -1885,7 +1885,7 @@ function episodeView(e: any) {
     notes: Array.isArray(sb.notes) ? sb.notes.map(String) : [],
     scenes: scenes.map((sc) => ({
       sceneId: String(sc.sceneId || ''), sceneNumber: Number(sc.sceneNumber) || 0, beat: String(sc.beat || ''), clipSeconds: Number(sc.clipSeconds) || 0, continuesPrevious: sc.continuesPrevious === true,
-      visualPrompt: String(sc.visualPrompt || ''), voiceoverText: String(sc.voiceoverText || ''), cameraMotion: String(sc.cameraMotion || ''),
+      visualPrompt: String(sc.visualPrompt || ''), location: String(sc.location || ''), referencePrevious: sc.referencePrevious === true, voiceoverText: String(sc.voiceoverText || ''), cameraMotion: String(sc.cameraMotion || ''),
       lines: (Array.isArray(sc.lines) ? sc.lines : []).map((l: any) => ({ speaker: String(l.speaker || ''), text: String(l.text || ''), half: Number(l.half) === 2 ? 2 : 1 })),
     })),
     // Finished clips in story order. A 20 second scene contributes its two clips one after the other, so every scene plays to its end.
@@ -2436,7 +2436,7 @@ const episodeEdit: Handler = async ({ req, res, body }) => {
     const halves = (sc.parts || []).length || 1;
     const lines = packLines((Array.isArray(e.lines) ? e.lines : []).slice(0, 8).map((l: any) => ({ speaker: names.get(str(l?.speaker, 30).toLowerCase()) || '', text: str(l?.text, 260), emotion: str(l?.emotion, 30), doing: str(l?.doing, 70) })).filter((l: any) => l.speaker && l.text), halves);
     const visual = str(e.visual, 900) || sc.visualPrompt, second = str(e.second, 300), camera = str(e.camera, 200) || sc.cameraMotion, sound = str(e.sound, 160);
-    const parts = assembleParts({ presentation: sb.brief?.presentation || 'movie', brief: { genre: sb.brief?.genre || 'auto', intensity: sb.brief?.intensity || 'balanced' }, mood: { render: mood.render }, look: cfg.look || 'cinematic', aspect: cfg.aspect || '9:16', cameraMotion: camera, halves, lines, visualBase: visual, second, soundText: sound, characters: sb.characters || [], sceneNumber: i + 1 });
+    const parts = assembleParts({ presentation: sb.brief?.presentation || 'movie', brief: { genre: sb.brief?.genre || 'auto', intensity: sb.brief?.intensity || 'balanced' }, mood: { render: mood.render }, look: cfg.look || 'cinematic', aspect: cfg.aspect || '9:16', cameraMotion: camera, halves, lines, visualBase: visual, second, soundText: sound, characters: sb.characters || [], continuesPrevious: sc.continuesPrevious === true, referencePrevious: sc.referencePrevious === true && i > 0, sceneNumber: i + 1 });
     return { ...sc, visualPrompt: str(visual, 900), secondHalfAction: second, cameraMotion: camera, sound, voiceoverText: lines.map((l) => l.text).join(' '), lines: lines.map((l) => ({ speaker: l.speaker, text: l.text, emotion: l.emotion || '', doing: l.doing || '', half: l.half })), parts };
   });
   const updated = { ...sb, title: str(body.title, 100) || sb.title, scenes };
