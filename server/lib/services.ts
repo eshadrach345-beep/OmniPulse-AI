@@ -850,7 +850,7 @@ export async function deapiTts(text: string, voiceId: string, gender?: string): 
     const detail = typeof d?.message === 'string' ? d.message : '';
     throw new HttpError(424, r.status === 401 || r.status === 403 ? 'deAPI rejected the key. Check DEAPI_API_KEY.' : /balance|credit|insufficient/i.test(detail) || r.status === 402 ? 'deAPI credits are exhausted.' : `Voice generation failed (${r.status}${detail ? `: ${detail.slice(0, 120)}` : ''}).`, 'DEAPI_VOICE');
   }
-  for (let i = 0; i < 22; i++) {
+  for (let i = 0; i < 35; i++) {
     await new Promise((res) => setTimeout(res, i < 3 ? 700 : 1000));
     const jr = await fetch(`${DEAPI_BASE}/jobs/${encodeURIComponent(String(id))}`, { headers: deapiHeaders(), signal: AbortSignal.timeout(10_000) }).catch(() => null);
     const jd: any = jr ? await jr.json().catch(() => ({})) : {};
@@ -865,14 +865,17 @@ export async function deapiTts(text: string, voiceId: string, gender?: string): 
   throw new HttpError(424, 'The voice took too long to generate. Please try again.', 'DEAPI_VOICE');
 }
 
-/** Picks the voice engine. VOICE_PROVIDER = deapi | fal | auto (default: deAPI when its key exists, else fal; falls back to the other if the first fails). */
+/**
+ * VOICE_PROVIDER = deapi | fal | auto. Auto selects DeAPI whenever its key is present.
+ * Provider failures are surfaced to the caller; they never silently switch engines.
+ */
 export async function synthesize(text: string, voiceId: string, gender?: string) {
   const mode = (process.env.VOICE_PROVIDER || 'auto').trim().toLowerCase();
   const haveDe = !!lookupEnv('DEAPI_API_KEY'), haveFal = !!lookupEnv('FAL_KEY');
-  if (mode === 'deapi') return deapiTts(text, voiceId, gender);
-  if (mode === 'fal') return falTts(text, voiceId, gender);
-  if (haveDe && haveFal) { try { return await deapiTts(text, voiceId, gender); } catch (e: any) { console.error('deAPI voice failed, trying fal:', e?.message); return falTts(text, voiceId, gender); } }
-  return haveDe ? deapiTts(text, voiceId, gender) : falTts(text, voiceId, gender);
+  const selected = mode === 'auto' ? (haveDe ? 'deapi' : haveFal ? 'fal' : '') : mode;
+  if (selected === 'deapi') return deapiTts(text, voiceId, gender);
+  if (selected === 'fal') return falTts(text, voiceId, gender);
+  throw new HttpError(424, selected ? 'VOICE_PROVIDER must be deapi, fal or auto.' : 'No voice provider is configured. Add DEAPI_API_KEY (recommended) or FAL_KEY in Vercel.', 'VOICE_PROVIDER');
 }
 
 export async function falTts(text: string, voiceId: string, gender?: string): Promise<{ audio: Buffer; type: string }> {
