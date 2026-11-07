@@ -919,6 +919,13 @@ async function adaptScriptLocally(row: any, user: { secondsLimit: number }, inpu
     const acts = here.map((u) => u.action).filter(Boolean);
     const cues = here.map((u) => u.cue).filter(Boolean);
     const who = [...new Set(here.map((u) => u.speaker).filter((x) => x !== 'Narrator' && lookOf.has(x)))].slice(0, 2);
+    const priorVisual = rawScenes[rawScenes.length - 1];
+    const priorNames: string[] = Array.isArray(priorVisual?._visibleNames) ? priorVisual._visibleNames : [];
+    const sharesCharacter = !!priorVisual && who.some((name) => priorNames.includes(name));
+    const transitionText = [setting, ...acts].join(' ');
+    const explicitTimeJump = /\b(later|next day|following day|years later|months later|flashback|memory|dream|the next morning)\b/i.test(transitionText);
+    const explicitCostumeChange = /\b(changes? (?:her|his|their) clothes|puts on (?:a|the) (?:new )?(?:jacket|coat|shirt|dress|uniform)|takes off (?:her|his|their) (?:jacket|coat|shirt|dress|uniform)|changes into)\b/i.test(transitionText);
+    const referencePrevious = sharesCharacter && !explicitTimeJump && !explicitCostumeChange;
     const first = here.find((u) => u.text) || here[0];
     const mood = /!/.test(first.text) ? 'intense, charged emotion, raised energy' : /\?/.test(first.text) ? 'uncertain, searching, tense' : 'quiet, restrained, believable emotion';
     // Conservative fallback blocking reduces identity drift caused by crowded frames and complex camera movement.
@@ -931,6 +938,9 @@ async function adaptScriptLocally(row: any, user: { secondsLimit: number }, inpu
     const firstActs = acts.slice(0, split), laterActs = acts.slice(split);
     const doing = (acts.length ? firstActs.join(' ') : cues.length ? `${who[0] || 'The speaker'} is ${cues[0]}` : `${who[0] || 'The character'} performs one simple, readable action in place while speaking; keep movements controlled and grounded`).replace(/[.\s]+$/, '');
     rawScenes.push({
+      location: setting,
+      referencePrevious,
+      _visibleNames: who,
       lines,
       visualPrompt: `${shot}. ${setting && k !== 0 ? `Setting: ${setting}. ` : ''}${people ? `${people}. ` : ''}${doing}. Mood: ${mood}. Photorealistic live-action film, real human proportions, natural skin texture and expressions, realistic fabric and hair movement, motivated natural lighting, shallow depth of field, shot on a 35mm cinema camera.`.replace(/\s+/g, ' '),
       secondHalfAction: (() => {
@@ -951,7 +961,7 @@ async function adaptScriptLocally(row: any, user: { secondsLimit: number }, inpu
   const used = new Set(units.slice(0, at).map((u) => u.speaker));
   const sb = finishStory(shortCtx, {
     title, logline: str(words(script).slice(0, 30).join(' '), 300), storySoFar: str(words(units.slice(0, at).map((u) => u.text).join(' ')).slice(0, 120).join(' '), 900),
-    characters: cast.filter((c) => used.has(c.name)), scenes: rawScenes, remainingScript, hashtags: [], callToAction: '',
+    characters: cast.filter((c) => used.has(c.name)), keyProps: ctx.continuity?.keyProps || [], scenes: rawScenes, remainingScript, hashtags: [], callToAction: '',
   }, input);
   sb.notes = [...(sb.notes || []), 'Your script was used exactly as you wrote it: spoken lines are said by the characters, and action lines are shown on screen instead of being read out.'];
   return sb;
