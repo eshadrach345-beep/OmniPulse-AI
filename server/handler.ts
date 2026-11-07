@@ -2402,12 +2402,14 @@ async function buildEpisodeDialogueTracks(parts: EpisodeAudioPart[], storyboard:
 
   // Keep requests bounded for Vercel and the speech provider. Video clips are reused;
   // only the approved dialogue lines are synthesized when a person chooses MP4 export.
+  const results: ({ buffer: Buffer; type: string } | null)[] = new Array(tasks.length).fill(null);
   let cursor = 0;
   const workers = Array.from({ length: Math.min(3, tasks.length) }, async () => {
     while (cursor < tasks.length) {
-      const task = tasks[cursor++];
+      const index = cursor++;
+      const task = tasks[index];
       const generated = await synthesize(task.text, task.voiceId, task.gender);
-      tracks[task.clipIndex].push({ buffer: generated.audio, type: generated.type });
+      results[index] = { buffer: generated.audio, type: generated.type };
     }
   });
   try { await Promise.all(workers); }
@@ -2415,14 +2417,10 @@ async function buildEpisodeDialogueTracks(parts: EpisodeAudioPart[], storyboard:
     throw new HttpError(424, error?.message || 'Character dialogue could not be generated for this export.', 'DIALOGUE_TTS');
   }
 
-  // Parallel workers finish out of order. Restore screenplay order within each 10-second clip.
-  const ordered: DialogueAudioTracks = parts.map(() => []);
-  let taskIndex = 0;
-  const results: { clipIndex: number; buffer: Buffer; type: string }[] = [];
-  // Each task's result is stored by matching its completed audio to the original request order below.
-  // Re-run in a deterministic bounded queue using indexed result slots instead of completion order.
-  // (The actual indexed results are filled by the worker implementation in the next block.)
-  void taskIndex; void results; void ordered;
+  // Preserve screenplay order, even though the speech requests completed concurrently.
+  results.forEach((result, index) => {
+    if (result) tracks[tasks[index].clipIndex].push(result);
+  });
   return tracks;
 }
 
