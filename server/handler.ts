@@ -1823,7 +1823,7 @@ function episodeView(e: any) {
       lines: (Array.isArray(sc.lines) ? sc.lines : []).map((l: any) => ({ speaker: String(l.speaker || ''), text: String(l.text || ''), half: Number(l.half) === 2 ? 2 : 1 })),
     })),
     // Finished clips in story order. A 20 second scene contributes its two clips one after the other, so every scene plays to its end.
-    clips: e.status === 'COMPLETED' ? entries.flatMap((en) => en.parts.map((p) => p.url as string).filter(Boolean)) : [],
+    clips: e.status === 'COMPLETED' ? entries.flatMap((en) => en.parts.filter((p) => p.url).map((p) => p.jobId ? `/api/episodes/clip?id=${encodeURIComponent(p.jobId)}` : String(p.url))) : [],
     clipJobIds: e.status === 'COMPLETED' ? entries.flatMap((en) => en.parts.filter((p) => p.url && p.jobId).map((p) => p.jobId as string)) : [],
   };
 }
