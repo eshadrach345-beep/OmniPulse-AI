@@ -1197,8 +1197,15 @@ const systemCheck: Handler = async ({ req, res }) => {
     run('deAPI (backup / test video provider)', async () => {
       const hit = lookupEnv('DEAPI_API_KEY'); if (!hit) return 'Not set up (optional). Add DEAPI_API_KEY to test video with free credits.';
       const r = await fetch('https://api.deapi.ai/api/v2/account/balance', { headers: { Authorization: `Bearer ${hit.value}`, Accept: 'application/json' }, signal: timeout() });
-      if (r.status === 401 || r.status === 403) throw new Error('deAPI rejected the key. Check DEAPI_API_KEY.');
-      const d: any = await r.json().catch(() => ({}));
+      const raw = await r.text().catch(() => '');
+      let d: any = {};
+      try { d = raw ? JSON.parse(raw) : {}; } catch { /* deAPI may return plain text */ }
+      if (!r.ok) {
+        // Surface a short provider diagnostic without exposing request headers or credentials.
+        const detail = String(d?.message || d?.error?.message || d?.error || d?.detail || '').replace(/[\\r\\n\\t]+/g, ' ').slice(0, 220);
+        const reason = detail || (raw && !raw.trim().startsWith('<') ? raw.replace(/[\\r\\n\\t]+/g, ' ').slice(0, 160) : 'No diagnostic message returned.');
+        throw new Error(`deAPI returned HTTP ${r.status}: ${reason}`);
+      }
       return `${process.env.DEAPI_FRAMES ? 'Note: DEAPI_FRAMES is no longer used and can be deleted from Vercel. ' : ''}Key accepted by deAPI.${d?.data?.balance !== undefined ? ` Balance: ${d.data.balance}.` : ''} Active provider: ${(process.env.VIDEO_PROVIDER || 'fal').toLowerCase()}.`;
     }),
     run('AI writers (Gemini and backups)', async () => {
