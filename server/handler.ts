@@ -1728,7 +1728,7 @@ async function streamMergedVideoWithRecovery(res: Res, jobs: any[], urls: string
       await streamMergedVideo(res, urls, name);
       return;
     } catch (error: any) {
-      const match = String(error?.message || '').match(/Scene (\\d+) could not be downloaded \\((400|401|403|404|410)\\)/i);
+      const match = String(error?.message || '').match(/Scene (\d+) could not be downloaded \((400|401|403|404|410)\)/i);
       if (!match) throw error;
       const index = Number(match[1]) - 1;
       const job = jobs[index];
