@@ -1196,7 +1196,8 @@ const systemCheck: Handler = async ({ req, res }) => {
     }),
     run('deAPI (backup / test video provider)', async () => {
       const hit = lookupEnv('DEAPI_API_KEY'); if (!hit) return 'Not set up (optional). Add DEAPI_API_KEY to test video with free credits.';
-      const r = await fetch('https://api.deapi.ai/api/v2/account/balance', { headers: { Authorization: `Bearer ${hit.value}`, Accept: 'application/json' }, signal: timeout() });
+      // Check the models endpoint instead of account/balance: API-role keys can generate media without billing-management access.
+      const r = await fetch('https://api.deapi.ai/api/v2/models', { headers: { Authorization: `Bearer ${hit.value}`, Accept: 'application/json' }, signal: timeout() });
       const raw = await r.text().catch(() => '');
       let d: any = {};
       try { d = raw ? JSON.parse(raw) : {}; } catch { /* deAPI may return plain text */ }
@@ -1206,7 +1207,7 @@ const systemCheck: Handler = async ({ req, res }) => {
         const reason = detail || (raw && !raw.trim().startsWith('<') ? raw.replace(/[\\r\\n\\t]+/g, ' ').slice(0, 160) : 'No diagnostic message returned.');
         throw new Error(`deAPI returned HTTP ${r.status}: ${reason}`);
       }
-      return `${process.env.DEAPI_FRAMES ? 'Note: DEAPI_FRAMES is no longer used and can be deleted from Vercel. ' : ''}Key accepted by deAPI.${d?.data?.balance !== undefined ? ` Balance: ${d.data.balance}.` : ''} Active provider: ${(process.env.VIDEO_PROVIDER || 'fal').toLowerCase()}.`;
+      return `${process.env.DEAPI_FRAMES ? 'Note: DEAPI_FRAMES is no longer used and can be deleted from Vercel. ' : ''}deAPI API access verified. Active provider: ${(process.env.VIDEO_PROVIDER || 'fal').toLowerCase()}.`;
     }),
     run('AI writers (Gemini and backups)', async () => {
       const results = await testAiWriters();
