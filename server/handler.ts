@@ -1106,7 +1106,7 @@ function finishStory(ctx: StoryCtx, d: any, input: StoryInput) {
     const cameraMotion = cam.direct;
     const second = str(sc?.secondHalfAction, 400);
 
-    const parts = assembleParts({ presentation, brief: { genre: brief.genre, intensity: brief.intensity }, mood: { render: mood.render }, look, aspect, cameraMotion, halves, lines, visualBase, second, soundText, characters, continuesPrevious });
+    const parts = assembleParts({ presentation, brief: { genre: brief.genre, intensity: brief.intensity }, mood: { render: mood.render }, look, aspect, cameraMotion, halves, lines, visualBase, second, soundText, characters, continuesPrevious, sceneNumber: scenes.length + 1 });
     scenes.push({
       id: `s${scenes.length + 1}`, sceneId: `scene-${String(scenes.length + 1).padStart(2, '0')}`, sceneNumber: scenes.length + 1, beat: beats[i] || '',
       visualPrompt: str(visualBase, 900), continuesPrevious, secondHalfAction: second, voiceoverText: lines.map((l) => l.text).join(' '), cameraMotion, sound: soundText,
@@ -1975,7 +1975,8 @@ async function stageScript(row: any, user: ReturnType<typeof toUser>, ep: any) {
     await sql()`UPDATE projects SET reference_assets = ${jsonb(projectRefs)}::jsonb, updated_at = now() WHERE id = ${ep.project_id}`;
   }
   // Character portraits and the master location plate are generated when the Series Studio reference option is enabled.
-  if (cfg.characterReferences === true && lookupEnv('FAL_KEY')) {
+  const selectedVideoProvider = (process.env.VIDEO_PROVIDER || 'fal').trim().toLowerCase();
+  if (cfg.characterReferences === true && selectedVideoProvider !== 'deapi' && lookupEnv('FAL_KEY')) {
     await rateLimit(`cast-reference:${row.id}`, 8, 3600);
     const refs = await Promise.all((Array.isArray(sb.characters) ? sb.characters : []).slice(0, 4).map(async (c: any) => {
       if (c.referenceImageUrl && /^https:\/\//i.test(c.referenceImageUrl)) return c;
@@ -2025,7 +2026,7 @@ async function startPart(row: any, user: ReturnType<typeof toUser>, spec: { prom
 
   // Short-drama clips use Kling's multi-shot director and reusable reference assets.
   // If Kling is unavailable or out of credit, fall back to the existing H3 Max path.
-  if (spec.multiPrompt?.length && lookupEnv('FAL_KEY')) {
+  if (provider !== 'deapi' && spec.multiPrompt?.length && lookupEnv('FAL_KEY')) {
     const refs = (spec.referenceImages || []).filter((x) => /^https:\/\//i.test(x.url)).slice(0, 10);
     const imageGuide = refs.map((x, i) => `@Image${i + 1} is ${x.name}. Use it as the exact identity or location reference; do not substitute or redesign it.`).join(' ');
     const videoGuide = spec.prevUrl ? '@Video1 is the immediately preceding scene clip. Continue its established action, actors, clothing, props and screen direction without resetting.' : '';
@@ -2418,7 +2419,7 @@ const episodeEdit: Handler = async ({ req, res, body }) => {
     const halves = (sc.parts || []).length || 1;
     const lines = packLines((Array.isArray(e.lines) ? e.lines : []).slice(0, 8).map((l: any) => ({ speaker: names.get(str(l?.speaker, 30).toLowerCase()) || '', text: str(l?.text, 260), emotion: str(l?.emotion, 30), doing: str(l?.doing, 70) })).filter((l: any) => l.speaker && l.text), halves);
     const visual = str(e.visual, 900) || sc.visualPrompt, second = str(e.second, 300), camera = str(e.camera, 200) || sc.cameraMotion, sound = str(e.sound, 160);
-    const parts = assembleParts({ presentation: sb.brief?.presentation || 'movie', brief: { genre: sb.brief?.genre || 'auto', intensity: sb.brief?.intensity || 'balanced' }, mood: { render: mood.render }, look: cfg.look || 'cinematic', aspect: cfg.aspect || '9:16', cameraMotion: camera, halves, lines, visualBase: visual, second, soundText: sound, characters: sb.characters || [] });
+    const parts = assembleParts({ presentation: sb.brief?.presentation || 'movie', brief: { genre: sb.brief?.genre || 'auto', intensity: sb.brief?.intensity || 'balanced' }, mood: { render: mood.render }, look: cfg.look || 'cinematic', aspect: cfg.aspect || '9:16', cameraMotion: camera, halves, lines, visualBase: visual, second, soundText: sound, characters: sb.characters || [], sceneNumber: i + 1 });
     return { ...sc, visualPrompt: str(visual, 900), secondHalfAction: second, cameraMotion: camera, sound, voiceoverText: lines.map((l) => l.text).join(' '), lines: lines.map((l) => ({ speaker: l.speaker, text: l.text, emotion: l.emotion || '', doing: l.doing || '', half: l.half })), parts };
   });
   const updated = { ...sb, title: str(body.title, 100) || sb.title, scenes };
