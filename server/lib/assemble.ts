@@ -73,14 +73,14 @@ export function assembleParts(o: AssembleInput) {
     ? `The scene plays as one continuous ${coverageProse.opening}. Keep the speaking character's face and mouth visible, while the listener's reaction remains readable in the frame. The action and eyelines evolve naturally without cutting away during speech.`
     : `The first image is ${coverageProse.opening}. After about five seconds, a clear hard cut transitions to ${coverageProse.response}. The second shot reveals the result of the first action; the same actors, location, props, light and screen direction remain consistent, while the natural soundscape continues smoothly across the cut.`;
 
-  const fixed = `${openers[presentation]} ${shotPlan} The camera uses ${cameraMotion.replace(/,\\s*no cuts?\\.?$/i, '')}. The scene is lit by ${mood.render}, with ${genreLook || 'natural cinematic detail'} and a ${look} finish. ${aspect === '9:16' ? 'Compose for a vertical 9:16 phone frame, keeping faces, hands and story-critical props in the central safe area.' : aspect === '1:1' ? 'Compose for a square 1:1 frame.' : 'Compose for a wide 16:9 frame.'} Preserve the established faces, ages, hair, builds, wardrobe, location geometry and prop placement. Show the action through clear physical behaviour, visible reactions and cause and effect. Characters speak to each other, not to the camera.`;
+  const fixed = `${openers[presentation]} ${shotPlan} The camera uses ${cameraMotion.replace(/,\s*no cuts?\.?$/i, '')}. The scene is lit by ${mood.render}, with ${genreLook || 'natural cinematic detail'} and a ${look} finish. ${aspect === '9:16' ? 'Compose for a vertical 9:16 phone frame, keeping faces, hands and story-critical props in the central safe area.' : aspect === '1:1' ? 'Compose for a square 1:1 frame.' : 'Compose for a wide 16:9 frame.'} Preserve the established faces, ages, hair, builds, wardrobe, location geometry and prop placement. Show the action through clear physical behaviour, visible reactions and cause and effect. Characters speak to each other, not to the camera.`;
   const parts = [];
   for (let h = 1; h <= halves; h++) {
     const mine = lines.filter((l) => l.half === h);
     const audioFor = (spokenLines: SceneLine[]) => {
       const dialogue = spokenFor(spokenLines);
       const soundscape = soundText
-        ? `The close soundscape includes ${soundText.replace(/[.\\s]+$/, '')}, clearly caused by the action in frame.`
+        ? `The close soundscape includes ${soundText.replace(/[.\s]+$/, '')}, clearly caused by the action in frame.`
         : 'The close soundscape follows the visible action and the natural room or outdoor ambience.';
       if (presentation === 'narrated') {
         return spokenLines.length
@@ -96,7 +96,7 @@ export function assembleParts(o: AssembleInput) {
       return `${soundscape} Let the real action sounds lead; add a restrained score only if it suits the moment. There is no dialogue.`;
     };
     const tail = audioFor(mine);
-    const lead = h === 1 && continuesPrevious ? 'CONTINUATION: begin on the exact previous scene final frame. Preserve the same faces, clothing, pose, props, location, light, camera side and screen direction. Continue the action; no reset, reversal, teleport or new person. ' : h === 1 ? '' : `CONTINUATION: begin on the exact previous clip final frame. Preserve identity, pose, props, camera and direction. No cut or location change. Next physical beat: ${(second || 'continue the action naturally').replace(/[.\\s]+$/, '')}. `;
+    const lead = h === 1 && continuesPrevious ? 'CONTINUATION: begin on the exact previous scene final frame. Preserve the same faces, clothing, pose, props, location, light, camera side and screen direction. Continue the action; no reset, reversal, teleport or new person. ' : h === 1 ? '' : `CONTINUATION: begin on the exact previous clip final frame. Preserve identity, pose, props, camera and direction. No cut or location change. Next physical beat: ${(second || 'continue the action naturally').replace(/[.\s]+$/, '')}. `;
     // Reserve space for the complete action description and spoken lines; never let the final truncation cut the audio direction.
     // Audio directions must survive even when the scene description is long.
     const fixedBudget = Math.max(0, RENDER_PROMPT_MAX - lead.length - tail.length - 260);
