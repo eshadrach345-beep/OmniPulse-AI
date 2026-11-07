@@ -31,13 +31,17 @@ export function assembleParts(o: AssembleInput) {
   const { presentation, brief, mood, look, aspect, cameraMotion, halves, lines, visualBase, second, soundText, characters, continuesPrevious } = o;
   const sceneNumber = Math.max(1, Math.floor(o.sceneNumber || 1));
   const aspectHint = aspect === '9:16' ? 'Vertical 9:16 framing.' : aspect === '1:1' ? 'Square 1:1 framing.' : 'Wide 16:9 framing.';
-  const spokenFor = (ls: SceneLine[]) => ls.map((l) => {
-    const ch = characters.find((c) => c.name.toLowerCase() === l.speaker.toLowerCase());
-    const v = ch?.voice || (ch?.gender === 'female' ? 'a female voice' : 'a male voice');
-    const words = l.text.replace(/"/g, "'");
-    const how = l.emotion ? `, ${l.emotion.replace(/[.\s]+$/, '')}` : '', act = l.doing ? ` while ${l.doing.replace(/^while\s+/i, '').replace(/[.\s]+$/, '')}` : '';
-    return l.speaker.toLowerCase() === 'narrator' ? `A narrator, off screen, speaking in the voice of ${v}, says: "${words}"` : `${l.speaker}, speaking in the exact same established voice identity as their previous appearances (same timbre, pitch, accent and cadence), voice of ${v}${how}${act}, speaks ONLY the exact quoted words verbatim, in the same language and in the listed order: "${words}". Do not add, omit, paraphrase, translate, improvise, repeat or insert filler words; do not speak the character name or any stage direction`;
-  }).join(' Then ');
+  // LTX-2.5 responds best to screenplay-style dialogue in flowing prose, not rigid field labels.
+  const spokenFor = (ls: SceneLine[]) => ls.map((line) => {
+    const character = characters.find((item) => item.name.toLowerCase() === line.speaker.toLowerCase());
+    const voice = character?.voice || (character?.gender === 'female' ? 'a warm female voice' : 'a grounded male voice');
+    const words = line.text.replace(/"/g, "'");
+    const delivery = line.emotion ? line.emotion.replace(/[.\\s]+$/, '') : 'natural and conversational';
+    if (line.speaker.toLowerCase() === 'narrator') {
+      return `The off-screen narrator, using ${voice}, speaks in English with a ${delivery} delivery: "${words}".`;
+    }
+    return `${line.speaker}, using the same ${voice} voice established for this character, speaks in English with a ${delivery} delivery: "${words}".`;
+  }).join(' ');
   const genreLook = GENRES[brief.genre]?.render, energy = presentation === 'movie' ? INTENSITIES[brief.intensity]?.render : '';
   const openers = {
     movie: 'Cinematic live-action movie scene with purposeful, physically believable action. Characters move only when the story calls for it; use restrained gestures and grounded body movement, never idle crowds or constant motion.',
@@ -55,27 +59,44 @@ export function assembleParts(o: AssembleInput) {
     { primary: "Use a low-angle reveal with a distinct foreground silhouette.", first: "Open low and slightly off-axis as the character or threat enters the frame; reveal scale and intention through movement.", second: "Cut to a wider reaction composition that shows both the acting character and the environment changing around them." },
     { primary: "Use a restrained long-lens profile or compressed two-shot, not a frontal talking-head setup.", first: "Open with a compressed profile two-shot, using a natural foreground edge to separate the characters while preserving personal space.", second: "Cut to a moving three-quarter medium close-up that follows the affected character's turn or withdrawal." },
   ][(sceneNumber - 1) % 7];
-  const editorialCoverage = presentation === 'shortdrama'
-    ? `Editorial plan for this single clip: begin with this shot: ${coverage.first} At approximately the midpoint, make a clean, motivated cut to this contrasting shot: ${coverage.second} These are two distinct framings of the same uninterrupted moment, not a dissolve, morph or new location. Keep the same actors, action, props, eyelines and screen direction across the cut.`
-    : 'One coherent shot, no unmotivated cuts.';
-  const fixed = `${openers[presentation]} Camera: ${cameraMotion}. ${coverage.primary} ${editorialCoverage} Stage one readable physical beat with a clear start, action and consequence. State who moves, their screen direction and what they touch. Keep eyelines and props consistent; stay on one side of the 180-degree axis. Vary shot size, height and subject placement instead of repeating a frontal talking-head frame. Mood: ${mood.render}. Genre: ${genreLook || 'natural'}. Energy: ${energy || 'grounded'}. Look: ${look}. ${aspectHint} ${verticalCraft} Preserve faces, age, hair, build, wardrobe, location geometry and prop placement. Natural anatomy, grounded feet, believable weight and hand contact. Keep ordinary conversational space; no face touching or nose-to-nose posing unless scripted. No decorative extras, duplicate people, warped limbs, reset actions or generated text, logos and subtitles.`;
+  const hasDialogue = lines.length > 0;
+  const primaryShot = [
+    'a medium-wide side-angle master with strong foreground and background depth',
+    'an over-the-shoulder frame with the listening character in soft foreground',
+    'a moving profile composition tracking the character through the space',
+    'a subjective view framed through a doorway or nearby object',
+    'a high-angle geography shot with a clear diagonal composition',
+    'a low-angle reveal with a distinct foreground silhouette',
+    'a compressed profile two-shot with natural personal space',
+  ][(sceneNumber - 1) % 7];
+
+  // Dialogue plays in one readable framing for reliable mouth movement. A cut comes
+  // after the line has finished, or a silent clip can use two fully described shots.
+  const shotPlan = hasDialogue
+    ? `The scene opens in ${primaryShot}. Keep the speaking character's mouth visible and the listener's reaction readable while the dialogue is delivered. After the final spoken line, a hard cut moves to ${coverage.second.replace(/^Cut to /i, '').replace(/^Open on /i, '')} to reveal the physical consequence. The same action, faces, wardrobe, props, lighting and screen direction carry across the cut.`
+    : `The first image is ${coverage.first.replace(/^Open on /i, '').replace(/^Use /i, '')} A moment later, a hard cut transitions to ${coverage.second.replace(/^Cut to /i, '').replace(/^Open on /i, '')} The second shot reveals the result of the first action; keep the same actors, location, props, light and screen direction consistent.`;
+
+  const fixed = `${openers[presentation]} ${visualBase.replace(/[.\\s]+$/, '')}. ${shotPlan} The camera ${cameraMotion}. The scene has ${mood.render}, with ${genreLook || 'natural cinematic detail'} and a ${look} finish. ${aspect === '9:16' ? 'Compose for a vertical 9:16 phone frame, keeping faces, hands and story-critical props in the central safe area.' : aspect === '1:1' ? 'Compose for a square 1:1 frame.' : 'Compose for a wide 16:9 frame.'} Preserve the established faces, ages, hair, builds, wardrobe, location geometry and prop placement. Show the action through clear physical behaviour, visible reactions and cause and effect. Characters speak to each other, not to the camera.`;
   const parts = [];
   for (let h = 1; h <= halves; h++) {
     const mine = lines.filter((l) => l.half === h);
     const audioFor = (spokenLines: SceneLine[]) => {
-      const words = spokenFor(spokenLines);
-      if (presentation === 'movie') return spokenLines.length
-        ? `Audio: continuous score and location sound from first frame to last; music stays underneath dialogue and gently ducks, never cuts out or restarts. Natural in-scene speech with accurate lip sync; speak only these exact words in order, no ad-libs or stage directions, and finish before the clip ends. ${words}`
-        : 'Audio: continuous cinematic score and natural action sounds from first frame to last; no speech.';
-      if (presentation === 'dialogue') return spokenLines.length
-        ? `Audio: natural in-scene dialogue with accurate lip sync over continuous room tone and subtle music. Keep music audible under speech; never stop or restart it. Speak only the exact quoted words in order, with no additions, omissions or narrator. Finish before the clip ends. ${words}`
-        : 'Audio: continuous subtle score and natural room tone from first frame to last; no speech.';
-      if (presentation === 'shortdrama') return spokenLines.length
-        ? `Audio: emotional in-scene dialogue with accurate lip sync over continuous room tone and score. The score remains audible under speech and continues smoothly across the edit. Speak only the exact quoted words in order, no ad-libs or narrator; finish before this shot ends. ${words}`
-        : 'Audio: continuous tense score and natural room tone; no speech.';
-      return spokenLines.length
-        ? `Audio: off-screen narrator reads only the exact words below over continuous ambient sound and score. Nobody on screen speaks. ${words}`
-        : 'Audio: continuous natural ambience and subtle score; no speech.';
+      const dialogue = spokenFor(spokenLines);
+      const soundscape = soundText
+        ? `The close soundscape includes ${soundText.replace(/[.\\s]+$/, '')}, clearly caused by the action in frame.`
+        : 'The close soundscape follows the visible action and the natural room or outdoor ambience.';
+      if (presentation === 'narrated') {
+        return spokenLines.length
+          ? `${soundscape} The picture remains silent while ${dialogue}`
+          : `${soundscape} No one speaks on screen.`;
+      }
+      if (spokenLines.length) {
+        const score = presentation === 'shortdrama' || presentation === 'movie'
+          ? 'A restrained cinematic score stays low beneath the voices.'
+          : 'Subtle room tone remains audible beneath the voices.';
+        return `${soundscape} ${score} ${dialogue} The voices sound human and conversational, with natural pauses and distinct character identities. Complete the spoken lines before the final second, then leave a brief beat of silence.`;
+      }
+      return `${soundscape} Let the real action sounds lead; add a restrained score only if it suits the moment. There is no dialogue.`;
     };
     const tail = `${audioFor(mine)}${soundText && h === 1 ? ` Scene sounds: ${soundText}.` : ''}`;
     const lead = h === 1 && continuesPrevious ? 'CONTINUATION: begin on the exact previous scene final frame. Preserve the same faces, clothing, pose, props, location, light, camera side and screen direction. Continue the action; no reset, reversal, teleport or new person. ' : h === 1 ? '' : `CONTINUATION: begin on the exact previous clip final frame. Preserve identity, pose, props, camera and direction. No cut or location change. Next physical beat: ${(second || 'continue the action naturally').replace(/[.\\s]+$/, '')}. `;
