@@ -1629,6 +1629,74 @@ const videoDownload: Handler = async ({ req, res, query }) => {
   });
 };
 
+/**
+ * Streams one saved episode clip through the authenticated API.
+ * The browser must not keep a provider's temporary result URL: those links can expire
+ * and return 401 after the user leaves the page. Prefer the private Blob archive,
+ * and recover an expired provider URL from its original job without starting a render.
+ */
+const episodeClip: Handler = async ({ req, res, query }) => {
+  const { row } = await requireAccess(req);
+  const id = str(query.get('id'), 80);
+  if (!id) throw new HttpError(400, 'A saved scene is required.');
+  const j = ((await sql()`SELECT * FROM video_jobs WHERE id = ${id} AND user_id = ${row.id} LIMIT 1`) as any[])[0];
+  if (!j) throw new HttpError(404, 'Saved scene not found.');
+
+  let sourceUrl = j.blob_pathname
+    ? await privateBlobVideoUrl(String(j.blob_pathname))
+    : await jobVideoUrl(j);
+
+  // Older episodes may predate successful archiving. Preserve their clip the first
+  // time it is reopened, while its provider URL is still valid.
+  if (!j.blob_pathname) {
+    const archived = await archiveVideoJob(j, sourceUrl);
+    if (archived) sourceUrl = await privateBlobVideoUrl(archived);
+  }
+
+  const range = typeof req.headers.range === 'string' ? req.headers.range : undefined;
+  const fetchSource = () => fetch(sourceUrl, {
+    ...(range ? { headers: { Range: range } } : {}),
+    signal: AbortSignal.timeout(55_000),
+  });
+  let upstream = await fetchSource();
+
+  // A stale provider URL is recoverable from the original render job. This is a
+  // fetch/archive operation only: it never submits another video generation job.
+  if ((upstream.status === 401 || upstream.status === 403) && !j.blob_pathname) {
+    let freshUrl: string;
+    try {
+      freshUrl = await refreshSavedVideoUrl(j);
+    } catch {
+      throw new HttpError(424, 'This saved scene link has expired, and the video provider cannot return another copy. The scene was not regenerated and no video credits were spent.', 'CLIP_EXPIRED');
+    }
+    const archived = await archiveVideoJob(j, freshUrl);
+    sourceUrl = archived ? await privateBlobVideoUrl(archived) : freshUrl;
+    upstream = await fetchSource();
+  }
+
+  if (!upstream.ok || !upstream.body) {
+    throw new HttpError(424, `The saved scene could not be retrieved (HTTP ${upstream.status}). It was not regenerated and no video credits were spent.`, 'CLIP_UNAVAILABLE');
+  }
+  res.statusCode = upstream.status;
+  res.setHeader('Content-Type', upstream.headers.get('content-type') || 'video/mp4');
+  res.setHeader('Content-Disposition', 'inline');
+  res.setHeader('Cache-Control', 'private, no-store');
+  res.setHeader('Accept-Ranges', upstream.headers.get('accept-ranges') || 'bytes');
+  const length = upstream.headers.get('content-length');
+  const contentRange = upstream.headers.get('content-range');
+  if (length) res.setHeader('Content-Length', length);
+  if (contentRange) res.setHeader('Content-Range', contentRange);
+
+  const { Readable } = await import('node:stream');
+  await new Promise<void>((resolve, reject) => {
+    const stream = Readable.fromWeb(upstream.body as any);
+    stream.on('error', reject);
+    res.on('finish', resolve);
+    res.on('close', resolve);
+    stream.pipe(res);
+  });
+};
+
 /** Joins all scenes of a production into one MP4 and sends it as a download. */
 const videoMerge: Handler = async ({ req, res, query }) => {
   const { row } = await requireAccess(req);
@@ -2810,7 +2878,7 @@ const routes: Record<string, Handler> = {
   'POST /video/render': videoRender, 'GET /video/status': videoStatus,
   'GET /social/accounts': socialAccounts, 'POST /social/sync': socialSync, 'GET /video/download': videoDownload, 'GET /video/merge': videoMerge, 'POST /video/editor/render': videoEditorRender, 'POST /video/editor/assemble': videoEditorAssemble, 'GET /social/connect': socialConnect, 'GET /social/callback': socialCallback, 'GET /social/zernio-callback': socialZernioCallback,
   'POST /social/disconnect': socialDisconnect, 'GET /social/metrics': socialMetricsRoute, 'POST /social/publish': socialPublish,
-  'POST /episodes/create': episodeCreate, 'POST /episodes/retry': episodeRetry, 'GET /episodes/status': episodeStatus, 'POST /episodes/pause': episodePause, 'POST /episodes/resume': episodeResume, 'POST /episodes/edit': episodeEdit, 'GET /episodes/video': episodeVideo, 'GET /projects': projectsList, 'GET /projects/get': projectGet, 'POST /projects/reference/clean-plate': projectCleanPlate,
+  'POST /episodes/create': episodeCreate, 'POST /episodes/retry': episodeRetry, 'GET /episodes/status': episodeStatus, 'GET /episodes/clip': episodeClip, 'POST /episodes/pause': episodePause, 'POST /episodes/resume': episodeResume, 'POST /episodes/edit': episodeEdit, 'GET /episodes/video': episodeVideo, 'GET /projects': projectsList, 'GET /projects/get': projectGet, 'POST /projects/reference/clean-plate': projectCleanPlate,
   'GET /cron/dispatch': cronDispatch, 'POST /cron/dispatch': cronDispatch,
   'GET /system/check': systemCheck,
   // Public liveness endpoint intentionally reveals no deployment, provider, or secret-configuration details.
