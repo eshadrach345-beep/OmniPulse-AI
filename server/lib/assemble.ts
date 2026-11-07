@@ -78,7 +78,7 @@ export function assembleParts(o: AssembleInput) {
     const lead = h === 1 && continuesPrevious ? 'CONTINUATION: begin on the exact previous scene final frame. Preserve the same faces, clothing, pose, props, location, light, camera side and screen direction. Continue the action; no reset, reversal, teleport or new person. ' : h === 1 ? '' : `CONTINUATION: begin on the exact previous clip final frame. Preserve identity, pose, props, camera and direction. No cut or location change. Next physical beat: ${(second || 'continue the action naturally').replace(/[.\\s]+$/, '')}. `;
     // Reserve space for the complete action description and spoken lines; never let the final truncation cut the audio direction.
     // Audio directions must survive even when the scene description is long.
-    const fixedBudget = Math.max(500, RENDER_PROMPT_MAX - lead.length - tail.length - 260);
+    const fixedBudget = Math.max(0, RENDER_PROMPT_MAX - lead.length - tail.length - 260);
     const safeFixed = cut(fixed, fixedBudget);
     const visualBudget = Math.max(0, RENDER_PROMPT_MAX - lead.length - safeFixed.length - tail.length - 8);
     const visual = h === 1 ? cut(visualBase, visualBudget) : cut('Same characters, location and light as the exact frame it starts from.', visualBudget);
