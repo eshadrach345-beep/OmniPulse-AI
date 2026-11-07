@@ -1564,8 +1564,8 @@ async function archiveVideoJob(j: any, sourceUrl: string): Promise<string | null
       // Capture a short, sanitized provider error so an expired link can be distinguished
       // from a provider-side format or authorization error without logging signed URLs.
       const detail = (await source.text().catch(() => ''))
-        .replace(/https?:\\/\\/\\S+/gi, '[redacted-url]')
-        .replace(/(?:token|key|secret)=\\S+/gi, '$1=[redacted]')
+        .replace(/https?:\/\/[^\s"'<>]+/gi, '[redacted-url]')
+        .replace(/((?:token|key|secret)=)[^&\s]+/gi, '$1[redacted]')
         .slice(0, 180);
       const host = (() => { try { return new URL(source.url).hostname; } catch { return 'unknown-host'; } })();
       console.warn('scene archive source unavailable', j.id, source.status, host, source.headers.get('content-type') || '', detail);
