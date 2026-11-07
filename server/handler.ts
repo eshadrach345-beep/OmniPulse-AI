@@ -1377,7 +1377,14 @@ async function refreshJob(j: any): Promise<{ state: string; videoUrl?: string; e
   if (j.status === 'done') return { state: 'done', videoUrl: j.video_url };
   if (j.status === 'failed') return { state: 'failed', error: j.error };
   const s: any = String(j.status_url).startsWith('deapi:') ? await deapiStatus(String(j.status_url).slice(6)) : await falStatus(j.status_url, j.response_url);
-  if (s.state === 'done') await sql()`UPDATE video_jobs SET status='done', video_url=${s.videoUrl} WHERE id=${j.id}`;
+  if (s.state === 'done') {
+    await sql()`UPDATE video_jobs SET status='done', video_url=${s.videoUrl} WHERE id=${j.id}`;
+    // Preserve a completed clip while the provider result URL is still valid.
+    // This is best-effort storage only; it never submits or bills a generation job.
+    if (s.videoUrl && process.env.BLOB_READ_WRITE_TOKEN) {
+      await archiveVideoJob({ ...j, status: 'done', video_url: s.videoUrl }, String(s.videoUrl));
+    }
+  }
   if (s.state === 'failed') await sql()`UPDATE video_jobs SET status='failed', error=${s.error} WHERE id=${j.id}`;
   return s;
 }
@@ -1658,7 +1665,7 @@ const episodeClip: Handler = async ({ req, res, query }) => {
 
   // A stale provider URL is recoverable from the original render job. This is a
   // fetch/archive operation only: it never submits another video generation job.
-  if ((upstream.status === 401 || upstream.status === 403) && !j.blob_pathname) {
+  if ([400, 401, 403, 404, 410].includes(upstream.status) && !j.blob_pathname) {
     let freshUrl: string;
     try {
       freshUrl = await refreshSavedVideoUrl(j);
@@ -1699,14 +1706,47 @@ const videoMerge: Handler = async ({ req, res, query }) => {
   await rateLimit(`merge:${row.id}`, 12, 3600);
   const ids = (query.get('ids') || '').split(',').map((x) => x.trim()).filter(Boolean).slice(0, 14);
   if (!ids.length) throw new HttpError(400, 'No scenes were given.');
+  const jobs: any[] = [];
   const urls: string[] = [];
   for (const id of ids) {
     const j = ((await sql()`SELECT * FROM video_jobs WHERE id = ${id} AND user_id = ${row.id}`) as any[])[0];
     if (!j) throw new HttpError(404, 'One of the scenes was not found.');
+    jobs.push(j);
     urls.push(await jobVideoUrl(j));
   }
-  await streamMergedVideo(res, urls, query.get('name') || 'omnipulse-video');
+  await streamMergedVideoWithRecovery(res, jobs, urls, query.get('name') || 'omnipulse-video');
 };
+
+/**
+ * Retry assembly after refreshing only the failed scene from its original provider job.
+ * deAPI may reject an expired result URL with HTTP 400 as well as 401/403.
+ */
+async function streamMergedVideoWithRecovery(res: Res, jobs: any[], urls: string[], name: string): Promise<void> {
+  const refreshed = new Set<number>();
+  for (;;) {
+    try {
+      await streamMergedVideo(res, urls, name);
+      return;
+    } catch (error: any) {
+      const match = String(error?.message || '').match(/Scene (\\d+) could not be downloaded \\((400|401|403|404|410)\\)/i);
+      if (!match) throw error;
+      const index = Number(match[1]) - 1;
+      const job = jobs[index];
+      if (!job || index < 0 || index >= urls.length || refreshed.has(index)) {
+        throw new HttpError(424, `Scene ${index + 1} is no longer downloadable from its saved provider link. It was not regenerated and no video credits were spent.`, 'CLIP_UNAVAILABLE');
+      }
+      refreshed.add(index);
+      let freshUrl: string;
+      try {
+        freshUrl = await refreshSavedVideoUrl(job);
+      } catch {
+        throw new HttpError(424, `Scene ${index + 1}'s original provider job no longer returns a downloadable file. The scene was not regenerated and no video credits were spent.`, 'CLIP_EXPIRED');
+      }
+      const archivedPath = await archiveVideoJob(job, freshUrl);
+      urls[index] = archivedPath ? await privateBlobVideoUrl(archivedPath) : freshUrl;
+    }
+  }
+}
 
 /** Joins the clips into one MP4 (fluent-ffmpeg concat) and streams it to the browser as a download. */
 async function streamMergedVideo(res: Res, urls: string[], name: string) {
@@ -2318,33 +2358,8 @@ const episodeVideo: Handler = async ({ req, res, query }) => {
   const urls = await Promise.all(jobs.map((j) => jobVideoUrl(j)));
   const name = `${ep.project_title || 'series'} part ${ep.part_number}`;
 
-  // A stale provider URL can be refreshed from the original completed job, without spending render credits.
-  // Retry only the scene that returned 401/403; stop safely if the provider no longer retains that source file.
-  for (let attempt = 0; attempt <= jobs.length; attempt++) {
-    try {
-      await streamMergedVideo(res, urls, name);
-      return;
-    } catch (error: any) {
-      const match = String(error?.message || '').match(/Scene (\d+) could not be downloaded \((401|403)\)/i);
-      if (!match || attempt === jobs.length) throw error;
-      const index = Number(match[1]) - 1;
-      const job = jobs[index];
-      if (!job || index < 0 || index >= urls.length) throw error;
-      const previousUrl = urls[index];
-      let freshUrl: string;
-      try {
-        freshUrl = await refreshSavedVideoUrl(job);
-      } catch {
-        throw new HttpError(424, `Scene ${index + 1}'s saved provider link has expired, and the provider did not return another downloadable copy. OmniPulse has not regenerated this scene or spent video credits.`, 'CLIP_EXPIRED');
-      }
-      const archivedPath = await archiveVideoJob(job, freshUrl);
-      if (archivedPath) urls[index] = await privateBlobVideoUrl(archivedPath);
-      else if (freshUrl !== previousUrl) urls[index] = freshUrl;
-      else {
-        throw new HttpError(424, `Scene ${index + 1}'s saved provider link is no longer accessible. The provider did not issue a replacement file. No new video was generated and no video credits were spent.`, 'CLIP_EXPIRED');
-      }
-    }
-  }
+  // Refresh failed clips from their original provider jobs, without generating replacements.
+  await streamMergedVideoWithRecovery(res, jobs, urls, name);
 };
 
 /** Pauses a part. Clips that were already sent to the video provider keep rendering there and are collected when the part is resumed. */
