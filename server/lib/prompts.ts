@@ -754,7 +754,6 @@ export function chunkPrompt(a: WriterBase, plan: { title: string; logline: strin
 You are writing part of a story that is already planned. Title: "${plan.title}". ${plan.logline}
 FIXED PRIMARY LOCATION (keep its layout and fixed props unchanged): ${plan.location || a.continuity?.locationDescription || 'Use the same established location throughout this series unless the outline explicitly changes it.'}
 LOCKED RECURRING PROPS (preserve these exact physical designs): ${plan.keyProps?.length ? plan.keyProps.map((p) => '- ' + p.name + ': ' + p.description).join('\n') : 'Define each important recurring object once and keep it identical in every scene.'}
-LOCKED RECURRING PROPS (preserve these exact physical designs): ${plan.keyProps?.length ? plan.keyProps.map((p) => '- ' + p.name + ': ' + p.description).join('\n') : 'Define each important recurring object once and keep it identical in every scene.'}
 CAST (use exactly these names, voices and looks; copy each visual description word for word into every scene they appear in):
 ${cast}
 FULL OUTLINE (for context, so the scenes you write join up with the ones before and after):
