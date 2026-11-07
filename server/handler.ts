@@ -1143,7 +1143,16 @@ function finishStory(ctx: StoryCtx, d: any, input: StoryInput) {
     const referencePrevious = scenes.length > 0 && !continuesPrevious && (sc?.referencePrevious === true || (sharesVisibleCharacter && relatedPlace && !explicitTimeJump && !explicitCostumeChange && !timeChanged));
     // "Shown" stage directions contain actions extracted from malformed speech fields;
     // put them before visual decoration so they are not the first text lost to truncation.
-    const visualBase = [shownText, str(vp, 560), identityAnchor, propAnchor, locationAnchor, primaryLocationAnchor, lockedProtagonist].filter(Boolean).join(' ');
+    // Repeat these constraints in every independently generated clip. Location changes may change the set, never silently recast actors or redesign story objects.
+    const visualContinuityLock = [
+      'VISUAL CONTINUITY LOCK: Show only characters required by this scene; never add a duplicate, twin, clone or unlisted background person.',
+      'Every recurring character is the exact same person: preserve face shape, age, skin tone, eyes, hair colour, hair length and style, body proportions and distinctive features. No morphing or identity blending.',
+      'Wardrobe is locked across cuts and locations: preserve the exact outfit, colours, layers, footwear, accessories and backpack until the screenplay explicitly shows a change. A new room or exterior is not a costume change.',
+      'Recurring props are fixed physical objects: preserve exact silhouette, dimensions, proportions, material, colour, texture, wear and distinctive marks. Never reinterpret, replace, duplicate or deform a prop.',
+      'Use anatomically correct bodies, natural faces, two hands with five fingers each, believable joints and stable grips. No fused, missing, extra or distorted fingers or warped faces.',
+      'Maintain coherent screen direction, camera axis, lens perspective, light source direction, colour temperature and exposure within the same location. A location change may change the environment, not the cast or carried props.'
+    ].join(' ');
+    const visualBase = [shownText, visualContinuityLock, str(vp, 560), identityAnchor, propAnchor, locationAnchor, primaryLocationAnchor, lockedProtagonist].filter(Boolean).join(' ');
     const soundText = str(sc?.sound, 160);
     // The selected camera profile is the hard constraint. A model-written per-scene move
     // must not silently replace it (for example, adding a zoom to a locked-off shot).
