@@ -148,7 +148,7 @@ export async function renderComposition(input: CompositionInput): Promise<void> 
   });
   const hasBaseAudio = /Audio:\s/.test(probe);
   const audioLabels: string[] = [];
-  if (hasBaseAudio) { filter.push(`[0:a]atrim=duration=${duration},apad=pad_dur=${duration},atrim=duration=${duration},asetpts=PTS-STARTPTS[abase]`); audioLabels.push('[abase]'); }
+  if (hasBaseAudio) { filter.push(`[0:a]atrim=duration=${duration},apad=pad_dur=${duration},atrim=duration=${duration},asetpts=PTS-STARTPTS,aresample=48000,loudnorm=I=-16:TP=-1.5:LRA=11[abase]`); audioLabels.push('[abase]'); }
   for (const { index, layer } of audioInputs) {
     const label = `a${index}`;
     const startMs = Math.round(Math.max(0, Math.min(duration, layer.startAt || 0)) * 1000);
@@ -160,8 +160,8 @@ export async function renderComposition(input: CompositionInput): Promise<void> 
     filter.push(`[${index}:a]atrim=duration=${audioDuration},asetpts=PTS-STARTPTS${envelope ? `,${envelope}` : ''},adelay=${startMs}|${startMs},volume=${volume}[${label}]`);
     audioLabels.push(`[${label}]`);
   }
-  if (audioLabels.length > 1) filter.push(`${audioLabels.join('')}amix=inputs=${audioLabels.length}:duration=longest:dropout_transition=0,alimiter=limit=0.95[aout]`);
-  else if (audioLabels.length === 1) filter.push(`${audioLabels[0]}anull[aout]`);
+  if (audioLabels.length > 1) filter.push(`${audioLabels.join('')}amix=inputs=${audioLabels.length}:duration=longest:dropout_transition=0,alimiter=limit=0.95,loudnorm=I=-16:TP=-1.5:LRA=11[aout]`);
+  else if (audioLabels.length === 1) filter.push(`${audioLabels[0]}loudnorm=I=-16:TP=-1.5:LRA=11,aresample=48000[aout]`);
 
   args.push('-filter_complex', filter.join(';'), '-map', `[${videoLabel}]`);
   if (audioLabels.length) args.push('-map', '[aout]');
