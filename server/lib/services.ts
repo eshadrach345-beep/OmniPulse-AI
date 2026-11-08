@@ -778,12 +778,6 @@ async function deapiParse(r: Response): Promise<string> {
 export async function deapiSubmit(prompt: string, resolution: string = '480P', seconds = 5, aspect: string = '9:16', requestedModel?: string) {
   const [width, height] = deapiCanvas(resolution, aspect);
   const selectedModel = await resolveDeapiVideoModel(requestedModel);
-  if (requestedModel) {
-    const selected = (await deapiVideoModels()).find((item) => item.slug === selectedModel);
-    if (selected && !selected.supportsImageToVideo) {
-      throw new HttpError(400, 'The selected deAPI model does not support image-to-video. Choose a model marked “image-to-video” or remove the opening image.', 'DEAPI_MODEL_MODE');
-    }
-  }
   const c = deapiClip(seconds, selectedModel);
   const [modelInfo, overrides] = await Promise.all([
     getDeapiVideoModelInfo(c.model),
@@ -890,6 +884,12 @@ function deapiVideoOverrides(): Record<string, unknown> {
 export async function deapiAnimate(prompt: string, firstFrame: Buffer, resolution: string = '480P', seconds = 10, aspect: string = '9:16', requestedModel?: string) {
   const [width, height] = deapiCanvas(resolution, aspect);
   const selectedModel = await resolveDeapiVideoModel(requestedModel);
+  if (requestedModel) {
+    const selected = (await deapiVideoModels()).find((item) => item.slug === selectedModel);
+    if (selected && !selected.supportsImageToVideo) {
+      throw new HttpError(400, 'The selected deAPI model does not support image-to-video. Choose a model marked “image-to-video” or remove the opening image.', 'DEAPI_MODEL_MODE');
+    }
+  }
   const c = deapiClip(seconds, selectedModel);
   const [modelInfo, overrides] = await Promise.all([
     getDeapiVideoModelInfo(c.model),
