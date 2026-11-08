@@ -1,0 +1,52 @@
+// CPU-only render smoke test: no API keys, paid image/video generation or network calls.
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { createRequire } from 'node:module';
+import { spawn } from 'node:child_process';
+const require = createRequire(import.meta.url);
+const ts = require('typescript');
+const ffmpeg = require('ffmpeg-static');
+assert.ok(ffmpeg && typeof ffmpeg === 'string', 'ffmpeg-static binary is available');
+function run(bin, args) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(bin, args, { stdio: ['ignore', 'ignore', 'pipe'] });
+    let stderr = '';
+    child.stderr.on('data', (part) => { stderr += part.toString(); });
+    child.on('error', reject);
+    child.on('close', (code) => code === 0 ? resolve(stderr) : reject(new Error(stderr.slice(-2400) || 'ffmpeg failed')));
+  });
+}
+const work = await fs.mkdtemp(path.join(os.tmpdir(), 'omnipulse-render-smoke-'));
+const base = path.join(work, 'base.mp4');
+const overlay = path.join(work, 'brand-mark.ppm');
+const output = path.join(work, 'rendered.mp4');
+const compiledPath = path.resolve('scripts/.tmp-compositor-smoke.mjs');
+try {
+  const source = await fs.readFile(new URL('../server/lib/compositor.ts', import.meta.url), 'utf8');
+  const compiled = ts.transpileModule(source, {
+    fileName: 'compositor.ts',
+    compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
+  }).outputText;
+  await fs.writeFile(compiledPath, compiled);
+  const { renderComposition } = await import(pathToFileURL(compiledPath).href);
+  const width = 64, height = 64;
+  const header = Buffer.from('P6\n64 64\n255\n');
+  const pixels = Buffer.alloc(width * height * 3);
+  for (let i = 0; i < pixels.length; i += 3) { pixels[i] = 216; pixels[i + 1] = 243; pixels[i + 2] = 106; }
+  await fs.writeFile(overlay, Buffer.concat([header, pixels]));
+  await run(ffmpeg, ['-hide_banner', '-y', '-f', 'lavfi', '-i', 'color=c=0x111D31:s=720x1280:r=24', '-f', 'lavfi', '-i', 'sine=frequency=440:sample_rate=48000', '-t', '3', '-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest', base]);
+  await renderComposition({
+    base, overlays: [{ layer: { kind: 'image', sourceIn: 0, duration: 3, startAt: 0.2, scale: 18, opacity: 1, x: 80, y: 12, volume: 0 }, file: overlay }],
+    audio: [], captions: [], title: 'OMNIPULSE AI', titlePosition: 'top', duration: 3, width: 720, height: 1280, output,
+  });
+  const stat = await fs.stat(output);
+  assert.ok(stat.size > 6000, 'compositor creates a non-empty MP4');
+  await run(ffmpeg, ['-hide_banner', '-i', output, '-f', 'null', '-']);
+  console.log('CPU-only video render smoke test passed (MP4 + logo image layer + title).');
+} finally {
+  await fs.rm(compiledPath, { force: true });
+  await fs.rm(work, { recursive: true, force: true });
+}
