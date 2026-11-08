@@ -586,7 +586,18 @@ export async function webTrendResearch(niche: string, customQuery: string): Prom
       const r = await fetch(url, { headers: { 'X-Subscription-Token': braveKey, Accept: 'application/json' }, signal: AbortSignal.timeout(25000) });
       if (!r.ok) throw new HttpError(424, 'Brave LLM Context returned ' + r.status + '. Check BRAVE_SEARCH_API_KEY and its plan.', 'SEARCH');
       const d: any = await r.json(), generic = d && d.grounding && d.grounding.generic || [], meta = d && d.sources || {};
-      return generic.map((x: any) => ({ title: String(x.title || (meta[x.url] && meta[x.url].title) || '').slice(0, 240), url: String(x.url || ''), content: (x.snippets || []).map((v: any) => String(v)).join('\n').slice(0, 7000), date: ((meta[x.url] && meta[x.url].age) || []).join(' | '), imageUrl: String(meta[x.url]?.thumbnail?.src || meta[x.url]?.thumbnail || ''), faviconUrl: String(meta[x.url]?.favicon || ''), query: q }));
+      return generic.map((x: any) => {
+        const age = meta[x.url]?.age;
+        return {
+          title: String(x.title || (meta[x.url] && meta[x.url].title) || '').slice(0, 240),
+          url: String(x.url || ''),
+          content: (x.snippets || []).map((v: any) => String(v)).join('\n').slice(0, 7000),
+          date: Array.isArray(age) ? age.join(' | ') : String(age || ''),
+          imageUrl: String(meta[x.url]?.thumbnail?.src || meta[x.url]?.thumbnail || ''),
+          faviconUrl: String(meta[x.url]?.favicon || ''),
+          query: q,
+        };
+      });
     }));
     for (const group of groups) for (const x of group) if (/^https?:\/\//i.test(x.url)) {
       const oldItem = unique.get(x.url);
