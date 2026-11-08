@@ -818,7 +818,7 @@ async function loadDeapiModelCatalogue(): Promise<any[]> {
 }
 
 /** Safe model metadata for the authenticated generator UI. No credentials or internal headers are returned. */
-export async function deapiVideoModels(): Promise<{ slug: string; name: string; description: string; supportsImageToVideo: boolean }[]> {
+export async function deapiVideoModels(): Promise<{ slug: string; name: string; description: string; supportsImageToVideo: boolean; supportsLastFrame: boolean }[]> {
   const list = await loadDeapiModelCatalogue();
   return list.flatMap((item: any) => {
     const slug = String(item?.slug || '').trim();
@@ -830,12 +830,15 @@ export async function deapiVideoModels(): Promise<{ slug: string; name: string; 
     if (!/(video|ltx|seedance|h3|hunyuan|wan|svd|animatediff|kling)/i.test(evidence)) return [];
     const normalizedSlug = slug.toLowerCase().replace(/[^a-z0-9]/g, '');
     const supportsImageToVideo = /(image.?to.?video|image.?video|i2v|first_frame_image|first frame)/i.test(evidence)
-      || /^(ltx25|ltx23|seedance25)/.test(normalizedSlug);
+      || /^(ltx25|ltx23|seedance25|minimaxh3)/.test(normalizedSlug);
+    const supportsLastFrame = /(last_frame_image|end.?frame|last.?frame)/i.test(evidence)
+      || /^(ltx23|ltx25|minimaxh3)/.test(normalizedSlug);
     return [{
       slug,
       name,
       description: String(item?.description || info?.description || '').slice(0, 260),
       supportsImageToVideo,
+      supportsLastFrame,
     }];
   }).sort((a, b) => a.name.localeCompare(b.name));
 }
@@ -882,13 +885,16 @@ function deapiVideoOverrides(): Record<string, unknown> {
 }
 
 /** Image-to-video: starts the clip from a picture (the last frame of the previous clip), so a scene carries on without a visible jump. */
-export async function deapiAnimate(prompt: string, firstFrame: Buffer, resolution: string = '480P', seconds = 10, aspect: string = '9:16', requestedModel?: string) {
+export async function deapiAnimate(prompt: string, firstFrame: Buffer, resolution: string = '480P', seconds = 10, aspect: string = '9:16', requestedModel?: string, lastFrame?: Buffer) {
   const [width, height] = deapiCanvas(resolution, aspect);
   const selectedModel = await resolveDeapiVideoModel(requestedModel);
   if (requestedModel) {
     const selected = (await deapiVideoModels()).find((item) => item.slug === selectedModel);
     if (selected && !selected.supportsImageToVideo) {
       throw new HttpError(400, 'The selected deAPI model does not support image-to-video. Choose a model marked “image-to-video” or remove the opening image.', 'DEAPI_MODEL_MODE');
+    }
+    if (lastFrame && selected && !selected.supportsLastFrame) {
+      throw new HttpError(400, 'The selected deAPI model does not support a last-frame reference. Choose a model marked “start/end frame” or remove the ending frame.', 'DEAPI_LAST_FRAME_MODE');
     }
   }
   const c = deapiClip(seconds, selectedModel);
@@ -903,7 +909,18 @@ export async function deapiAnimate(prompt: string, firstFrame: Buffer, resolutio
   const seed = Number.isSafeInteger(requestedSeed) && requestedSeed >= 0 && requestedSeed <= 2_147_483_647
     ? requestedSeed : c.seed;
   form.set('frames', String(c.frames)); form.set('fps', String(c.fps)); form.set('seed', String(seed));
-  form.set('first_frame_image', new Blob([new Uint8Array(firstFrame)], { type: 'image/jpeg' }), 'first-frame.jpg');
+  const imageMime = (bytes: Buffer) => {
+    if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return { type: 'image/jpeg', ext: 'jpg' };
+    if (bytes.length >= 8 && bytes.subarray(0, 8).toString('hex') === '89504e470d0a1a0a') return { type: 'image/png', ext: 'png' };
+    if (bytes.length >= 12 && bytes.toString('ascii', 0, 4) === 'RIFF' && bytes.toString('ascii', 8, 12) === 'WEBP') return { type: 'image/webp', ext: 'webp' };
+    throw new HttpError(415, 'The supplied frame must be a valid JPG, PNG or WebP image.', 'DEAPI_FRAME_TYPE');
+  };
+  const firstMime = imageMime(firstFrame);
+  form.set('first_frame_image', new Blob([new Uint8Array(firstFrame)], { type: firstMime.type }), `first-frame.${firstMime.ext}`);
+  if (lastFrame) {
+    const lastMime = imageMime(lastFrame);
+    form.set('last_frame_image', new Blob([new Uint8Array(lastFrame)], { type: lastMime.type }), `last-frame.${lastMime.ext}`);
+  }
   // negative_prompt is included unless the model explicitly disables it.
   // Guidance and steps are sent only when the selected model advertises support;
   // defaults and min/max values come from that model's live /models entry.
