@@ -12,6 +12,8 @@ export interface CompositionInput {
   baseSourceIn?: number;
   /** Base video speed multiplier; images remain static. */
   playbackSpeed?: number;
+  clipFadeIn?: number;
+  clipFadeOut?: number;
   overlays: Array<{ layer: VideoMediaLayer; file: string }>;
   audio: Array<{ layer: VideoMediaLayer; file: string }>;
   captions: VideoCaptionCue[];
@@ -58,11 +60,21 @@ export async function renderComposition(input: CompositionInput): Promise<void> 
   const width = Math.max(480, Math.min(1920, Math.round(input.width / 2) * 2));
   const height = Math.max(480, Math.min(1920, Math.round(input.height / 2) * 2));
   const playbackSpeed = input.baseIsImage ? 1 : Math.max(0.5, Math.min(2, Number(input.playbackSpeed) || 1));
+  const clipFadeIn = Math.max(0, Math.min(duration / 2, Number(input.clipFadeIn) || 0));
+  const clipFadeOut = Math.max(0, Math.min(duration / 2, Number(input.clipFadeOut) || 0));
+  const videoFade = [
+    clipFadeIn > 0 ? `fade=t=in:st=0:d=${clipFadeIn}` : '',
+    clipFadeOut > 0 ? `fade=t=out:st=${Math.max(0, duration - clipFadeOut)}:d=${clipFadeOut}` : '',
+  ].filter(Boolean).join(',');
+  const audioFade = [
+    clipFadeIn > 0 ? `afade=t=in:st=0:d=${clipFadeIn}` : '',
+    clipFadeOut > 0 ? `afade=t=out:st=${Math.max(0, duration - clipFadeOut)}:d=${clipFadeOut}` : '',
+  ].filter(Boolean).join(',');
   const sourceDuration = duration * playbackSpeed;
   const args = ['-hide_banner', '-y'];
   if (input.baseIsImage) args.push('-loop', '1', '-t', String(duration), '-i', input.base);
   else args.push('-ss', String(Math.max(0, input.baseSourceIn || 0)), '-t', String(sourceDuration), '-i', input.base);
-  const filter: string[] = [`[0:v]setpts=(PTS-STARTPTS)/${playbackSpeed},tpad=stop_mode=clone:stop_duration=${duration},trim=duration=${duration},scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30,format=yuv420p[v0]`];
+  const filter: string[] = [`[0:v]setpts=(PTS-STARTPTS)/${playbackSpeed},tpad=stop_mode=clone:stop_duration=${duration},trim=duration=${duration},scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30${videoFade ? ',' + videoFade : ''},format=yuv420p[v0]`];
   let videoLabel = 'v0';
   let nextInput = 1;
 
@@ -152,7 +164,7 @@ export async function renderComposition(input: CompositionInput): Promise<void> 
   });
   const hasBaseAudio = /Audio:\s/.test(probe);
   const audioLabels: string[] = [];
-  if (hasBaseAudio) { filter.push(`[0:a]atempo=${playbackSpeed},atrim=duration=${duration},apad=pad_dur=${duration},atrim=duration=${duration},asetpts=PTS-STARTPTS,aresample=48000,loudnorm=I=-16:TP=-1.5:LRA=11[abase]`); audioLabels.push('[abase]'); }
+  if (hasBaseAudio) { filter.push(`[0:a]atempo=${playbackSpeed},atrim=duration=${duration},apad=pad_dur=${duration},atrim=duration=${duration},asetpts=PTS-STARTPTS${audioFade ? ',' + audioFade : ''},aresample=48000,loudnorm=I=-16:TP=-1.5:LRA=11[abase]`); audioLabels.push('[abase]'); }
   for (const { index, layer } of audioInputs) {
     const label = `a${index}`;
     const startMs = Math.round(Math.max(0, Math.min(duration, layer.startAt || 0)) * 1000);
