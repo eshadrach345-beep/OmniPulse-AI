@@ -14,7 +14,7 @@ interface DirectorMediaMatch {
 }
 interface DirectorMediaPlan { summary: string; matches: DirectorMediaMatch[] }
 interface SceneRenderResult { asset: EditorMediaAsset; downloadUrl: string; duration: number; renderedLayers: number; captionsBurnedIn: boolean }
-interface FilmAssembleResult { asset: EditorMediaAsset; downloadUrl: string; sceneCount: number }
+interface FilmAssembleResult { asset: EditorMediaAsset; downloadUrl: string; sceneCount: number; transition?: string; transitionDuration?: number }
 const formatTime = (seconds: number) => {
   const value = Math.max(0, Number(seconds) || 0);
   return `${Math.floor(value / 60)}:${String(Math.floor(value % 60)).padStart(2, '0')}`;
@@ -50,6 +50,8 @@ export const VideoEditor: React.FC<Props> = ({ video, onSave }) => {
   const [filmProgress, setFilmProgress] = useState('');
   const [filmError, setFilmError] = useState('');
   const [finishedFilm, setFinishedFilm] = useState<FilmAssembleResult | null>(null);
+  const [filmTransition, setFilmTransition] = useState<'cut' | 'fade' | 'wipeleft' | 'slideleft' | 'circleopen'>('cut');
+  const [filmTransitionDuration, setFilmTransitionDuration] = useState(0.45);
   const [directorError, setDirectorError] = useState('');
 
   useEffect(() => { setScenes(video.scenes || []); setSelected(0); setUndoStack([]); setRedoStack([]); }, [video.id]);
@@ -235,7 +237,7 @@ export const VideoEditor: React.FC<Props> = ({ video, onSave }) => {
         assetIds.push(rendered.asset.id);
       }
       setFilmProgress('Assembling the finished film…');
-      const result = await api.post<FilmAssembleResult>('/video/editor/assemble', { assetIds, title: video.title });
+      const result = await api.post<FilmAssembleResult>('/video/editor/assemble', { assetIds, title: video.title, transition: filmTransition, transitionDuration: filmTransitionDuration });
       setFinishedFilm(result);
       setFilmProgress('');
       const library = await api.get<{ assets: EditorMediaAsset[] }>('/media/list');
@@ -479,8 +481,12 @@ export const VideoEditor: React.FC<Props> = ({ video, onSave }) => {
         {(Number(current?.duration) || 0) > 90 && <p className="text-[10px] text-amber-300">This first compositor pass supports scenes up to 90 seconds. Split this scene into shorter sections.</p>}
         {renderError && <p role="alert" className="text-[10px] text-rose-300">{renderError}</p>}
         {renderedScene && <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-emerald-500/20 bg-emerald-950/20 p-2"><span className="min-w-0 text-[10px] text-emerald-200">Saved to Media Library · {renderedScene.renderedLayers} layers · {renderedScene.captionsBurnedIn ? 'captions burned in' : 'no captions'}</span><a href={renderedScene.downloadUrl} target="_blank" rel="noreferrer" download className="rounded-md bg-emerald-600 px-3 py-1.5 text-[10px] font-semibold text-white">Download MP4</a></div>}
-        <div className="border-t border-slate-800 pt-2">
-          <div className="flex items-center justify-between gap-2"><div><p className="text-[11px] font-semibold text-white">Assemble the full film</p><p className="text-[9px] text-slate-500">Render each scene, then join the MP4s into one saved production.</p></div><button type="button" onClick={renderFullFilm} disabled={renderingFilm || scenes.length < 2 || scenes.length > 14 || scenes.some((scene) => (Number(scene.duration) || 0) > 90 || (!scene.mediaLayers?.some((layer) => layer.track === 'main') && !scene.clipJobId))} className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-indigo-400/40 px-3 py-2 text-[10px] font-semibold text-indigo-200 disabled:opacity-40">{renderingFilm ? <Loader2 className="h-3 w-3 animate-spin" /> : <Film className="h-3 w-3" />}{renderingFilm ? 'Working…' : 'Render full film'}</button></div>
+        <div className="border-t border-slate-800 pt-2 space-y-2">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_120px]">
+            <label className="block space-y-1"><span className="text-[10px] font-medium text-slate-400">Transition between scenes</span><select value={filmTransition} onChange={(event) => setFilmTransition(event.target.value as typeof filmTransition)} className="w-full rounded-lg border border-slate-700 bg-slate-950 px-2.5 py-2 text-xs text-white"><option value="cut">Hard cut</option><option value="fade">Crossfade / dissolve</option><option value="wipeleft">Wipe left</option><option value="slideleft">Slide left</option><option value="circleopen">Circle reveal</option></select></label>
+            <label className="block space-y-1"><span className="text-[10px] font-medium text-slate-400">Duration · {filmTransitionDuration.toFixed(2)}s</span><input type="range" min="0.2" max="1" step="0.05" value={filmTransitionDuration} disabled={filmTransition === 'cut'} onChange={(event) => setFilmTransitionDuration(Number(event.target.value))} className="mt-2 w-full disabled:opacity-30" /></label>
+          </div>
+          <div className="flex items-center justify-between gap-2"><div><p className="text-[11px] font-semibold text-white">Assemble the full film</p><p className="text-[9px] text-slate-500">Render each scene, then join the MP4s into one saved production. Transitions overlap adjacent video and audio by the selected duration.</p></div><button type="button" onClick={renderFullFilm} disabled={renderingFilm || scenes.length < 2 || scenes.length > 14 || scenes.some((scene) => (Number(scene.duration) || 0) > 90 || (!scene.mediaLayers?.some((layer) => layer.track === 'main') && !scene.clipJobId))} className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-indigo-400/40 px-3 py-2 text-[10px] font-semibold text-indigo-200 disabled:opacity-40">{renderingFilm ? <Loader2 className="h-3 w-3 animate-spin" /> : <Film className="h-3 w-3" />}{renderingFilm ? 'Working…' : 'Render full film'}</button></div>
           {renderingFilm && <p role="status" className="mt-2 text-[10px] text-indigo-200">{filmProgress}</p>}
           {filmError && <p role="alert" className="mt-2 text-[10px] text-rose-300">{filmError}</p>}
           {finishedFilm && <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-emerald-500/20 bg-emerald-950/20 p-2"><span className="text-[10px] text-emerald-200">Finished film saved · {finishedFilm.sceneCount} scenes</span><a href={finishedFilm.downloadUrl} target="_blank" rel="noreferrer" download className="rounded-md bg-emerald-600 px-3 py-1.5 text-[10px] font-semibold text-white">Download full film</a></div>}
