@@ -19,8 +19,13 @@ type YouTubeGrowthKit = {
   description: string;
   tags: string[];
   hashtags: string[];
+  keywordIdeas: string[];
   shortsIdeas: string[];
+  shortsTitles: string[];
   thumbnailConcepts: string[];
+  chapterIdeas: string[];
+  communityPosts: string[];
+  channelGrowthPlan: string[];
   optimizationChecklist: string[];
 };
 
@@ -116,6 +121,22 @@ export const TrendHashtagRadar: React.FC<TrendHashtagRadarProps> = ({
 
   const recentResearchSources = (activeNiche.researchSources || []).filter((source) => isFreshPublishedAt(source.publishedAt));
   const hasFreshResearch = activeNiche.researchGrounded === true && recentResearchSources.length >= 4;
+
+  const youtubeSeoAudit = growthKit ? (() => {
+    const key = seoKeyword.trim().toLowerCase();
+    const titles = growthKit.titleOptions.map((value) => value.toLowerCase());
+    const description = growthKit.description.toLowerCase();
+    const checks = [
+      { label: 'Primary phrase appears in at least one title', done: !!key && titles.some((value) => value.includes(key)) },
+      { label: 'Primary phrase appears near the start of the description', done: !!key && description.slice(0, 220).includes(key) },
+      { label: 'Description has useful supporting detail', done: growthKit.description.trim().length >= 500 && growthKit.description.trim().length <= 5000 },
+      { label: 'Specific tags are prepared', done: growthKit.tags.length >= 10 },
+      { label: 'A small set of hashtags is prepared', done: growthKit.hashtags.length >= 3 && growthKit.hashtags.length <= 5 },
+      { label: 'Related keyword ideas are ready', done: growthKit.keywordIdeas.length >= 8 },
+      { label: 'Short-form derivatives are prepared', done: growthKit.shortsIdeas.length >= 3 && growthKit.shortsTitles.length >= 3 },
+    ];
+    return { score: Math.round(checks.filter((item) => item.done).length / checks.length * 100), checks };
+  })() : null;
 
   const copyGrowthText = (value: string) => { void navigator.clipboard.writeText(value); };
 
@@ -813,9 +834,26 @@ export const TrendHashtagRadar: React.FC<TrendHashtagRadarProps> = ({
 
           {growthKit && (
             <div className="space-y-4">
+              {youtubeSeoAudit && (
+                <section className="rounded-xl border border-indigo-500/20 bg-gradient-to-r from-indigo-500/5 to-slate-900 p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div><p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-indigo-300">OmniPulse SEO completeness</p><p className="mt-1 text-xs text-slate-400">A checklist score based only on fields and keyword coverage in this draft—not a YouTube ranking or search-volume prediction.</p></div>
+                    <div className="flex items-baseline gap-1"><span className="text-3xl font-bold tabular-nums text-white">{youtubeSeoAudit.score}</span><span className="text-xs text-slate-500">/100</span></div>
+                  </div>
+                  <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-slate-800"><div className="h-full rounded-full bg-indigo-400 transition-all" style={{ width: youtubeSeoAudit.score + '%' }} /></div>
+                  <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    {youtubeSeoAudit.checks.map((item) => <div key={item.label} className="flex items-center gap-2 text-[10px] text-slate-300"><span className={item.done ? 'text-emerald-300' : 'text-amber-300'}>{item.done ? '✓' : '○'}</span>{item.label}</div>)}
+                  </div>
+                </section>
+              )}
               <section className="rounded-xl border border-slate-800 bg-slate-900/70 p-4 space-y-3">
                 <div className="flex items-center justify-between gap-3"><h3 className="text-xs font-bold uppercase tracking-wider text-slate-200">Title variations</h3><button type="button" onClick={() => copyGrowthText(growthKit.titleOptions.join('\n'))} className="text-[10px] font-semibold text-indigo-300 hover:text-indigo-200">Copy all</button></div>
                 {growthKit.titleOptions.map((item, index) => <div key={index} className="flex items-start gap-3 rounded-lg border border-slate-800 bg-slate-950/80 p-3"><span className="text-[10px] font-mono text-slate-500">{String(index + 1).padStart(2, '0')}</span><p className="min-w-0 flex-1 text-xs font-semibold text-white">{item}</p><button type="button" onClick={() => copyGrowthText(item)} aria-label="Copy title" className="text-slate-500 hover:text-indigo-300"><Copy className="h-3.5 w-3.5" /></button></div>)}
+              </section>
+              <section className="rounded-xl border border-slate-800 bg-slate-900/70 p-4 space-y-3">
+                <div className="flex items-center justify-between gap-3"><h3 className="text-xs font-bold uppercase tracking-wider text-slate-200">Keyword ideas & related searches</h3><button type="button" onClick={() => copyGrowthText(growthKit.keywordIdeas.join('\n'))} className="text-[10px] font-semibold text-indigo-300">Copy list</button></div>
+                <p className="text-[10px] leading-4 text-slate-500">Editorial keyword suggestions, not measured search volumes or difficulty scores.</p>
+                <div className="flex flex-wrap gap-1.5">{growthKit.keywordIdeas.map((item,index) => <button type="button" key={index} onClick={() => { setSeoKeyword(item); copyGrowthText(item); }} className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1.5 text-[10px] text-slate-300 hover:border-indigo-500/40">{item}</button>)}</div>
               </section>
               <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
                 <section className="rounded-xl border border-slate-800 bg-slate-900/70 p-4 space-y-3">
@@ -835,7 +873,10 @@ export const TrendHashtagRadar: React.FC<TrendHashtagRadarProps> = ({
               <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
                 {[
                   { title: 'Shorts ideas', items: growthKit.shortsIdeas },
+                  { title: 'Shorts title options', items: growthKit.shortsTitles },
                   { title: 'Thumbnail concepts', items: growthKit.thumbnailConcepts },
+                  { title: 'Chapter ideas · add times after editing', items: growthKit.chapterIdeas },
+                  { title: 'Channel growth actions', items: growthKit.channelGrowthPlan },
                   { title: 'Pre-publish checklist', items: growthKit.optimizationChecklist },
                 ].map(({ title, items }) => (
                   <section key={title} className="rounded-xl border border-slate-800 bg-slate-900/70 p-4 space-y-2">
@@ -845,6 +886,10 @@ export const TrendHashtagRadar: React.FC<TrendHashtagRadarProps> = ({
                 ))}
                 <section className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-4 lg:col-span-2"><p className="text-[10px] leading-5 text-amber-100/80">Growth note: these are creative and optimization recommendations, not verified search-volume, ranking or performance measurements. Compare actual results in your connected channel analytics after publishing.</p></section>
               </div>
+              <section className="rounded-xl border border-slate-800 bg-slate-900/70 p-4 space-y-3">
+                <div className="flex items-center justify-between gap-3"><h3 className="text-xs font-bold uppercase tracking-wider text-slate-200">YouTube community post drafts</h3><button type="button" onClick={() => copyGrowthText(growthKit.communityPosts.join('\n\n---\n\n'))} className="text-[10px] text-indigo-300">Copy all</button></div>
+                {growthKit.communityPosts.map((item,index) => <div key={index} className="rounded-lg border border-slate-800 bg-slate-950/70 p-3"><p className="whitespace-pre-wrap text-xs leading-5 text-slate-300">{item}</p><button type="button" onClick={() => copyGrowthText(item)} className="mt-2 text-[10px] font-semibold text-indigo-300">Copy post</button></div>)}
+              </section>
             </div>
           )}
         </div>
