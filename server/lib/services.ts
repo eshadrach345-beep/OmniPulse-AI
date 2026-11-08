@@ -769,14 +769,20 @@ async function deapiParse(r: Response): Promise<string> {
 }
 
 export async function deapiSubmit(prompt: string, resolution: string = '480P', seconds = 5, aspect: string = '9:16') {
-  let extra: Record<string, unknown> = {};
-  try { extra = JSON.parse(process.env.DEAPI_VIDEO_INPUT || '{}'); } catch { /* ignore bad JSON */ }
   const [width, height] = deapiCanvas(resolution, aspect);
-  // Do not let optional tuning JSON override the model, prompt or dimensions selected by the server.
-  // deAPI's LTX-2.5 pixel budget is 1,032,192 pixels; a 1024x1024 square exceeds it.
-  const reserved = new Set(['prompt', 'model', 'width', 'height', 'frames', 'fps']);
-  const tuning = Object.fromEntries(Object.entries(extra).filter(([key]) => !reserved.has(key)));
-  const body = { ...tuning, prompt, width, height, ...deapiClip(seconds) };
+  const c = deapiClip(seconds);
+  const [modelInfo, overrides] = await Promise.all([
+    getDeapiVideoModelInfo(c.model),
+    Promise.resolve(deapiVideoOverrides()),
+  ]);
+  // The live model catalogue is authoritative. Never send controls that this model rejects.
+  const body: Record<string, unknown> = {
+    prompt, width, height, frames: c.frames, fps: c.fps, model: c.model,
+    ...buildDeapiVideoFields({ info: modelInfo }, overrides),
+  };
+  const requestedSeed = Number(overrides.seed ?? process.env.DEAPI_VIDEO_SEED);
+  body.seed = Number.isSafeInteger(requestedSeed) && requestedSeed >= 0 && requestedSeed <= 2_147_483_647
+    ? requestedSeed : c.seed;
   let r: Response;
   try {
     r = await fetch(`${DEAPI_BASE}/videos/generations`, { method: 'POST', headers: deapiHeaders(), body: JSON.stringify(body), signal: AbortSignal.timeout(20_000) });
@@ -831,7 +837,10 @@ export async function deapiAnimate(prompt: string, firstFrame: Buffer, resolutio
   const form = new FormData();
   form.set('model', c.model); form.set('prompt', prompt);
   form.set('width', String(width)); form.set('height', String(height));
-  form.set('frames', String(c.frames)); form.set('fps', String(c.fps)); form.set('seed', String(c.seed));
+  const requestedSeed = Number(overrides.seed ?? process.env.DEAPI_VIDEO_SEED);
+  const seed = Number.isSafeInteger(requestedSeed) && requestedSeed >= 0 && requestedSeed <= 2_147_483_647
+    ? requestedSeed : c.seed;
+  form.set('frames', String(c.frames)); form.set('fps', String(c.fps)); form.set('seed', String(seed));
   form.set('first_frame_image', new Blob([new Uint8Array(firstFrame)], { type: 'image/jpeg' }), 'first-frame.jpg');
   // negative_prompt is included unless the model explicitly disables it.
   // Guidance and steps are sent only when the selected model advertises support;
