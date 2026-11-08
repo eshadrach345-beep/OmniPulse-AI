@@ -93,7 +93,7 @@ export async function renderComposition(input: CompositionInput): Promise<void> 
   for (const [i, layer] of textOverlays.entries()) {
     const start = Math.max(0, Math.min(duration, Number(layer.start) || 0));
     const end = Math.max(start + 0.1, Math.min(duration, Number(layer.end) || duration));
-    const text = String(layer.text || '').replace(/[\\r\\n]+/g, '\\n').slice(0, 220);
+    const text = String(layer.text || '').slice(0, 220);
     if (!text.trim()) continue;
     const textPath = path.join(path.dirname(input.output), `overlay-text-${Date.now()}-${i}.txt`);
     await fs.writeFile(textPath, text, 'utf8');
@@ -110,7 +110,7 @@ export async function renderComposition(input: CompositionInput): Promise<void> 
       : '';
     const box = boxColor ? `:box=1:boxcolor=${boxColor}:boxborderw=${border || 12}` : '';
     const y = /^[a-z0-9().*+\\/-]+$/i.test(String(layer.y || '')) ? layer.y : 'h*0.5';
-    filter.push(`[${videoLabel}]drawtext=fontfile='${fontFile}':textfile='${escapedTextPath}':fontsize=${fontSize}:fontcolor=${color}:x=(w-text_w)/2:y=${y}:line_spacing=10${box}${alpha}:enable='between(t,${start},${end})'[${videoLabel}t${i}]`);
+    filter.push(`[${videoLabel}]drawtext=fontfile='${fontFile}':textfile='${escapedTextPath}':fontsize=${fontSize}:fontcolor=${color}:x=(w-text_w)/2:y=${y}:line_spacing=10:expansion=none${box}${alpha}:enable='between(t,${start},${end})'[${videoLabel}t${i}]`);
     videoLabel = `${videoLabel}t${i}`;
   }
 
