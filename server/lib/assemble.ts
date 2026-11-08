@@ -55,6 +55,49 @@ export function addDeapiCastNotes(
   };
 }
 
+
+/**
+ * Split a commercial clip into two independently directed five-second shots.
+ * A real supplied brand/product image anchors the subject while the prompts vary camera coverage.
+ */
+export function buildCommercialShotPrompts(input: {
+  visual: string;
+  action?: string;
+  cameraMotion?: string;
+  spokenLines?: { speaker?: string; text: string }[];
+}): { prompt: string; duration: number }[] {
+  const visual = cut(input.visual, 1050);
+  const action = cut(input.action, 420);
+  const motion = cut(input.cameraMotion, 180) || 'a slow, controlled camera move';
+  const lines = (input.spokenLines || []).filter((line) => String(line.text || '').trim());
+  const split = Math.ceil(lines.length / 2);
+  const voice = (slice: { speaker?: string; text: string }[]) => slice.map((line) =>
+    String(line.speaker || '').toLowerCase() === 'narrator'
+      ? `The off-screen narrator says exactly once: "${cut(line.text, 220)}".`
+      : `${cut(line.speaker, 40)} says exactly once: "${cut(line.text, 220)}".`
+  ).join(' ');
+  const shared = [
+    visual,
+    action,
+    'Keep the exact supplied product, package, device silhouette, materials, proportions and brand colors unchanged.',
+    'One clear subject, stable physical geometry, realistic movement, consistent lighting and perspective.',
+    'No generated logos, readable lettering, captions, watermarks, screen-within-screen, phone status bars or collage.',
+    'Avoid hand close-ups, crowds, duplicate people, extra fingers, fused hands, warped faces, ghosting, melting and morphing.',
+  ].filter(Boolean).join(' ');
+  const firstVoice = voice(lines.slice(0, split));
+  const secondVoice = voice(lines.slice(split));
+  return [
+    {
+      prompt: `Opening five-second commercial shot. ${shared} Use a clean medium-wide hero composition to establish the product and context; ${motion}. Keep the product fully recognizable. ${firstVoice}`,
+      duration: 5,
+    },
+    {
+      prompt: `Hard cut to a distinct five-second three-quarter product-detail shot. ${shared} Show a meaningful visual detail or benefit without zooming into hands or tiny screen text; use a smooth controlled lateral move. Maintain the exact same product identity, location and lighting. ${secondVoice}`,
+      duration: 5,
+    },
+  ];
+}
+
 export interface AssembleInput {
   presentation: Presentation;
   brief: { genre: keyof typeof GENRES; intensity: keyof typeof INTENSITIES };
