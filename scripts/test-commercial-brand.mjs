@@ -43,6 +43,7 @@ assert.ok(handler.includes("String(ep.brief?.format || '') === 'commercial'"));
 assert.ok(handler.includes('brandReferenceImages.slice(0, Math.max(0, 4 - locationRef.length))'));
 assert.ok(handler.includes('const logoAssetId = str(kit.logoAssetId, 80)'));
 assert.ok(handler.includes('closing-card.ppm'));
+assert.ok(handler.includes('const closingDuration = Math.min(8, duration)'));
 assert.ok(handler.includes('deapiCommercialOpening'));
 assert.ok(handler.includes('brandReferenceImages[0]?.url'));
 assert.ok(handler.includes('BRAND_CARD_RENDER_FAILED'));
