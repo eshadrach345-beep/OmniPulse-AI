@@ -209,7 +209,9 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
   const brandRefsInputRef = useRef<HTMLInputElement | null>(null);
   const [brandName, setBrandName] = useState('');
   const [brandTagline, setBrandTagline] = useState('');
-  const [brandColor, setBrandColor] = useState('#687cff');
+  const [brandCta, setBrandCta] = useState('');
+  const [brandUrl, setBrandUrl] = useState('');
+  const [brandColor, setBrandColor] = useState('#2DE0B8');
   const [brandLogo, setBrandLogo] = useState<BrandMediaAsset | null>(null);
   const [brandReferences, setBrandReferences] = useState<BrandMediaAsset[]>([]);
   const [brandUploadBusy, setBrandUploadBusy] = useState(false);
@@ -376,8 +378,9 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
       const r = await Series.create({
         projectId: detail?.project.id, title: title.trim() || undefined, idea: idea.trim(), mode: writer, script: writer === 'paste' ? script.trim() : undefined,
         format, look, aspectRatio: ratio, niche: nicheName, brief: built.brief, reviewFirst, characterReferences,
-        brandKit: (brandName.trim() || brandTagline.trim() || brandLogo || brandReferences.length) ? {
+        brandKit: (brandName.trim() || brandTagline.trim() || brandCta.trim() || brandUrl.trim() || brandLogo || brandReferences.length) ? {
           brandName: brandName.trim(), tagline: brandTagline.trim(), primaryColor: brandColor,
+          cta: brandCta.trim(), url: brandUrl.trim(),
           logoAssetId: brandLogo?.id, referenceAssetIds: brandReferences.map((asset) => asset.id),
         } : undefined,
         series: !continuing && kind === 'series' ? { parts, deliver } : undefined,
@@ -698,6 +701,8 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 <label className="text-[11px] text-slate-400">Brand / business name<input value={brandName} onChange={(e) => setBrandName(e.target.value)} maxLength={80} placeholder="e.g. OmniPulse AI" className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white" /></label>
                 <label className="text-[11px] text-slate-400">Tagline (optional)<input value={brandTagline} onChange={(e) => setBrandTagline(e.target.value)} maxLength={100} placeholder="One AI. A million possibilities." className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white" /></label>
+                <label className="text-[11px] text-slate-400">Call to action<input value={brandCta} onChange={(e) => setBrandCta(e.target.value)} maxLength={60} placeholder={/omnipulse/i.test(brandName) ? "Start free today" : "Learn more"} className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white" /></label>
+                <label className="text-[11px] text-slate-400">Website / destination URL<input value={brandUrl} onChange={(e) => setBrandUrl(e.target.value)} maxLength={140} placeholder={/omnipulse/i.test(brandName) ? "OmniPulseai.us.ci" : "yourwebsite.com"} className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white" /></label>
               </div>
               <label className="inline-flex items-center gap-2 text-[11px] text-slate-300">Primary brand colour<input aria-label="Primary brand colour" type="color" value={brandColor} onChange={(e) => setBrandColor(e.target.value)} className="h-8 w-12 cursor-pointer rounded border border-slate-700 bg-slate-900 p-0.5" /><span className="font-mono text-slate-400">{brandColor.toUpperCase()}</span></label>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">

@@ -95,7 +95,7 @@ export interface CreateEpisodeRequest {
   reviewFirst?: boolean;
   /** Generate reusable fal.ai cast portraits for reference-conditioned video (uses image credits). */
   characterReferences?: boolean;
-  brandKit?: { brandName?: string; tagline?: string; primaryColor?: string; logoAssetId?: string; referenceAssetIds?: string[] };
+  brandKit?: { brandName?: string; tagline?: string; primaryColor?: string; cta?: string; url?: string; logoAssetId?: string; referenceAssetIds?: string[] };
   /** Leave out to start a new series (Part 1). */
   projectId?: string;
   title?: string;
