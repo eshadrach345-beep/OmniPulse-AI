@@ -395,6 +395,11 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
   const submit = async () => {
     if (writer === 'ai' && !continuing && idea.trim().length < 10) { setError('Describe your story in a sentence or two: the title and what it is about.'); return; }
     if (writer === 'paste' && script.trim().length < 40 && !(continuing && detail?.recap?.hasRemainingScript)) { setError('Paste your script first. A few lines is enough to start.'); return; }
+    const selectedDeapiModel = videoModels.find((model) => model.slug === videoModel);
+    if (startFrame && (videoProvider === 'deapi' || videoProvider === 'auto') && selectedDeapiModel && !selectedDeapiModel.supportsImageToVideo) {
+      setError('The selected deAPI model does not support image-to-video. Choose a model marked “image-to-video” or remove the opening frame.');
+      return;
+    }
     const built = buildBrief({ seconds, sceneSeconds, mood, camera, presentation: format === 'documentary' ? 'narrated' : presentation, genre, intensity, dialogue, ending, cast, animalsTalk, trope, lockEnabled: !continuing && lockEnabled, lockName, lockDescriptor, secondsLeft });
     if (built.ok === false) { setError(built.error); return; }
     setError(null); setBusy(true);
@@ -668,6 +673,28 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
           <h3 className="text-base font-bold text-white">{continuing ? `${detail!.project.title}: Part ${partNumber}` : single ? 'Make a video' : kind === 'series' ? 'Start a new series' : 'Make a video'}</h3>
           <p className="text-xs text-slate-400">{continuing ? 'We remember the characters, places and ending of the last part, so the story carries on from there.' : 'Choose who writes the script, how long it should be, and the AI does the rest.'}</p>
         </div>
+        <section className="overflow-hidden rounded-2xl border border-indigo-500/20 bg-gradient-to-br from-slate-900 via-slate-950 to-indigo-950/40 p-3.5 sm:p-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div><p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-indigo-300">OmniPulse Creator Canvas</p><h4 className="mt-1 text-sm font-bold text-white">From first idea to finished cut</h4></div>
+            <span className="rounded-full border border-indigo-400/20 bg-indigo-400/10 px-2.5 py-1 text-[9px] font-semibold text-indigo-200">Studio workflow</span>
+          </div>
+          <div className="mt-3 grid grid-cols-2 gap-2 xl:grid-cols-4">
+            {[
+              { number: '01', title: 'Creative brief', detail: 'Story, format, duration and visual style', icon: Sparkles },
+              { number: '02', title: 'Visual direction', detail: 'Cast, brand assets and opening frame', icon: Camera },
+              { number: '03', title: 'Storyboard', detail: 'Review scenes, camera beats and dialogue', icon: FileText },
+              { number: '04', title: 'Edit & export', detail: 'Captions, sound, overlays and final MP4', icon: Film },
+            ].map((step, index) => {
+              const Icon = step.icon;
+              return <div key={step.number} className="relative rounded-xl border border-slate-800/90 bg-slate-950/70 p-3">
+                <div className="flex items-center justify-between"><span className="text-[10px] font-mono font-bold text-indigo-300">{step.number}</span><Icon className="h-3.5 w-3.5 text-slate-500" /></div>
+                <p className="mt-2 text-[11px] font-bold text-white">{step.title}</p>
+                <p className="mt-1 text-[10px] leading-4 text-slate-500">{step.detail}</p>
+                {index < 3 && <span className="absolute -right-1.5 top-1/2 z-10 hidden h-3 w-3 -translate-y-1/2 rounded-full border border-indigo-400/30 bg-slate-900 xl:block" />}
+              </div>;
+            })}
+          </div>
+        </section>
 
         {recap && (
           <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3 space-y-2">
