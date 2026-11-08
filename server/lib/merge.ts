@@ -136,7 +136,10 @@ async function mergeClipsFresh(urls: string[]): Promise<MergeResult> {
       await fs.writeFile(list, concatList);
       const joined = await run(bin, ['-y', '-f', 'concat', '-safe', '0', '-i', list, '-c', 'copy', '-movflags', '+faststart', out], 35_000);
       const st = await fs.stat(out).catch(() => null);
-      if (joined.code === 0 && st && st.size > 2000) return { file: out, cleanup };
+      if (joined.code === 0 && st && st.size > 2000) {
+        console.info('Scene merge used packet stream-copy', { sceneCount: files.length, audio: !!info[0].audio });
+        return { file: out, cleanup };
+      }
       console.warn('Fast scene stream-copy could not be used; falling back to compatible re-encoding:', joined.err.slice(-900));
     }
 
