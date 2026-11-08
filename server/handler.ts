@@ -2545,7 +2545,7 @@ const episodeVideo: Handler = async ({ req, res, query }) => {
     res.statusCode = 200;
     res.setHeader('Content-Type', 'video/mp4');
     res.setHeader('Content-Length', String(stat.size));
-    res.setHeader('Content-Disposition', `attachment; filename="${safeName(name)}.mp4`);
+    res.setHeader('Content-Disposition', `attachment; filename="${safeName(name)}.mp4"`);
     res.setHeader('Cache-Control', 'private, no-store');
     await new Promise<void>((resolve, reject) => {
       const stream = createReadStream(output);
