@@ -88,6 +88,17 @@ check(nativeMultiShot.includes('A hard cut transitions to the next shot'), 'DeAP
 check(!nativeMultiShot.includes('Continue from the exact action and body positions'), 'native multi-shot prose removes redundant shot-list phrasing');
 check(nativeMultiShot.includes('same named cast, exact faces, hair, wardrobe, props'), 'native multi-shot prose locks identity and key props across cuts');
 
+const deapiCastNotes = A.addDeapiCastNotes(
+  'Mara enters the lighthouse room carrying the same stone anchor.',
+  [{ prompt: 'The opening shot follows Mara through the doorway.', duration: 5 }, { prompt: 'A hard cut shows the same anchor on the table.', duration: 5 }],
+  [{ name: 'Mara', description: 'olive skin, dark wavy shoulder-length hair, olive jacket and canvas backpack' }],
+);
+check(deapiCastNotes.prompt.includes('ESTABLISHED CAST APPEARANCE NOTES'), 'DeAPI prompt includes saved cast appearance notes');
+check(deapiCastNotes.prompt.includes('dark wavy shoulder-length hair'), 'DeAPI prompt carries the saved character description');
+check(deapiCastNotes.multiPrompt?.every((shot) => shot.prompt.includes('olive jacket and canvas backpack')), 'DeAPI native multi-shot carries cast notes into every shot');
+check(!deapiCastNotes.prompt.includes('image input: https://'), 'DeAPI cast notes do not pretend image URLs are supported');
+
+
 const handlerSource = fs.readFileSync(new URL('../server/handler.ts', import.meta.url), 'utf8');
 check(handlerSource.includes('no duplicates, clones or unlisted background people'), 'every clip prompt forbids duplicate and unlisted characters');
 check(handlerSource.includes('Keep exact wardrobe and accessories across cuts and location changes'), 'every clip prompt locks wardrobe across location changes');
