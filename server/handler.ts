@@ -619,9 +619,11 @@ const videoModelCatalogue: Handler = async ({ req, res }) => {
   let provider: ReturnType<typeof parseVideoProvider>;
   try { provider = parseVideoProvider(process.env.VIDEO_PROVIDER); }
   catch (e: any) { throw new HttpError(500, e?.message || 'Invalid VIDEO_PROVIDER setting.', 'VIDEO_PROVIDER'); }
-  const deapiEnabled = !!lookupEnv('DEAPI_API_KEY') && (provider === 'deapi' || provider === 'auto');
+  const falEnabled = !!lookupEnv('FAL_KEY');
+  const deapiEnabled = !!lookupEnv('DEAPI_API_KEY');
   const models = deapiEnabled ? await deapiVideoModels() : [];
-  json(res, 200, { provider, models, deapiEnabled });
+  const availableProviders = [falEnabled ? 'fal' : null, deapiEnabled ? 'deapi' : null, falEnabled && deapiEnabled ? 'auto' : null].filter(Boolean);
+  json(res, 200, { provider, models, falEnabled, deapiEnabled, availableProviders });
 };
 
 const youtubeGrowthKit: Handler = async ({ req, res, body }) => {
@@ -1376,9 +1378,9 @@ const tts: Handler = async ({ req, res, body }) => {
 
 // ---------------------------------------------------------------- video (fal.ai / deAPI queue)
 /** Sends one clip to the configured video provider (VIDEO_PROVIDER: fal, deapi or auto) and returns its queue addresses. */
-async function submitToProvider(prompt: string, reso: '480P' | '768P' | '1080P', seconds: 5 | 10, aspect: string, multiPrompt?: { prompt: string; duration: number }[], videoModel?: string): Promise<{ statusUrl: string; responseUrl: string }> {
+async function submitToProvider(prompt: string, reso: '480P' | '768P' | '1080P', seconds: 5 | 10, aspect: string, multiPrompt?: { prompt: string; duration: number }[], videoModel?: string, videoProvider?: string): Promise<{ statusUrl: string; responseUrl: string }> {
   let provider: ReturnType<typeof parseVideoProvider>;
-  try { provider = parseVideoProvider(process.env.VIDEO_PROVIDER); }
+  try { provider = parseVideoProvider(videoProvider || process.env.VIDEO_PROVIDER); }
   catch (e: any) { throw new HttpError(500, e?.message || 'Invalid VIDEO_PROVIDER setting.', 'VIDEO_PROVIDER'); }
   const viaDeapi = async () => { const deapiPrompt = multiPrompt?.length ? `${prompt} ${toNativeMultiShotPrompt(multiPrompt)}` : prompt; const j = await deapiSubmit(deapiPrompt, reso, seconds, aspect, videoModel); return { statusUrl: `deapi:${j.requestId}`, responseUrl: 'deapi' }; };
   const viaFal = async () => { const j = await falSubmit(prompt, reso, seconds, aspect); return { statusUrl: j.statusUrl, responseUrl: j.responseUrl }; };
@@ -2024,7 +2026,14 @@ const episodeCreate: Handler = async ({ req, res, body }) => {
     referenceAssetIds: Array.isArray(kit.referenceAssetIds) ? [...new Set(kit.referenceAssetIds.map((id: any) => str(id, 80)).filter(Boolean))].slice(0, 4) : [],
     startFrameAssetId: str(kit.startFrameAssetId, 80) || undefined,
   };
-  const videoModel = str(body.videoModel, 120);
+  let videoProvider: ReturnType<typeof parseVideoProvider>;
+  try { videoProvider = parseVideoProvider(str(body.videoProvider, 20) || process.env.VIDEO_PROVIDER); }
+  catch (e: any) { throw new HttpError(400, e?.message || 'Choose a supported video provider.', 'VIDEO_PROVIDER'); }
+  if (videoProvider === 'fal' && !lookupEnv('FAL_KEY')) throw new HttpError(424, 'FAL is not configured on this account. Choose DeAPI or add FAL_KEY in Vercel.', 'VIDEO_PROVIDER_UNAVAILABLE');
+  if (videoProvider === 'deapi' && !lookupEnv('DEAPI_API_KEY')) throw new HttpError(424, 'DeAPI is not configured on this account. Choose FAL or add DEAPI_API_KEY in Vercel.', 'VIDEO_PROVIDER_UNAVAILABLE');
+  if (videoProvider === 'auto' && !lookupEnv('FAL_KEY') && !lookupEnv('DEAPI_API_KEY')) throw new HttpError(424, 'No video provider is configured. Add FAL_KEY or DEAPI_API_KEY in Vercel.', 'VIDEO_PROVIDER_UNAVAILABLE');
+  const videoModel = (videoProvider === 'deapi' || videoProvider === 'auto') ? str(body.videoModel, 120) : '';
+  if (videoProvider === 'auto' && !lookupEnv('DEAPI_API_KEY') && videoModel) throw new HttpError(400, 'A DeAPI model cannot be selected because DeAPI is not configured as a fallback.', 'VIDEO_PROVIDER_UNAVAILABLE');
   const hasBrandKit = !!(brandKit.brandName || brandKit.tagline || brandKit.cta || brandKit.url || brandKit.logoAssetId || brandKit.referenceAssetIds.length || brandKit.startFrameAssetId);
   if (hasBrandKit) {
     const assetIds = [...new Set([brandKit.logoAssetId, ...brandKit.referenceAssetIds, brandKit.startFrameAssetId].filter(Boolean))] as string[];
@@ -2067,7 +2076,7 @@ const episodeCreate: Handler = async ({ req, res, body }) => {
   }
 
   const episodeId = newId('ep');
-  const settings = { format: input.format, look: input.look, aspect: input.aspect, niche: input.niche, brief: input.brief, variationSeed: input.variationSeed, mode, script, direction, brandKit: hasBrandKit ? brandKit : null, videoModel: videoModel || undefined, reviewFirst: body.reviewFirst === true, characterReferences: body.characterReferences === true, approved: false };
+  const settings = { format: input.format, look: input.look, aspect: input.aspect, niche: input.niche, brief: input.brief, variationSeed: input.variationSeed, mode, script, direction, brandKit: hasBrandKit ? brandKit : null, videoProvider, videoModel: videoModel || undefined, reviewFirst: body.reviewFirst === true, characterReferences: body.characterReferences === true, approved: false };
   try {
     await sql()`INSERT INTO episodes (id, project_id, part_number, prompt_input, status, brief) VALUES (${episodeId}, ${projectId}, ${partNumber}, ${input.idea}, 'PROCESSING', ${jsonb(settings)}::jsonb)`;
   } catch (e: any) {
@@ -2159,12 +2168,12 @@ async function reserveSource(row: any, user: ReturnType<typeof toUser>, seconds:
  * Starts one 10 second clip. The second half of a 20 second scene starts from the last picture of the first half (image-to-video),
  * so the scene carries on without a jump; if that is not possible it falls back to a normal clip with a "continue" prompt.
  */
-async function startPart(row: any, user: ReturnType<typeof toUser>, spec: { prompt: string; aspect: string; kind: 'text' | 'continue'; prevUrl?: string; startImageUrl?: string; referenceImages?: { name: string; url: string; description?: string }[]; multiPrompt?: { prompt: string; duration: number }[]; commercial?: boolean; videoModel?: string }) {
+async function startPart(row: any, user: ReturnType<typeof toUser>, spec: { prompt: string; aspect: string; kind: 'text' | 'continue'; prevUrl?: string; startImageUrl?: string; referenceImages?: { name: string; url: string; description?: string }[]; multiPrompt?: { prompt: string; duration: number }[]; commercial?: boolean; videoModel?: string; videoProvider?: string }) {
   const source = await reserveSource(row, user, PART_SECONDS);
   await rateLimit(`render:${row.id}`, 300, 3600);
   const reso = PLANS[user.tier]?.resolution || '480P';
   let provider: ReturnType<typeof parseVideoProvider>;
-  try { provider = parseVideoProvider(process.env.VIDEO_PROVIDER); }
+  try { provider = parseVideoProvider(spec.videoProvider || process.env.VIDEO_PROVIDER); }
   catch (e: any) { throw new HttpError(500, e?.message || 'Invalid VIDEO_PROVIDER setting.', 'VIDEO_PROVIDER'); }
   const deapiCast = addDeapiCastNotes(spec.prompt, spec.multiPrompt, (spec.referenceImages || []).map((ref) => ({ name: ref.name, description: ref.description })));
   const deapiPrompt = deapiCast.prompt;
@@ -2340,7 +2349,7 @@ async function stageRender(row: any, user: ReturnType<typeof toUser>, ep: any): 
       userOpeningFrameUrl = signedFrame.presignedUrl;
     }
     const deapiCommercialOpening = String(ep.brief?.format || '') === 'commercial'
-      && (process.env.VIDEO_PROVIDER || 'fal').trim().toLowerCase() === 'deapi'
+      && (provider === 'deapi' || provider === 'auto')
       ? brandReferenceImages[0]?.url : undefined;
     const startImageUrl = isEpisodeOpening ? (userOpeningFrameUrl || deapiCommercialOpening || openingReference) : undefined;
     const carriesVisualReference = scenes[en.index].continuesPrevious === true || scenes[en.index].referencePrevious === true;
@@ -2384,7 +2393,7 @@ async function stageRender(row: any, user: ReturnType<typeof toUser>, ep: any): 
       const continuityPrompt = previousUrl || startImageUrl
         ? `${scene.parts[k].prompt} Continue from the supplied reference frame. Preserve the exact visible character identities, faces, hair, wardrobe, carried props and screen direction. The intended current scene location is ${currentLocation || 'the location described in this scene'}. If it differs from the reference frame, make a clear motivated transition into this current location and replace the old background; do not carry the previous set into the new scene. Keep only the named people required by this scene.`
         : scene.parts[k].prompt;
-      const { jobId } = await startPart(row, user, { prompt: continuityPrompt, aspect, kind: previousUrl || startImageUrl ? 'continue' : 'text', prevUrl: previousUrl, startImageUrl, referenceImages: selected, multiPrompt: commercialMultiPrompt || scene.parts[k].multiPrompt, commercial: isCommercial, videoModel: str(ep.brief?.videoModel, 120) || undefined });
+      const { jobId } = await startPart(row, user, { prompt: continuityPrompt, aspect, kind: previousUrl || startImageUrl ? 'continue' : 'text', prevUrl: previousUrl, startImageUrl, referenceImages: selected, multiPrompt: commercialMultiPrompt || scene.parts[k].multiPrompt, commercial: isCommercial, videoModel: str(ep.brief?.videoModel, 120) || undefined, videoProvider: str(ep.brief?.videoProvider, 20) || undefined });
       p.jobId = jobId; p.tries += 1; p.checkAt = Date.now() + FIRST_CHECK_MS; delete p.error; started++;
     } catch (e: any) {
       if (e instanceof RateLimited) {
