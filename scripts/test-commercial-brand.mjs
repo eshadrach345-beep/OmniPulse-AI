@@ -32,9 +32,15 @@ const ui = fs.readFileSync(new URL('../src/components/SeriesStudio.tsx', import.
 assert.ok(ui.includes("if (f.id === 'commercial') { setSceneSeconds(10); setReviewFirst(true); setSeconds(30); }"));
 assert.ok(ui.includes('six directed 5-second shots'));
 const merge = fs.readFileSync(new URL('../server/lib/merge.ts', import.meta.url), 'utf8');
-assert.ok(merge.includes("'-crf 21'"));
-assert.ok(merge.includes("'-b:a 192k'"));
-assert.ok(merge.includes("'-ar 48000'"));
+assert.ok(merge.includes('if (same) {'));
+assert.ok(merge.includes("'-c', 'copy'"));
+assert.ok(merge.includes(".join('\\n')"));
+assert.ok(merge.includes("'-preset', 'ultrafast'"));
+assert.ok(merge.includes("'-crf', '23'"));
+assert.ok(merge.includes("'-b:a', '160k'"));
+assert.ok(merge.includes('Scene merge used packet stream-copy'));
+assert.ok(!merge.includes('dynaudnorm'));
+assert.ok(!merge.includes('loudnorm'));
 assert.ok(ui.includes('Brand kit & visual references'));
 assert.ok(ui.includes("handleUploadUrl: '/api/media/upload'"));
 assert.ok(ui.includes('brandReferences.map'));
