@@ -1319,7 +1319,7 @@ const tts: Handler = async ({ req, res, body }) => {
 /** Sends one clip to the configured video provider (VIDEO_PROVIDER: fal, deapi or auto) and returns its queue addresses. */
 async function submitToProvider(prompt: string, reso: '480P' | '768P' | '1080P', seconds: 5 | 10, aspect: string, multiPrompt?: { prompt: string; duration: number }[]): Promise<{ statusUrl: string; responseUrl: string }> {
   const provider = (process.env.VIDEO_PROVIDER || 'fal').trim().toLowerCase();
-  const viaDeapi = async () => { const deapiPrompt = multiPrompt?.length ? toNativeMultiShotPrompt(multiPrompt) : prompt; const j = await deapiSubmit(deapiPrompt, reso, seconds, aspect); return { statusUrl: `deapi:${j.requestId}`, responseUrl: 'deapi' }; };
+  const viaDeapi = async () => { const deapiPrompt = multiPrompt?.length ? `${prompt} ${toNativeMultiShotPrompt(multiPrompt)}` : prompt; const j = await deapiSubmit(deapiPrompt, reso, seconds, aspect); return { statusUrl: `deapi:${j.requestId}`, responseUrl: 'deapi' }; };
   const viaFal = async () => { const j = await falSubmit(prompt, reso, seconds, aspect); return { statusUrl: j.statusUrl, responseUrl: j.responseUrl }; };
   if (provider === 'deapi') return viaDeapi();
   // Keep fal as the preferred engine, but automatically use the configured
@@ -2124,7 +2124,7 @@ async function startPart(row: any, user: ReturnType<typeof toUser>, spec: { prom
       } catch (e: any) {
         if (e instanceof RateLimited) throw e;
         if (lookupEnv('DEAPI_API_KEY')) {
-          const j = await deapiAnimate(spec.prompt, frame, reso, PART_SECONDS, spec.aspect);
+          const j = await deapiAnimate(deapiPrompt, frame, reso, PART_SECONDS, spec.aspect);
           job = { statusUrl: `deapi:${j.requestId}`, responseUrl: 'deapi' };
         } else throw e;
       }
