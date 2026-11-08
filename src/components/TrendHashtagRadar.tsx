@@ -203,10 +203,10 @@ export const TrendHashtagRadar: React.FC<TrendHashtagRadarProps> = ({
                 AI Niche Trend & Viral Hashtag Radar
               </h1>
               <span className="text-xs text-slate-500">·</span>
-              <span className="text-xs text-emerald-400 font-mono">Live Algorithmic Feed</span>
+              <span className="text-xs text-emerald-400 font-mono">14-Day Source-Verified Feed</span>
             </div>
             <p className="text-xs text-slate-400 max-w-2xl">
-              Researches live niche trends, creators and recent high-performing public videos across YouTube, TikTok, Instagram and the wider web. Metrics are labelled by source; private impressions are never guessed.
+              Researches niche trends, creators and public videos using sources dated within the last 14 days. Older and undated pages are excluded; public views are labelled by source and private impressions are never guessed.
             </p>
           </div>
 
