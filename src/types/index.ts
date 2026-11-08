@@ -230,6 +230,8 @@ export interface VideoScene {
   beat?: string;
   sceneNumber: number;
   duration: number; // seconds
+  /** Base footage playback rate; 1 is real time, 0.5 is half-speed, 2 is double-speed. */
+  playbackSpeed?: number;
   visualCue: string;
   narration: string;
   onScreenText: string;
