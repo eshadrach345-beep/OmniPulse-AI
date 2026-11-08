@@ -624,6 +624,53 @@ const videoModelCatalogue: Handler = async ({ req, res }) => {
   json(res, 200, { provider, models, deapiEnabled });
 };
 
+const youtubeGrowthKit: Handler = async ({ req, res, body }) => {
+  const { row } = await requireAccess(req);
+  await rateLimit(`youtube-growth:${row.id}`, 30, 3600);
+  const niche = str(body.niche || 'general audience', 100);
+  const keyword = str(body.keyword, 160);
+  const title = str(body.title, 180);
+  const description = str(body.description, 4000);
+  if (!keyword && !title && description.length < 30) throw new HttpError(400, 'Enter a target topic, title or a short description of the video.');
+  const goal = ['discoverability', 'clicks', 'subscribers', 'shorts'].includes(String(body.goal)) ? String(body.goal) : 'discoverability';
+  const prompt = `You are a practical YouTube channel growth strategist. Build a creator-ready optimization package for a video.
+Niche: ${niche}
+Primary topic / search phrase: ${keyword || 'Infer from the supplied title and description'}
+Current title: ${title || '(not supplied)'}
+Video description / content notes: ${description || '(not supplied)'}
+Primary goal: ${goal}
+
+Return one valid JSON object only, with these exact keys:
+{
+  "titleOptions": ["5 distinct titles, each clear and natural; do not use deceptive clickbait"],
+  "openingHooks": ["5 concise spoken or on-screen opening hooks for the first 1-3 seconds"],
+  "description": "A ready-to-paste YouTube description with the topic stated naturally near the start and a useful call to action",
+  "tags": ["15-25 relevant YouTube tags, without #"],
+  "hashtags": ["3-5 relevant hashtags, each beginning with #"],
+  "shortsIdeas": ["5 specific short-form video angles derived from this exact topic"],
+  "thumbnailConcepts": ["3 distinct thumbnail directions; include focal subject, emotion or contrast, composition and 2-4 words of thumbnail text"],
+  "optimizationChecklist": ["5 practical checks the creator should make before publishing"]
+}
+Rules: do not invent search volumes, keyword difficulty, rankings, trends, view counts, click-through rates, audience demographics or channel analytics. Do not claim the video will go viral or guarantee rankings. Recommendations are hypotheses, not measured facts. Do not pad tags with unrelated high-volume phrases. Avoid repeating the same title with minor word changes. Use only information present in the request and general platform writing practices; if context is missing, be conservative.`;
+  const data = await geminiJson(prompt);
+  const strings = (value: any, max: number, limit = 500) => Array.isArray(value)
+    ? value.slice(0, max).map((item: any) => str(item, limit)).filter(Boolean) : [];
+  const result = {
+    titleOptions: strings(data?.titleOptions, 5, 140),
+    openingHooks: strings(data?.openingHooks, 5, 220),
+    description: str(data?.description, 5000),
+    tags: strings(data?.tags, 25, 50),
+    hashtags: strings(data?.hashtags, 8, 40),
+    shortsIdeas: strings(data?.shortsIdeas, 6, 260),
+    thumbnailConcepts: strings(data?.thumbnailConcepts, 4, 360),
+    optimizationChecklist: strings(data?.optimizationChecklist, 8, 260),
+  };
+  if (result.titleOptions.length < 3 || !result.description || result.tags.length < 5) {
+    throw new HttpError(424, 'The YouTube growth strategist returned an incomplete package. Please try again.', 'AI_PROVIDER_UNAVAILABLE');
+  }
+  json(res, 200, { success: true, ...result });
+};
+
 const researchTrends: Handler = async ({ req, res, body }) => {
   const { row } = await requireAccess(req);
   await rateLimit(`ai:${row.id}`, 120, 3600);
@@ -3161,7 +3208,7 @@ const routes: Record<string, Handler> = {
   'GET /account/export': exportData, 'POST /account/delete': deleteAccount,
   'GET /dashboard': getDashboard, 'PUT /dashboard': putDashboard,
   'POST /video/director/plan': videoDirectorPlan, 'POST /video/director/match': videoDirectorMatch, 'POST /media/upload': mediaUpload, 'GET /media/list': mediaList, 'GET /media/url': mediaSignedUrl, 'POST /media/transcribe': mediaTranscribe,
-  'POST /ai/generate-script': genScript, 'POST /ai/research-trends': researchTrends, 'POST /ai/ad-concepts': adConcepts, 'POST /ad/brand-images': adBrandImages, 'POST /ad/render-image': adImageRender, 'POST /tts': tts,
+  'POST /ai/generate-script': genScript, 'POST /ai/research-trends': researchTrends, 'POST /ai/youtube-growth-kit': youtubeGrowthKit, 'POST /ai/ad-concepts': adConcepts, 'POST /ad/brand-images': adBrandImages, 'POST /ad/render-image': adImageRender, 'POST /tts': tts,
   'POST /ai/ab-variations': abVariations, 'POST /ai/competitor-analysis': competitorAnalysis, 'POST /ai/outrank': outrank,
   'POST /video/render': videoRender, 'GET /video/status': videoStatus, 'GET /video/models': videoModelCatalogue,
   'GET /social/accounts': socialAccounts, 'POST /social/sync': socialSync, 'GET /video/download': videoDownload, 'GET /video/merge': videoMerge, 'POST /video/editor/render': videoEditorRender, 'POST /video/editor/assemble': videoEditorAssemble, 'GET /social/connect': socialConnect, 'GET /social/callback': socialCallback, 'GET /social/zernio-callback': socialZernioCallback,
