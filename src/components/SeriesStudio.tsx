@@ -211,7 +211,7 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
   const [brandTagline, setBrandTagline] = useState('');
   const [brandCta, setBrandCta] = useState('');
   const [brandUrl, setBrandUrl] = useState('');
-  const [brandColor, setBrandColor] = useState('#687cff');
+  const [brandColor, setBrandColor] = useState('#2DE0B8');
   const [brandLogo, setBrandLogo] = useState<BrandMediaAsset | null>(null);
   const [brandReferences, setBrandReferences] = useState<BrandMediaAsset[]>([]);
   const [brandUploadBusy, setBrandUploadBusy] = useState(false);
@@ -378,7 +378,7 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
       const r = await Series.create({
         projectId: detail?.project.id, title: title.trim() || undefined, idea: idea.trim(), mode: writer, script: writer === 'paste' ? script.trim() : undefined,
         format, look, aspectRatio: ratio, niche: nicheName, brief: built.brief, reviewFirst, characterReferences,
-        brandKit: (brandName.trim() || brandTagline.trim() || brandLogo || brandReferences.length) ? {
+        brandKit: (brandName.trim() || brandTagline.trim() || brandCta.trim() || brandUrl.trim() || brandLogo || brandReferences.length) ? {
           brandName: brandName.trim(), tagline: brandTagline.trim(), primaryColor: brandColor,
           cta: brandCta.trim(), url: brandUrl.trim(),
           logoAssetId: brandLogo?.id, referenceAssetIds: brandReferences.map((asset) => asset.id),
