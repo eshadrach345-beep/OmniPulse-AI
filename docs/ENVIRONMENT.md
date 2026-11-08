@@ -18,8 +18,9 @@ They are *not* needed in Google AI Studio. This app runs on Vercel, not in the A
 | `LLM_BASE_URL` | Optional. Default `https://api.groq.com/openai/v1` |
 | `LLM_MODEL` | Optional backup-provider model override. Without an override, each configured provider uses its current default model (Groq currently defaults to `openai/gpt-oss-20b`). |
 | `LLM_PRIMARY` | Optional. Set to `backup` to use the backup AI first and keep Gemini for live search only |
-| `VIDEO_PROVIDER` | Optional. `fal` (default), `deapi`, or `auto` (fal first, deAPI if fal fails) |
-| `DEAPI_API_KEY` | Optional second video provider (deapi.ai, free starter credit) |
+| `VIDEO_PROVIDER` | Default provider for new productions: `fal` (default), `deapi`, or `auto` (FAL first, DeAPI if FAL fails). When both provider keys are present, the Creator Canvas also lets each production choose its own provider. |
+| `DEAPI_API_KEY` | Optional DeAPI video provider key. The Creator Canvas loads the account's available video models from DeAPI; selected model IDs are checked against that live catalogue. |
+| `DEAPI_VIDEO_MODEL` | Optional default DeAPI video model when no model is selected; defaults to `Ltx2_5_22B_Dist_INT8`. |
 | `VOICE_PROVIDER` | Optional. `auto` (default: deAPI voices when `DEAPI_API_KEY` exists, else fal.ai), `deapi`, or `fal` |
 | `ZERNIO_API_KEY` | Social publishing through Zernio. OmniPulse creates one isolated Zernio profile per customer; the first two connected accounts are free across the OmniPulse Zernio team, not two per customer. |
 | `FAL_KEY` | Video rendering and voice-over (fal.ai) |
@@ -36,6 +37,8 @@ They are *not* needed in Google AI Studio. This app runs on Vercel, not in the A
 | `CRON_SECRET` | Random string. Needed to send *scheduled* posts (see below) |
 | Social network keys | See the "Social networks" section below |
 | `VITE_COMPANY_NAME`, `VITE_SUPPORT_EMAIL` | Shown on the landing page and legal pages (also set before the build) |
+
+The Creator Canvas can use FAL and DeAPI for separate productions when both keys are configured. `FAL` and `DeAPI` are strict choices; `Automatic` is shown only when both keys are present and is the only mode that can fail over. DeAPI models are loaded from the account's live model catalogue, and models that do not advertise image-to-video are blocked from image-based jobs.
 
 Flutterwave webhook URL: `https://YOUR-DOMAIN/api/billing/webhook`
 
