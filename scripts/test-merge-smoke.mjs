@@ -92,9 +92,9 @@ try {
 
   const probe = await run(['-hide_banner', '-i', merged.file, '-f', 'null', '-']);
   assert.equal(probe.code, 0, `Merged MP4 must decode: ${probe.stderr.slice(-1200)}`);
-  assert.match(probe.stderr, /Video:\\s*h264/i, 'Merged output should retain H.264 video.');
-  assert.match(probe.stderr, /Audio:\\s*aac/i, 'Merged output should retain AAC audio.');
-  const duration = probe.stderr.match(/Duration:\\s*(\d+):(\d+):(\d+(?:\.\d+)?)/);
+  assert.match(probe.stderr, /Video:\s*h264/i, 'Merged output should retain H.264 video.');
+  assert.match(probe.stderr, /Audio:\s*aac/i, 'Merged output should retain AAC audio.');
+  const duration = probe.stderr.match(/Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)/);
   assert.ok(duration, 'FFmpeg should report the merged MP4 duration.');
   const seconds = Number(duration[1]) * 3600 + Number(duration[2]) * 60 + Number(duration[3]);
   assert.ok(seconds >= 3.8 && seconds <= 4.3, `Expected about 4 seconds of video, got ${seconds}.`);
