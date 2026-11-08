@@ -95,7 +95,7 @@ export interface CreateEpisodeRequest {
   reviewFirst?: boolean;
   /** Generate reusable fal.ai cast portraits for reference-conditioned video (uses image credits). */
   characterReferences?: boolean;
-  brandKit?: { brandName?: string; tagline?: string; primaryColor?: string; cta?: string; url?: string; logoAssetId?: string; referenceAssetIds?: string[]; startFrameAssetId?: string };
+  brandKit?: { brandName?: string; tagline?: string; primaryColor?: string; cta?: string; url?: string; logoAssetId?: string; referenceAssetIds?: string[]; startFrameAssetId?: string; endFrameAssetId?: string };
   /** Exact deAPI catalogue slug; applied only when server provider routing reaches deAPI. */
   videoProvider?: 'fal' | 'deapi' | 'auto';
   videoModel?: string;
