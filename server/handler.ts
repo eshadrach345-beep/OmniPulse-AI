@@ -2957,7 +2957,7 @@ const videoEditorRender: Handler = async ({ req, res, body }) => {
       }))
       .filter((cue: any) => cue.text && cue.end > cue.start);
     try {
-      await renderComposition({ base: basePath, baseIsImage, baseSourceIn, playbackSpeed: clampNumber(scene.playbackSpeed, 1, 0.5, 2), overlays: overlayFiles, audio: audioFiles, captions, title: str(scene.onScreenText, 180), titlePosition: scene.overlayPosition === 'top' || scene.overlayPosition === 'bottom' ? scene.overlayPosition : 'center', duration, width, height, output });
+      await renderComposition({ base: basePath, baseIsImage, baseSourceIn, playbackSpeed: clampNumber(scene.playbackSpeed, 1, 0.5, 2), clipFadeIn: clampNumber(scene.clipFadeIn, 0, 0, Math.min(3, duration / 2)), clipFadeOut: clampNumber(scene.clipFadeOut, 0, 0, Math.min(3, duration / 2)), overlays: overlayFiles, audio: audioFiles, captions, title: str(scene.onScreenText, 180), titlePosition: scene.overlayPosition === 'top' || scene.overlayPosition === 'bottom' ? scene.overlayPosition : 'center', duration, width, height, output });
     } catch (error: any) {
       console.error('editor scene render failed', error?.message);
       if (error?.message === 'FFMPEG_NOT_AVAILABLE') throw new HttpError(424, 'The server video compositor is not installed yet.', 'FFMPEG_NOT_AVAILABLE');
