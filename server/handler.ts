@@ -1959,11 +1959,12 @@ const episodeCreate: Handler = async ({ req, res, body }) => {
   const kit = body.brandKit && typeof body.brandKit === 'object' ? body.brandKit : {};
   const brandKit = {
     brandName: str(kit.brandName, 80), tagline: str(kit.tagline, 100),
-    primaryColor: /^#[0-9a-f]{6}$/i.test(str(kit.primaryColor, 7)) ? str(kit.primaryColor, 7) : '#687cff',
+    primaryColor: /^#[0-9a-f]{6}$/i.test(str(kit.primaryColor, 7)) ? str(kit.primaryColor, 7) : '#2DE0B8',
+    cta: str(kit.cta, 60), url: str(kit.url, 140),
     logoAssetId: str(kit.logoAssetId, 80) || undefined,
     referenceAssetIds: Array.isArray(kit.referenceAssetIds) ? [...new Set(kit.referenceAssetIds.map((id: any) => str(id, 80)).filter(Boolean))].slice(0, 4) : [],
   };
-  const hasBrandKit = !!(brandKit.brandName || brandKit.tagline || brandKit.logoAssetId || brandKit.referenceAssetIds.length);
+  const hasBrandKit = !!(brandKit.brandName || brandKit.tagline || brandKit.cta || brandKit.url || brandKit.logoAssetId || brandKit.referenceAssetIds.length);
   if (hasBrandKit) {
     const assetIds = [...new Set([brandKit.logoAssetId, ...brandKit.referenceAssetIds].filter(Boolean))] as string[];
     for (const assetId of assetIds) {
@@ -1976,6 +1977,8 @@ const episodeCreate: Handler = async ({ req, res, body }) => {
     brandKit.brandName ? 'Brand identity: ' + brandKit.brandName + '.' : '',
     brandKit.tagline ? 'Brand tagline: ' + brandKit.tagline + '.' : '',
     brandKit.primaryColor ? 'Primary brand accent: ' + brandKit.primaryColor + '.' : '',
+    brandKit.cta ? 'Call to action: ' + brandKit.cta + '.' : '',
+    brandKit.url ? 'Destination website: ' + brandKit.url + '.' : '',
     brandKit.logoAssetId ? 'A real logo is saved separately. Do not generate, redraw or spell a logo in video frames; leave the closing frame clean for the exact uploaded logo to be overlaid in the editor.' : '',
     brandKit.referenceAssetIds.length ? 'Product and visual references are saved in the Brand Library. Do not invent additional objects or people.' : '',
   ].filter(Boolean).join(' ') : '';
@@ -2556,7 +2559,7 @@ const episodeVideo: Handler = async ({ req, res, query }) => {
     const brandName = str(kit.brandName, 80) || str(ep.project_title, 80) || 'OmniPulse AI';
     const isOmniPulse = /omnipulse/i.test(brandName);
     const tagline = str(kit.tagline, 100) || (isOmniPulse ? 'One Platform. Endless Possibilities.' : '');
-    const cta = str(kit.cta, 60) || (isOmniPulse ? 'Start free today' : 'Learn more');
+    const cta = str(kit.cta, 60) || str(ep.storyboard_json?.callToAction, 60) || (isOmniPulse ? 'Start free today' : 'Learn more');
     const website = str(kit.url, 140) || (isOmniPulse ? 'OmniPulseai.us.ci' : '');
     const accent = /^#?[0-9a-f]{6}$/i.test(String(kit.primaryColor || ''))
       ? '#' + String(kit.primaryColor).replace('#', '')
