@@ -7,17 +7,17 @@ import { GENRE_OPTIONS, PRESENTATION_OPTIONS } from '../data/storyOptions';
 import { SHOWCASE } from '../data/showcase';
 
 const FEATURES = [
-  { icon: TrendingUp, title: 'Research what is trending right now', text: 'Live web research on your niche: the topics, hashtags and creators gaining ground this week, with hooks you can use today.' },
-  { icon: Video, title: 'Turn an idea into a finished video', text: 'Describe the story. OmniPulse writes the script with characters, tells you the length before it renders, then produces every scene.' },
-  { icon: CalendarClock, title: 'Schedule everywhere from one calendar', text: 'Queue posts for all your connected channels and publish them directly, without logging into each app.' },
-  { icon: Split, title: 'Test two hooks and keep the winner', text: 'Publish two versions of a post and compare real results with a significance check before you commit.' },
-  { icon: Clapperboard, title: 'Direct it like a movie', text: 'Choose Movie, Dialogue drama or Narrated story, then set the genre, how much action, how much dialogue and how it ends.' },
-  { icon: UserRound, title: 'The same hero in every scene', text: 'Describe your main character once and they keep the same face, hair and clothes across every scene and every part.' },
-  { icon: Layers, title: 'Multi-part series', text: 'Plan a series, make one part at a time or the whole thing, and each part picks up where the story stopped.' },
-  { icon: Image, title: 'A poster for every story', text: 'Each finished story gets a movie poster with its title, tagline and cast, in colours that match the genre. Download it and share it anywhere.' },
-  { icon: Sparkles, title: 'Story starters', text: 'Stuck for an idea? Tap Surprise me, or pick a starter for your genre and edit it into your own.' },
-  { icon: Mic, title: 'Characters that speak', text: 'Dramas, documentaries and animations where every character talks, with the voices made together with the picture.' },
-  { icon: Share2, title: 'Connect in one tap', text: 'Sign in on each network\'s own page and approve access. OmniPulse never sees your password.' },
+  { icon: TrendingUp, title: 'Spot current niche signals', text: 'Research topics, creators and public content using source dates inside a rolling 14-day window. Older and undated pages are excluded from current trend cards.' },
+  { icon: Video, title: 'Text-to-video and image-to-video', text: 'Write a scene prompt or provide an opening image. When DeAPI is connected, choose from the account’s live video model catalogue and supported frame controls.' },
+  { icon: Clapperboard, title: 'Direct your story scene by scene', text: 'Set the genre, dialogue, mood, camera direction and length. Review the screenplay and storyboard before video seconds are used.' },
+  { icon: UserRound, title: 'Guide visual continuity', text: 'Attach character and product references, an opening frame and—on supported DeAPI models—an ending frame to help anchor important visual details.' },
+  { icon: Layers, title: 'Edit on a multitrack timeline', text: 'Reorder and duplicate scenes, add picture and audio layers, position overlays, adjust clip speed, apply colour looks and export fades and transitions.' },
+  { icon: Image, title: 'Build a complete YouTube package', text: 'Generate keyword ideas, titles, hooks, descriptions, tags, Shorts angles, thumbnail concepts, chapters and community posts—without invented analytics.' },
+  { icon: CalendarClock, title: 'Schedule across your channels', text: 'Queue content for connected social accounts and manage publishing from one calendar.' },
+  { icon: Split, title: 'Compare creative variations', text: 'Create A/B variations and use the available performance data to learn which creative direction is working.' },
+  { icon: Sparkles, title: 'Keep every stage connected', text: 'Move from research to creative brief, storyboard, edit, export and publishing without losing the project context.' },
+  { icon: Mic, title: 'Shape voice and audio', text: 'Use dialogue, narration, transcription, timed captions and separate music or sound-effect tracks in your production.' },
+  { icon: Share2, title: 'Connect your own channels', text: 'Approve access on each network’s official sign-in page. OmniPulse never asks for your social password.' },
 ];
 
 const STEPS = [
