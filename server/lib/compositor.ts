@@ -10,6 +10,8 @@ export interface CompositionInput {
   base: string;
   baseIsImage?: boolean;
   baseSourceIn?: number;
+  /** Base video speed multiplier; images remain static. */
+  playbackSpeed?: number;
   overlays: Array<{ layer: VideoMediaLayer; file: string }>;
   audio: Array<{ layer: VideoMediaLayer; file: string }>;
   captions: VideoCaptionCue[];
@@ -55,10 +57,12 @@ export async function renderComposition(input: CompositionInput): Promise<void> 
   const duration = Math.max(1, Math.min(90, input.duration));
   const width = Math.max(480, Math.min(1920, Math.round(input.width / 2) * 2));
   const height = Math.max(480, Math.min(1920, Math.round(input.height / 2) * 2));
+  const playbackSpeed = input.baseIsImage ? 1 : Math.max(0.5, Math.min(2, Number(input.playbackSpeed) || 1));
+  const sourceDuration = duration * playbackSpeed;
   const args = ['-hide_banner', '-y'];
   if (input.baseIsImage) args.push('-loop', '1', '-t', String(duration), '-i', input.base);
-  else args.push('-ss', String(Math.max(0, input.baseSourceIn || 0)), '-t', String(duration), '-i', input.base);
-  const filter: string[] = [`[0:v]tpad=stop_mode=clone:stop_duration=${duration},trim=duration=${duration},setpts=PTS-STARTPTS,scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30,format=yuv420p[v0]`];
+  else args.push('-ss', String(Math.max(0, input.baseSourceIn || 0)), '-t', String(sourceDuration), '-i', input.base);
+  const filter: string[] = [`[0:v]setpts=(PTS-STARTPTS)/${playbackSpeed},tpad=stop_mode=clone:stop_duration=${duration},trim=duration=${duration},scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30,format=yuv420p[v0]`];
   let videoLabel = 'v0';
   let nextInput = 1;
 
@@ -148,7 +152,7 @@ export async function renderComposition(input: CompositionInput): Promise<void> 
   });
   const hasBaseAudio = /Audio:\s/.test(probe);
   const audioLabels: string[] = [];
-  if (hasBaseAudio) { filter.push(`[0:a]atrim=duration=${duration},apad=pad_dur=${duration},atrim=duration=${duration},asetpts=PTS-STARTPTS,aresample=48000,loudnorm=I=-16:TP=-1.5:LRA=11[abase]`); audioLabels.push('[abase]'); }
+  if (hasBaseAudio) { filter.push(`[0:a]atempo=${playbackSpeed},atrim=duration=${duration},apad=pad_dur=${duration},atrim=duration=${duration},asetpts=PTS-STARTPTS,aresample=48000,loudnorm=I=-16:TP=-1.5:LRA=11[abase]`); audioLabels.push('[abase]'); }
   for (const { index, layer } of audioInputs) {
     const label = `a${index}`;
     const startMs = Math.round(Math.max(0, Math.min(duration, layer.startAt || 0)) * 1000);
