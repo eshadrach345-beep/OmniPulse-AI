@@ -132,7 +132,8 @@ async function mergeClipsFresh(urls: string[]): Promise<MergeResult> {
     if (same) {
       const list = path.join(dir, 'list.txt');
       // The concat demuxer requires an actual newline between file entries.
-      await fs.writeFile(list, files.map((f) => \`file '\${f.replace(/'/g, "'\\\\''")}'\`).join('\n'));
+      const concatList = files.map((f) => "file '" + f.replace(/'/g, "'\\''") + "'").join('\n');
+      await fs.writeFile(list, concatList);
       const joined = await run(bin, ['-y', '-f', 'concat', '-safe', '0', '-i', list, '-c', 'copy', '-movflags', '+faststart', out], 35_000);
       const st = await fs.stat(out).catch(() => null);
       if (joined.code === 0 && st && st.size > 2000) return { file: out, cleanup };
