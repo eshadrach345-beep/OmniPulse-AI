@@ -41,6 +41,7 @@ try {
   await renderComposition({
     base, overlays: [{ layer: { kind: 'image', sourceIn: 0, duration: 3, startAt: 0.2, scale: 18, opacity: 1, x: 80, y: 12, volume: 0 }, file: overlay }],
     audio: [], captions: [], title: 'OMNIPULSE AI', titlePosition: 'top',
+    playbackSpeed: 1.25, clipFadeIn: 0.25, clipFadeOut: 0.25,
     textOverlays: [
       { start: 0.2, end: 2.8, text: 'One Platform. Endless Possibilities.', y: 'h*0.60', fontSize: 34, color: '#DCE8F5', weight: 'regular', fadeIn: 0.25, fadeOut: 0.2 },
       { start: 0.3, end: 2.8, text: 'Start free today', y: 'h*0.76', fontSize: 32, color: '#06122B', boxColor: '#2DE0B8', boxBorderWidth: 16, fadeIn: 0.25, fadeOut: 0.2 },
@@ -51,7 +52,7 @@ try {
   const stat = await fs.stat(output);
   assert.ok(stat.size > 6000, 'compositor creates a non-empty MP4');
   await run(ffmpeg, ['-hide_banner', '-i', output, '-f', 'null', '-']);
-  console.log('CPU-only video render smoke test passed (MP4 + logo image layer + title + animated CTA/text overlays).');
+  console.log('CPU-only video render smoke test passed (MP4 + logo image layer + title + animated CTA/text overlays + playback speed + clip fades).');
 } finally {
   await fs.rm(compiledPath, { force: true });
   await fs.rm(work, { recursive: true, force: true });
