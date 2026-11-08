@@ -7,7 +7,7 @@ import {
 } from './lib/core.js';
 import { sql, ensureSchema } from './lib/db.js';
 import { PLANS, TIERS, Tier, Cycle, planId, tierFromPlanId, priceFor, BILLING_CURRENCY, TRIAL, TOPUPS, trialPrice } from './lib/plans.js';
-import { mail, flw, verifyFlwSignature, lookupEnv, geminiJson, geminiRaw, geminiFormat, webTrendResearch, aiWriterStatus, testAiWriters, falSubmit, falContinueSubmit, falReferenceVideoSubmit, falKlingReferenceSubmit, falGenerateCharacterReference, falGenerateLocationPlate, falEditLocationPlate, falStatus, falImageVideoSubmit, falGenerateBrandImages, deapiSubmit, deapiStatus, deapiAnimate, RateLimited, synthesize } from './lib/services.js';
+import { mail, flw, verifyFlwSignature, lookupEnv, geminiJson, geminiRaw, geminiFormat, webTrendResearch, aiWriterStatus, testAiWriters, falSubmit, falContinueSubmit, falReferenceVideoSubmit, falKlingReferenceSubmit, falGenerateCharacterReference, falGenerateLocationPlate, falEditLocationPlate, falStatus, falImageVideoSubmit, falGenerateBrandImages, deapiSubmit, deapiStatus, deapiAnimate, deapiVideoModels, RateLimited, synthesize } from './lib/services.js';
 import { trendsFormatPrompt, scriptPrompt, adConceptPrompt, abPrompt, competitorPrompt, outrankPrompt, parseStoryBrief, type SeriesContinuity, type StoryBriefInput, storyBeats, STORY_MOODS, CAMERA_PROFILES, GENRES, INTENSITIES, ENDINGS, PRESENTATIONS, CASTS, TROPES, styleBlock, STORY_LIMITS, planScenes, castMinimum, storyboardPrompt, outlinePrompt, chunkPrompt, adaptPrompt, PART_SECONDS, SCENES_PER_WRITER_CALL, MAX_WORDS_PER_CLIP } from './lib/prompts.js';
 import { assembleParts, toNativeMultiShotPrompt, addDeapiCastNotes, buildCommercialShotPrompts } from './lib/assemble.js';
 import { refineScene, shownInstruction, proseToUnits, thoughtToVisual, type SpokenLine } from './lib/screenplay.js';
@@ -611,6 +611,17 @@ const adImageRender: Handler = async ({ req, res, body }) => {
   const id = newId('job');
   await sql()`INSERT INTO video_jobs (id, user_id, status_url, response_url, seconds, source) VALUES (${id}, ${row.id}, ${job.statusUrl}, ${job.responseUrl}, ${seconds}, ${source})`;
   json(res, 200, { jobId: id });
+};
+
+const videoModelCatalogue: Handler = async ({ req, res }) => {
+  const { row } = await requireAccess(req);
+  await rateLimit(`video-models:${row.id}`, 30, 3600);
+  let provider: ReturnType<typeof parseVideoProvider>;
+  try { provider = parseVideoProvider(process.env.VIDEO_PROVIDER); }
+  catch (e: any) { throw new HttpError(500, e?.message || 'Invalid VIDEO_PROVIDER setting.', 'VIDEO_PROVIDER'); }
+  const deapiEnabled = !!lookupEnv('DEAPI_API_KEY') && (provider === 'deapi' || provider === 'auto');
+  const models = deapiEnabled ? await deapiVideoModels() : [];
+  json(res, 200, { provider, models, deapiEnabled });
 };
 
 const researchTrends: Handler = async ({ req, res, body }) => {
@@ -1318,11 +1329,11 @@ const tts: Handler = async ({ req, res, body }) => {
 
 // ---------------------------------------------------------------- video (fal.ai / deAPI queue)
 /** Sends one clip to the configured video provider (VIDEO_PROVIDER: fal, deapi or auto) and returns its queue addresses. */
-async function submitToProvider(prompt: string, reso: '480P' | '768P' | '1080P', seconds: 5 | 10, aspect: string, multiPrompt?: { prompt: string; duration: number }[]): Promise<{ statusUrl: string; responseUrl: string }> {
+async function submitToProvider(prompt: string, reso: '480P' | '768P' | '1080P', seconds: 5 | 10, aspect: string, multiPrompt?: { prompt: string; duration: number }[], videoModel?: string): Promise<{ statusUrl: string; responseUrl: string }> {
   let provider: ReturnType<typeof parseVideoProvider>;
   try { provider = parseVideoProvider(process.env.VIDEO_PROVIDER); }
   catch (e: any) { throw new HttpError(500, e?.message || 'Invalid VIDEO_PROVIDER setting.', 'VIDEO_PROVIDER'); }
-  const viaDeapi = async () => { const deapiPrompt = multiPrompt?.length ? `${prompt} ${toNativeMultiShotPrompt(multiPrompt)}` : prompt; const j = await deapiSubmit(deapiPrompt, reso, seconds, aspect); return { statusUrl: `deapi:${j.requestId}`, responseUrl: 'deapi' }; };
+  const viaDeapi = async () => { const deapiPrompt = multiPrompt?.length ? `${prompt} ${toNativeMultiShotPrompt(multiPrompt)}` : prompt; const j = await deapiSubmit(deapiPrompt, reso, seconds, aspect, videoModel); return { statusUrl: `deapi:${j.requestId}`, responseUrl: 'deapi' }; };
   const viaFal = async () => { const j = await falSubmit(prompt, reso, seconds, aspect); return { statusUrl: j.statusUrl, responseUrl: j.responseUrl }; };
   if (provider === 'deapi') return viaDeapi();
   if (provider === 'fal') return viaFal();
@@ -1964,10 +1975,12 @@ const episodeCreate: Handler = async ({ req, res, body }) => {
     cta: str(kit.cta, 60), url: str(kit.url, 140),
     logoAssetId: str(kit.logoAssetId, 80) || undefined,
     referenceAssetIds: Array.isArray(kit.referenceAssetIds) ? [...new Set(kit.referenceAssetIds.map((id: any) => str(id, 80)).filter(Boolean))].slice(0, 4) : [],
+    startFrameAssetId: str(kit.startFrameAssetId, 80) || undefined,
   };
-  const hasBrandKit = !!(brandKit.brandName || brandKit.tagline || brandKit.cta || brandKit.url || brandKit.logoAssetId || brandKit.referenceAssetIds.length);
+  const videoModel = str(body.videoModel, 120);
+  const hasBrandKit = !!(brandKit.brandName || brandKit.tagline || brandKit.cta || brandKit.url || brandKit.logoAssetId || brandKit.referenceAssetIds.length || brandKit.startFrameAssetId);
   if (hasBrandKit) {
-    const assetIds = [...new Set([brandKit.logoAssetId, ...brandKit.referenceAssetIds].filter(Boolean))] as string[];
+    const assetIds = [...new Set([brandKit.logoAssetId, ...brandKit.referenceAssetIds, brandKit.startFrameAssetId].filter(Boolean))] as string[];
     for (const assetId of assetIds) {
       const owned = (await sql()`SELECT content_type FROM media_assets WHERE id = ${assetId} AND user_id = ${row.id} LIMIT 1`) as any[];
       if (!owned[0]) throw new HttpError(404, 'A Brand Library image is missing or does not belong to this account.', 'BRAND_ASSET_NOT_FOUND');
@@ -1982,6 +1995,7 @@ const episodeCreate: Handler = async ({ req, res, body }) => {
     brandKit.url ? 'Destination website: ' + brandKit.url + '.' : '',
     brandKit.logoAssetId ? 'A real logo is saved separately. Do not generate, redraw or spell a logo in video frames; leave the closing frame clean for the exact uploaded logo to be overlaid in the editor.' : '',
     brandKit.referenceAssetIds.length ? 'Product and visual references are saved in the Brand Library. Do not invent additional objects or people.' : '',
+    brandKit.startFrameAssetId ? 'A user-supplied opening frame is attached. Start the first shot from its composition and preserve the subject identity and visual style.' : '',
   ].filter(Boolean).join(' ') : '';
   const promptIdea = [fallbackIdea, brandNotes].filter(Boolean).join('\n\n').slice(0, 1800);
   const input = parseStoryInput({ ...body, idea: promptIdea.length >= 10 ? promptIdea : promptIdea + ' (the story)' });
@@ -2006,7 +2020,7 @@ const episodeCreate: Handler = async ({ req, res, body }) => {
   }
 
   const episodeId = newId('ep');
-  const settings = { format: input.format, look: input.look, aspect: input.aspect, niche: input.niche, brief: input.brief, variationSeed: input.variationSeed, mode, script, direction, brandKit: hasBrandKit ? brandKit : null, reviewFirst: body.reviewFirst === true, characterReferences: body.characterReferences === true, approved: false };
+  const settings = { format: input.format, look: input.look, aspect: input.aspect, niche: input.niche, brief: input.brief, variationSeed: input.variationSeed, mode, script, direction, brandKit: hasBrandKit ? brandKit : null, videoModel: videoModel || undefined, reviewFirst: body.reviewFirst === true, characterReferences: body.characterReferences === true, approved: false };
   try {
     await sql()`INSERT INTO episodes (id, project_id, part_number, prompt_input, status, brief) VALUES (${episodeId}, ${projectId}, ${partNumber}, ${input.idea}, 'PROCESSING', ${jsonb(settings)}::jsonb)`;
   } catch (e: any) {
@@ -2098,7 +2112,7 @@ async function reserveSource(row: any, user: ReturnType<typeof toUser>, seconds:
  * Starts one 10 second clip. The second half of a 20 second scene starts from the last picture of the first half (image-to-video),
  * so the scene carries on without a jump; if that is not possible it falls back to a normal clip with a "continue" prompt.
  */
-async function startPart(row: any, user: ReturnType<typeof toUser>, spec: { prompt: string; aspect: string; kind: 'text' | 'continue'; prevUrl?: string; startImageUrl?: string; referenceImages?: { name: string; url: string; description?: string }[]; multiPrompt?: { prompt: string; duration: number }[]; commercial?: boolean }) {
+async function startPart(row: any, user: ReturnType<typeof toUser>, spec: { prompt: string; aspect: string; kind: 'text' | 'continue'; prevUrl?: string; startImageUrl?: string; referenceImages?: { name: string; url: string; description?: string }[]; multiPrompt?: { prompt: string; duration: number }[]; commercial?: boolean; videoModel?: string }) {
   const source = await reserveSource(row, user, PART_SECONDS);
   await rateLimit(`render:${row.id}`, 300, 3600);
   const reso = PLANS[user.tier]?.resolution || '480P';
@@ -2152,7 +2166,7 @@ async function startPart(row: any, user: ReturnType<typeof toUser>, spec: { prom
       frame = bytes;
     }
     if (provider === 'deapi') {
-      const j = await deapiAnimate(deapiAnimationPrompt, frame, reso, PART_SECONDS, spec.aspect);
+      const j = await deapiAnimate(deapiAnimationPrompt, frame, reso, PART_SECONDS, spec.aspect, spec.videoModel);
       job = { statusUrl: `deapi:${j.requestId}`, responseUrl: 'deapi' };
     } else {
       try {
@@ -2165,7 +2179,7 @@ async function startPart(row: any, user: ReturnType<typeof toUser>, spec: { prom
       } catch (e: any) {
         if (e instanceof RateLimited) throw e;
         if (shouldFallbackToDeapi(provider) && lookupEnv('DEAPI_API_KEY')) {
-          const j = await deapiAnimate(deapiPrompt, frame, reso, PART_SECONDS, spec.aspect);
+          const j = await deapiAnimate(deapiPrompt, frame, reso, PART_SECONDS, spec.aspect, spec.videoModel);
           job = { statusUrl: `deapi:${j.requestId}`, responseUrl: 'deapi' };
         } else throw e;
       }
@@ -2180,11 +2194,11 @@ async function startPart(row: any, user: ReturnType<typeof toUser>, spec: { prom
         job = { statusUrl: j.statusUrl, responseUrl: j.responseUrl };
       } catch (e: any) {
         if (provider === 'auto' && lookupEnv('DEAPI_API_KEY')) {
-          const j = await deapiSubmit(deapiPrompt, reso, PART_SECONDS, spec.aspect);
+          const j = await deapiSubmit(deapiPrompt, reso, PART_SECONDS, spec.aspect, spec.videoModel);
           job = { statusUrl: `deapi:${j.requestId}`, responseUrl: 'deapi' };
         } else throw e;
       }
-    } else job = await submitToProvider(deapiPrompt, reso, PART_SECONDS, spec.aspect, deapiMultiPrompt);
+    } else job = await submitToProvider(deapiPrompt, reso, PART_SECONDS, spec.aspect, deapiMultiPrompt, spec.videoModel);
   }
   const id = newId('job');
   await sql()`INSERT INTO video_jobs (id, user_id, status_url, response_url, seconds, source) VALUES (${id}, ${row.id}, ${job.statusUrl}, ${job.responseUrl}, ${PART_SECONDS}, ${source})`;
@@ -2268,10 +2282,20 @@ async function stageRender(row: any, user: ReturnType<typeof toUser>, ep: any): 
     const isEpisodeOpening = en.index === 0 && k === 0;
     // DeAPI/LTX can accept only one image reference. For a commercial, use the user's first
     // product/brand visual as the opening frame rather than silently discarding every brand image.
+    const userOpeningFrameId = str(savedBrandKit.startFrameAssetId, 80);
+    let userOpeningFrameUrl: string | undefined;
+    if (isEpisodeOpening && userOpeningFrameId) {
+      const frameRows = await sql()`SELECT pathname, content_type FROM media_assets WHERE id = ${userOpeningFrameId} AND user_id = ${row.id} LIMIT 1`;
+      const frameAsset = frameRows[0] as any;
+      if (!frameAsset || !String(frameAsset.content_type || '').toLowerCase().startsWith('image/')) throw new HttpError(404, 'The saved opening frame is missing from your private library.', 'REFERENCE_IMAGE');
+      const frameToken = await issueSignedToken({ operations: ['get'] });
+      const signedFrame = await presignUrl(frameToken, { pathname: String(frameAsset.pathname), operation: 'get', access: 'private', validUntil: Date.now() + 10 * 60 * 1000 });
+      userOpeningFrameUrl = signedFrame.presignedUrl;
+    }
     const deapiCommercialOpening = String(ep.brief?.format || '') === 'commercial'
       && (process.env.VIDEO_PROVIDER || 'fal').trim().toLowerCase() === 'deapi'
       ? brandReferenceImages[0]?.url : undefined;
-    const startImageUrl = isEpisodeOpening ? (deapiCommercialOpening || openingReference) : undefined;
+    const startImageUrl = isEpisodeOpening ? (userOpeningFrameUrl || deapiCommercialOpening || openingReference) : undefined;
     const carriesVisualReference = scenes[en.index].continuesPrevious === true || scenes[en.index].referencePrevious === true;
     const previousUrl = k > 0 ? en.parts[k - 1]?.url : (carriesVisualReference ? previousSceneLastUrl : (isEpisodeOpening && !startImageUrl ? previousEpisodeAnchorUrl : undefined));
     if (k > 0 && !previousUrl) continue; // the second half starts from the first half's last picture
@@ -2313,7 +2337,7 @@ async function stageRender(row: any, user: ReturnType<typeof toUser>, ep: any): 
       const continuityPrompt = previousUrl || startImageUrl
         ? `${scene.parts[k].prompt} Continue from the supplied reference frame. Preserve the exact visible character identities, faces, hair, wardrobe, carried props and screen direction. The intended current scene location is ${currentLocation || 'the location described in this scene'}. If it differs from the reference frame, make a clear motivated transition into this current location and replace the old background; do not carry the previous set into the new scene. Keep only the named people required by this scene.`
         : scene.parts[k].prompt;
-      const { jobId } = await startPart(row, user, { prompt: continuityPrompt, aspect, kind: previousUrl || startImageUrl ? 'continue' : 'text', prevUrl: previousUrl, startImageUrl, referenceImages: selected, multiPrompt: commercialMultiPrompt || scene.parts[k].multiPrompt, commercial: isCommercial });
+      const { jobId } = await startPart(row, user, { prompt: continuityPrompt, aspect, kind: previousUrl || startImageUrl ? 'continue' : 'text', prevUrl: previousUrl, startImageUrl, referenceImages: selected, multiPrompt: commercialMultiPrompt || scene.parts[k].multiPrompt, commercial: isCommercial, videoModel: str(ep.brief?.videoModel, 120) || undefined });
       p.jobId = jobId; p.tries += 1; p.checkAt = Date.now() + FIRST_CHECK_MS; delete p.error; started++;
     } catch (e: any) {
       if (e instanceof RateLimited) {
@@ -3139,7 +3163,7 @@ const routes: Record<string, Handler> = {
   'POST /video/director/plan': videoDirectorPlan, 'POST /video/director/match': videoDirectorMatch, 'POST /media/upload': mediaUpload, 'GET /media/list': mediaList, 'GET /media/url': mediaSignedUrl, 'POST /media/transcribe': mediaTranscribe,
   'POST /ai/generate-script': genScript, 'POST /ai/research-trends': researchTrends, 'POST /ai/ad-concepts': adConcepts, 'POST /ad/brand-images': adBrandImages, 'POST /ad/render-image': adImageRender, 'POST /tts': tts,
   'POST /ai/ab-variations': abVariations, 'POST /ai/competitor-analysis': competitorAnalysis, 'POST /ai/outrank': outrank,
-  'POST /video/render': videoRender, 'GET /video/status': videoStatus,
+  'POST /video/render': videoRender, 'GET /video/status': videoStatus, 'GET /video/models': videoModelCatalogue,
   'GET /social/accounts': socialAccounts, 'POST /social/sync': socialSync, 'GET /video/download': videoDownload, 'GET /video/merge': videoMerge, 'POST /video/editor/render': videoEditorRender, 'POST /video/editor/assemble': videoEditorAssemble, 'GET /social/connect': socialConnect, 'GET /social/callback': socialCallback, 'GET /social/zernio-callback': socialZernioCallback,
   'POST /social/disconnect': socialDisconnect, 'GET /social/metrics': socialMetricsRoute, 'POST /social/publish': socialPublish,
   'POST /episodes/create': episodeCreate, 'POST /episodes/retry': episodeRetry, 'GET /episodes/status': episodeStatus, 'GET /episodes/clip': episodeClip, 'POST /episodes/pause': episodePause, 'POST /episodes/resume': episodeResume, 'POST /episodes/edit': episodeEdit, 'GET /episodes/video': episodeVideo, 'GET /projects': projectsList, 'GET /projects/get': projectGet, 'POST /projects/reference/clean-plate': projectCleanPlate,
