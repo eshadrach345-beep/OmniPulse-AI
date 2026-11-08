@@ -79,23 +79,82 @@ export const Landing: React.FC<{ onGetStarted: (mode: 'signup' | 'signin') => vo
         </div>
       </header>
 
-      <section className="max-w-6xl mx-auto px-4 sm:px-6 pt-14 sm:pt-24 pb-6">
-        <h1 className="font-display text-[2.6rem] leading-[1.02] sm:text-7xl font-extrabold text-white max-w-4xl">
-          Your ideas deserve a proper studio.
-        </h1>
-        <p className="mt-6 text-slate-300 text-lg sm:text-xl max-w-2xl leading-relaxed">
-          From the job site to the boardroom, turn ideas into scripts, videos and content, then plan and publish from one focused workspace. OmniPulse AI brings creative tools and everyday productivity together.
-        </p>
-        <div className="mt-8 flex flex-wrap gap-3">
-          <button onClick={() => onGetStarted('signup')} className="bg-indigo-600 hover:bg-indigo-500 text-white font-semibold rounded-xl px-6 py-3.5 transition-colors">Create your account</button>
-          <a href="#pricing" className="border border-slate-600 hover:border-slate-400 text-slate-100 rounded-xl px-6 py-3.5 transition-colors">See plans and prices</a>
-        </div>
-        <p className="mt-4 text-sm text-slate-400">7-day trial available. A card is required, and it never renews by itself.</p>\n        <div className="mt-7 flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-slate-400"><span className="inline-flex items-center gap-2"><Check className="w-3.5 h-3.5 text-emerald-400" /> One workspace for your content</span><span className="inline-flex items-center gap-2"><Check className="w-3.5 h-3.5 text-emerald-400" /> Connect channels you control</span><span className="inline-flex items-center gap-2"><Check className="w-3.5 h-3.5 text-emerald-400" /> Review before you publish</span></div>
-        <div className="relative mt-14 sm:mt-20">
-          <PulseLine />
-        </div>
-      </section>
+      <section id="workflow" className="relative isolate max-w-7xl mx-auto overflow-hidden px-4 sm:px-6 pt-14 sm:pt-24 pb-10">
+        <div className="pointer-events-none absolute -left-40 top-8 h-80 w-80 rounded-full bg-indigo-500/15 blur-[100px]" />
+        <div className="pointer-events-none absolute right-0 top-0 h-96 w-96 rounded-full bg-cyan-400/10 blur-[110px]" />
+        <div className="relative grid items-center gap-10 lg:grid-cols-[0.86fr_1.14fr]">
+          <div className="max-w-2xl">
+            <div className="inline-flex items-center gap-2 rounded-full border border-indigo-300/20 bg-indigo-300/5 px-3.5 py-1.5 text-[10px] font-bold uppercase tracking-[0.2em] text-indigo-200"><Sparkles className="h-3.5 w-3.5" /> AI creator workspace</div>
+            <h1 className="mt-6 font-display text-[2.65rem] leading-[1.02] sm:text-6xl xl:text-7xl font-extrabold tracking-tight text-white">
+              One canvas.
+              <span className="block bg-gradient-to-r from-indigo-300 via-cyan-200 to-emerald-200 bg-clip-text text-transparent">Every part of creation.</span>
+            </h1>
+            <p className="mt-6 max-w-xl text-base leading-relaxed text-slate-300 sm:text-lg">
+              Plan a story, generate videos from text or images, shape the edit on a multitrack timeline, then turn the finished work into a channel growth plan.
+            </p>
+            <div className="mt-8 flex flex-wrap gap-3">
+              <button onClick={() => onGetStarted('signup')} className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-6 py-3.5 text-sm font-semibold text-white shadow-xl shadow-indigo-950/40 transition-colors hover:bg-indigo-500"><Sparkles className="h-4 w-4" />Open your creative studio</button>
+              <a href="#pricing" className="rounded-xl border border-slate-600/80 bg-slate-900/40 px-6 py-3.5 text-sm font-semibold text-slate-100 transition-colors hover:border-slate-400">Explore plans</a>
+            </div>
+            <p className="mt-4 text-xs leading-5 text-slate-500">7-day trial available. A card is required for the trial, and it never renews by itself.</p>
+            <div className="mt-7 flex flex-wrap gap-x-5 gap-y-2 text-[11px] text-slate-400">
+              <span className="inline-flex items-center gap-2"><Check className="h-3.5 w-3.5 text-emerald-400" />Review scripts before rendering</span>
+              <span className="inline-flex items-center gap-2"><Check className="h-3.5 w-3.5 text-emerald-400" />Edit clips, audio and captions</span>
+              <span className="inline-flex items-center gap-2"><Check className="h-3.5 w-3.5 text-emerald-400" />Research current niche signals</span>
+            </div>
+          </div>
 
+          <div className="relative min-w-0">
+            <div className="absolute -inset-3 rounded-[2rem] bg-gradient-to-br from-indigo-500/15 via-cyan-500/5 to-emerald-500/10 blur-2xl" />
+            <div className="relative overflow-hidden rounded-[1.6rem] border border-white/10 bg-[#080f1e]/95 shadow-2xl shadow-black/50">
+              <div className="flex items-center justify-between gap-3 border-b border-white/10 px-4 py-3 sm:px-5">
+                <div className="flex min-w-0 items-center gap-2.5"><img src="/omnipulse-mark.svg" alt="" className="h-7 w-7 rounded-lg" /><div className="min-w-0"><p className="truncate text-[11px] font-bold text-white">OmniPulse Creator Canvas</p><p className="text-[9px] text-slate-500">Creative workspace preview</p></div></div>
+                <span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-2.5 py-1 text-[9px] font-semibold text-emerald-300">All stages connected</span>
+              </div>
+              <div className="grid grid-cols-1 gap-3 p-3 sm:p-4 md:grid-cols-[0.82fr_1.18fr]">
+                <div className="space-y-3">
+                  <div className="rounded-xl border border-indigo-400/20 bg-indigo-500/5 p-3">
+                    <div className="flex items-center gap-2 text-[10px] font-semibold text-indigo-200"><Sparkles className="h-3.5 w-3.5" /> Creative brief</div>
+                    <p className="mt-2 text-xs font-semibold text-white">A short film with a strong opening.</p>
+                    <p className="mt-1 text-[10px] leading-4 text-slate-500">Set the story, look, length and delivery format.</p>
+                    <div className="mt-3 flex flex-wrap gap-1.5"><span className="rounded-md bg-slate-900 px-2 py-1 text-[9px] text-slate-400">9:16 vertical</span><span className="rounded-md bg-slate-900 px-2 py-1 text-[9px] text-slate-400">Cinematic</span><span className="rounded-md bg-slate-900 px-2 py-1 text-[9px] text-slate-400">30 seconds</span></div>
+                  </div>
+                  <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-3">
+                    <div className="flex items-center gap-2 text-[10px] font-semibold text-slate-200"><Image className="h-3.5 w-3.5 text-cyan-300" /> Visual references</div>
+                    <div className="mt-3 grid grid-cols-3 gap-1.5">
+                      <div className="aspect-[4/5] rounded-lg border border-indigo-300/20 bg-gradient-to-br from-indigo-400/35 via-slate-800 to-slate-950" />
+                      <div className="aspect-[4/5] rounded-lg border border-cyan-300/20 bg-gradient-to-br from-cyan-400/30 via-slate-800 to-slate-950" />
+                      <div className="aspect-[4/5] rounded-lg border border-emerald-300/20 bg-gradient-to-br from-emerald-400/30 via-slate-800 to-slate-950" />
+                    </div>
+                    <p className="mt-2 text-[9px] text-slate-500">Upload character, product or opening-frame images.</p>
+                  </div>
+                </div>
+                <div className="min-w-0 rounded-xl border border-slate-800 bg-slate-900/70 p-3">
+                  <div className="flex items-center justify-between gap-2"><div className="flex items-center gap-2 text-[10px] font-semibold text-white"><Clapperboard className="h-3.5 w-3.5 text-fuchsia-300" /> Storyboard</div><span className="text-[9px] text-slate-500">Example shot plan</span></div>
+                  <div className="mt-3 grid grid-cols-3 gap-1.5">
+                    {[
+                      { label: 'Opening', time: '05s', color: 'from-indigo-400/40 to-slate-950' },
+                      { label: 'Reveal', time: '05s', color: 'from-fuchsia-400/40 to-slate-950' },
+                      { label: 'Close', time: '05s', color: 'from-emerald-400/40 to-slate-950' },
+                    ].map((scene) => <div key={scene.label} className={`aspect-[4/5] min-w-0 rounded-lg border border-white/10 bg-gradient-to-br ${scene.color} p-2 flex flex-col justify-end`}><p className="text-[9px] font-bold text-white">{scene.label}</p><p className="text-[8px] text-slate-400">{scene.time}</p></div>)}
+                  </div>
+                  <div className="mt-4 space-y-2">
+                    <div className="flex items-center gap-2"><span className="w-10 shrink-0 text-[8px] text-slate-500">VIDEO</span><div className="flex flex-1 gap-1"><span className="h-2.5 flex-1 rounded-sm bg-indigo-400/80" /><span className="h-2.5 flex-1 rounded-sm bg-fuchsia-400/80" /><span className="h-2.5 flex-1 rounded-sm bg-emerald-400/80" /></div></div>
+                    <div className="flex items-center gap-2"><span className="w-10 shrink-0 text-[8px] text-slate-500">TEXT</span><div className="flex flex-1 gap-1"><span className="h-2.5 w-1/3 rounded-sm bg-slate-500/70" /><span className="h-2.5 w-1/4 rounded-sm bg-slate-500/40" /></div></div>
+                    <div className="flex items-center gap-2"><span className="w-10 shrink-0 text-[8px] text-slate-500">AUDIO</span><div className="h-2.5 flex-1 rounded-sm bg-gradient-to-r from-cyan-400/70 via-indigo-400/50 to-cyan-400/70" /></div>
+                  </div>
+                  <div className="mt-4 flex items-center justify-between gap-2 border-t border-slate-800 pt-3"><span className="text-[9px] text-slate-500">Captions · overlays · transitions</span><span className="inline-flex items-center gap-1 text-[9px] font-semibold text-emerald-300"><Check className="h-3 w-3" /> Export-ready workflow</span></div>
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center justify-between gap-2 border-t border-white/10 bg-slate-950/70 px-4 py-3">
+                <div className="flex items-center gap-2 text-[9px] text-slate-500"><Video className="h-3.5 w-3.5 text-indigo-300" /> AI video <span className="text-slate-700">/</span> <Layers className="h-3.5 w-3.5 text-cyan-300" /> Timeline edit <span className="text-slate-700">/</span> <TrendingUp className="h-3.5 w-3.5 text-emerald-300" /> Growth</div>
+                <span className="text-[9px] font-semibold text-indigo-200">OmniPulse AI</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div className="relative mt-12 sm:mt-16"><PulseLine /></div>
+      </section>
       <section className="max-w-6xl mx-auto px-4 sm:px-6 pb-16 sm:pb-24">
         <ol className="grid grid-cols-2 sm:grid-cols-5 gap-x-4 gap-y-6">
           {STEPS.map((s, i) => (
