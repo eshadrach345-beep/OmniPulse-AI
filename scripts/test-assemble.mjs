@@ -111,6 +111,23 @@ check(handlerSource.includes('replace the old background; do not carry the previ
 check(handlerSource.includes('toNativeMultiShotPrompt(multiPrompt)'), 'DeAPI receives native multi-shot prose when a coverage pair exists');
 check(handlerSource.includes('${prompt} ${toNativeMultiShotPrompt(multiPrompt)}'), 'DeAPI multi-shot requests retain the shared scene prompt and continuity context');
 
+const commercialShots = A.buildCommercialShotPrompts({
+  visual: 'A sleek black smartphone showing a clean teal AI dashboard on a dark desk.',
+  cameraMotion: 'a slow controlled push-in',
+  spokenLines: [
+    { speaker: 'Narrator', text: 'Too many tools? Bring your workflow together.' },
+    { speaker: 'Narrator', text: 'Create images, video, voice and chat in one place.' },
+  ],
+});
+check(commercialShots.length === 2, 'commercial coverage is split into two shots');
+check(commercialShots.every((shot) => shot.duration === 5), 'commercial shot durations are five seconds each');
+check(commercialShots[0].prompt.includes('Too many tools?'), 'first narration line stays in the opening shot');
+check(!commercialShots[0].prompt.includes('Create images, video'), 'narration is not duplicated across commercial shots');
+check(commercialShots[1].prompt.includes('Create images, video'), 'second narration line is kept in the second shot');
+check(commercialShots[1].prompt.includes('Hard cut to a distinct five-second'), 'second commercial shot has a deliberate camera cut');
+check(commercialShots[0].prompt.includes('Avoid hand close-ups'), 'commercial shots explicitly avoid common anatomy failures');
+check(commercialShots.every((shot) => shot.prompt.includes('exact supplied product')), 'both shots preserve the supplied product reference');
+
 const savedContinuity = P.continuityBlock({
   partNumber: 2, previousTitle: 'The Lighthouse', previousLogline: 'A map is found.', storySoFar: 'The crew found a stone anchor.',
   endingScene: { visualPrompt: 'Mara holds the anchor.', voiceoverText: '' }, characters: [],
