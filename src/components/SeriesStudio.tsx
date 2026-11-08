@@ -525,7 +525,19 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
                 <div><p className="text-xs font-semibold text-white">Generated clip soundtrack</p><p className="text-[10px] text-slate-400">DeAPI creates dialogue, ambience and effects together with the video. The player uses that original synced audio instead of layering a second TTS voice over it.</p></div>
                 <button type="button" onClick={() => setAudioEnabled((v) => !v)} aria-pressed={audioEnabled} className={`rounded-lg px-3 py-2 text-xs font-semibold ${audioEnabled ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-300'}`}>{audioEnabled ? 'Clip audio on' : 'Clip audio off'}</button>
               </div>
-              <ClipSequence clips={episode.clips} captions={episodeCaptionTracks(episode.scenes)} audioEnabled={audioEnabled} />
+              {episode.brief.format === 'commercial' && episode.hasBrandLogo && episode.finalVideoUrl ? (
+                <section className="space-y-2">
+                  <p className="text-xs font-semibold text-emerald-200">Final branded advert preview</p>
+                  <video key={episode.id + episode.finalVideoUrl} src={episode.finalVideoUrl} controls playsInline preload="metadata" className="w-full max-h-[60vh] rounded-xl bg-black" />
+                  <p className="text-[11px] text-slate-400">This is the finished MP4 with your exact uploaded logo and clean 8-second closing card. Individual raw scene previews below are not branded.</p>
+                  <details className="rounded-lg border border-slate-800 p-2">
+                    <summary className="cursor-pointer text-[11px] text-slate-400">View original generated scene clips</summary>
+                    <div className="mt-2"><ClipSequence clips={episode.clips} captions={episodeCaptionTracks(episode.scenes)} audioEnabled={audioEnabled} /></div>
+                  </details>
+                </section>
+              ) : (
+                <ClipSequence clips={episode.clips} captions={episodeCaptionTracks(episode.scenes)} audioEnabled={audioEnabled} />
+              )}
               {episode.clipJobIds?.length > 0 && (
                 <section className="rounded-xl border border-indigo-500/30 bg-slate-950/80 p-3 space-y-3">
                   <div className="flex flex-wrap items-center justify-between gap-2">
