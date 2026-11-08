@@ -10,7 +10,7 @@ export function normalizeTrendPublishedAt(value: unknown, now = Date.now()): str
   const lower = raw.toLowerCase();
   if (/^(today|just now|moments ago)$/.test(lower)) return new Date(now).toISOString();
   if (lower === 'yesterday') return new Date(now - DAY_MS).toISOString();
-  const relative = lower.match(/^(?:about\\s+)?(\\d+(?:\\.\\d+)?)\\s*(minutes?|mins?|hours?|hrs?|days?|weeks?|months?|years?)\\s*(?:ago|old)?$/);
+  const relative = lower.match(/^(?:about\s+)?(\d+(?:\.\d+)?)\s*(minutes?|mins?|hours?|hrs?|days?|weeks?|months?|years?)\s*(?:ago|old)?$/);
   if (relative) {
     const amount = Number(relative[1]);
     const unit = relative[2];
