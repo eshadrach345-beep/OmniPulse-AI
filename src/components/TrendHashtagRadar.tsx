@@ -11,6 +11,18 @@ import {
   SocialAccount
 } from '../types';
 import { analyzeNicheTrends } from '../services/aiService';
+import { api } from '../services/api';
+
+type YouTubeGrowthKit = {
+  titleOptions: string[];
+  openingHooks: string[];
+  description: string;
+  tags: string[];
+  hashtags: string[];
+  shortsIdeas: string[];
+  thumbnailConcepts: string[];
+  optimizationChecklist: string[];
+};
 
 import { 
   TrendingUp, 
@@ -81,10 +93,33 @@ export const TrendHashtagRadar: React.FC<TrendHashtagRadarProps> = ({
   const [analysisError, setAnalysisError] = useState<string | null>(null);
   const [copiedTag, setCopiedTag] = useState<string | null>(null);
   const [copiedBatch, setCopiedBatch] = useState(false);
-  const [activeTab, setActiveTab] = useState<'topics' | 'creators' | 'hashtags' | 'competitors' | 'best-practices'>('topics');
+  const [activeTab, setActiveTab] = useState<'topics' | 'creators' | 'hashtags' | 'competitors' | 'best-practices' | 'youtube-growth'>('topics');
+  const [seoKeyword, setSeoKeyword] = useState('');
+  const [seoTitle, setSeoTitle] = useState('');
+  const [seoDescription, setSeoDescription] = useState('');
+  const [seoGoal, setSeoGoal] = useState<'discoverability' | 'clicks' | 'subscribers' | 'shorts'>('discoverability');
+  const [growthKit, setGrowthKit] = useState<YouTubeGrowthKit | null>(null);
+  const [growthKitBusy, setGrowthKitBusy] = useState(false);
+  const [growthKitError, setGrowthKitError] = useState('');
   const [showAllCreators, setShowAllCreators] = useState(false);
   const [creatorPlatformFilter, setCreatorPlatformFilter] = useState('All');
   const [creatorSort, setCreatorSort] = useState<'rank' | 'views' | 'velocity' | 'recent'>('rank');
+
+  const copyGrowthText = (value: string) => { void navigator.clipboard.writeText(value); };
+
+  const buildYouTubeGrowthKit = async (e?: React.FormEvent) => {
+    e?.preventDefault();
+    setGrowthKitBusy(true); setGrowthKitError(''); setGrowthKit(null);
+    try {
+      const result = await api.post<YouTubeGrowthKit>('/ai/youtube-growth-kit', {
+        niche: activeNiche.name, keyword: seoKeyword.trim(), title: seoTitle.trim(),
+        description: seoDescription.trim(), goal: seoGoal,
+      });
+      setGrowthKit(result);
+    } catch (error) {
+      setGrowthKitError(error instanceof Error ? error.message : 'The YouTube growth package could not be generated.');
+    } finally { setGrowthKitBusy(false); }
+  };
 
   // Handle custom niche search or refresh analysis
   const handleRunAnalysis = async (e?: React.FormEvent) => {
@@ -271,6 +306,18 @@ export const TrendHashtagRadar: React.FC<TrendHashtagRadarProps> = ({
         </button>
 
         <button
+          onClick={() => setActiveTab('youtube-growth')}
+          className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-md text-xs font-semibold transition-colors ${
+            activeTab === 'youtube-growth'
+              ? 'bg-indigo-600 text-white shadow-xs'
+              : 'text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          <Youtube className="w-3.5 h-3.5 text-red-300" />
+          <span>YouTube Growth Studio</span>
+        </button>
+
+        <button
           onClick={() => setActiveTab('best-practices')}
           className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-md text-xs font-semibold transition-colors ${
             activeTab === 'best-practices'
@@ -286,14 +333,14 @@ export const TrendHashtagRadar: React.FC<TrendHashtagRadarProps> = ({
       {/* Tab 1: Trending Topics & Viral Content Inspiration */}
       {analysisError && <div role="alert" className="text-xs text-rose-300 bg-rose-500/10 border border-rose-500/30 rounded-lg px-3 py-2">{analysisError}</div>}
 
-      {activeNiche.trendingTopics.length === 0 && activeTab !== 'competitors' && (
+      {activeNiche.trendingTopics.length === 0 && activeTab === 'topics' && (
         <div className="bg-slate-900/60 border border-dashed border-slate-700 rounded-xl p-6 text-center space-y-2">
           <p className="text-sm text-slate-300">{isAnalyzing ? 'Researching live trends for this niche...' : 'No research loaded for this niche yet.'}</p>
           {!isAnalyzing && <button onClick={() => handleRunAnalysis()} className="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold">Run live research</button>}
         </div>
       )}
 
-      {activeNiche.trendingTopics.length > 0 && activeTab !== 'competitors' && activeNiche.researchGrounded && (
+      {activeNiche.trendingTopics.length > 0 && activeTab === 'topics' && activeNiche.researchGrounded && (
         <section className="overflow-hidden rounded-2xl border border-emerald-500/20 bg-slate-900/75 shadow-xl shadow-black/10">
           <div className="flex flex-col gap-3 border-b border-slate-800 bg-gradient-to-r from-emerald-500/10 via-slate-900 to-cyan-500/5 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
             <div className="flex items-center gap-3">
@@ -705,6 +752,61 @@ export const TrendHashtagRadar: React.FC<TrendHashtagRadarProps> = ({
           onSendOutrankToScheduler={onSendOutrankToScheduler}
           onSendOutrankToVideoStudio={onSendOutrankToVideoStudio}
         />
+      )}
+
+      {activeTab === 'youtube-growth' && (
+        <div className="space-y-4">
+          <section className="rounded-2xl border border-red-500/20 bg-gradient-to-br from-red-500/5 via-slate-900/90 to-indigo-500/5 p-4 sm:p-5">
+            <div className="flex items-start gap-3">
+              <div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl border border-red-400/20 bg-red-400/10"><Youtube className="h-5 w-5 text-red-300" /></div>
+              <div className="min-w-0">
+                <h2 className="text-sm font-bold text-white">YouTube Growth Studio</h2>
+                <p className="mt-1 max-w-3xl text-xs leading-5 text-slate-400">Build a publish-ready SEO and creative package: title variations, opening hooks, description, tags, thumbnail angles and Shorts ideas. Recommendations are generated from your brief; this tool does not pretend to know private channel analytics or keyword search volumes.</p>
+              </div>
+            </div>
+            <form onSubmit={buildYouTubeGrowthKit} className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-2">
+              <label className="block space-y-1"><span className="text-[11px] font-semibold text-slate-300">Primary topic / keyword</span><input value={seoKeyword} onChange={(event) => setSeoKeyword(event.target.value)} maxLength={160} placeholder="e.g. AI video editing for small businesses" className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-xs text-white placeholder:text-slate-600" /></label>
+              <label className="block space-y-1"><span className="text-[11px] font-semibold text-slate-300">Current video title (optional)</span><input value={seoTitle} onChange={(event) => setSeoTitle(event.target.value)} maxLength={180} placeholder="Paste your working title" className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-xs text-white placeholder:text-slate-600" /></label>
+              <label className="block space-y-1 lg:col-span-2"><span className="text-[11px] font-semibold text-slate-300">What happens in the video?</span><textarea value={seoDescription} onChange={(event) => setSeoDescription(event.target.value)} maxLength={4000} rows={4} placeholder="Describe the video, intended audience, key points and the result viewers should get..." className="w-full resize-y rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-xs text-white placeholder:text-slate-600" /></label>
+              <label className="block space-y-1"><span className="text-[11px] font-semibold text-slate-300">Main growth goal</span><select value={seoGoal} onChange={(event) => setSeoGoal(event.target.value as typeof seoGoal)} className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-xs text-white"><option value="discoverability">Search discovery</option><option value="clicks">More qualified clicks</option><option value="subscribers">Subscriber growth</option><option value="shorts">Shorts reach</option></select></label>
+              <div className="flex items-end"><button type="submit" disabled={growthKitBusy || (!seoKeyword.trim() && !seoTitle.trim() && seoDescription.trim().length < 30)} className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-red-600 px-4 py-2.5 text-xs font-semibold text-white shadow-lg shadow-red-950/20 transition-colors hover:bg-red-500 disabled:opacity-40">{growthKitBusy ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}{growthKitBusy ? 'Building growth package…' : 'Build YouTube package'}</button></div>
+            </form>
+            {growthKitError && <p role="alert" className="mt-3 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-300">{growthKitError}</p>}
+          </section>
+
+          {growthKit && (
+            <div className="space-y-4">
+              <section className="rounded-xl border border-slate-800 bg-slate-900/70 p-4 space-y-3">
+                <div className="flex items-center justify-between gap-3"><h3 className="text-xs font-bold uppercase tracking-wider text-slate-200">Title variations</h3><button type="button" onClick={() => copyGrowthText(growthKit.titleOptions.join('\n'))} className="text-[10px] font-semibold text-indigo-300 hover:text-indigo-200">Copy all</button></div>
+                {growthKit.titleOptions.map((item, index) => <div key={index} className="flex items-start gap-3 rounded-lg border border-slate-800 bg-slate-950/80 p-3"><span className="text-[10px] font-mono text-slate-500">{String(index + 1).padStart(2, '0')}</span><p className="min-w-0 flex-1 text-xs font-semibold text-white">{item}</p><button type="button" onClick={() => copyGrowthText(item)} aria-label="Copy title" className="text-slate-500 hover:text-indigo-300"><Copy className="h-3.5 w-3.5" /></button></div>)}
+              </section>
+              <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                <section className="rounded-xl border border-slate-800 bg-slate-900/70 p-4 space-y-3">
+                  <div className="flex items-center justify-between"><h3 className="text-xs font-bold uppercase tracking-wider text-slate-200">Opening hooks</h3><button type="button" onClick={() => copyGrowthText(growthKit.openingHooks.join('\n'))} className="text-[10px] text-indigo-300">Copy all</button></div>
+                  {growthKit.openingHooks.map((item,index) => <p key={index} className="border-b border-slate-800 pb-2 text-xs leading-5 text-slate-300">“{item}”</p>)}
+                </section>
+                <section className="rounded-xl border border-slate-800 bg-slate-900/70 p-4 space-y-3">
+                  <div className="flex items-center justify-between"><h3 className="text-xs font-bold uppercase tracking-wider text-slate-200">Tags & hashtags</h3><button type="button" onClick={() => copyGrowthText([...growthKit.tags, ...growthKit.hashtags].join(', '))} className="text-[10px] text-indigo-300">Copy pack</button></div>
+                  <div className="flex flex-wrap gap-1.5">{growthKit.tags.map((item,index) => <button type="button" key={index} onClick={() => copyGrowthText(item)} className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-[10px] text-slate-300">{item}</button>)}</div>
+                  <div className="flex flex-wrap gap-1.5 border-t border-slate-800 pt-3">{growthKit.hashtags.map((item,index) => <button type="button" key={index} onClick={() => copyGrowthText(item)} className="rounded-md border border-indigo-500/20 bg-indigo-500/10 px-2 py-1 text-[10px] text-indigo-200">{item}</button>)}</div>
+                </section>
+              </div>
+              <section className="rounded-xl border border-slate-800 bg-slate-900/70 p-4 space-y-2">
+                <div className="flex items-center justify-between"><h3 className="text-xs font-bold uppercase tracking-wider text-slate-200">Optimized description</h3><button type="button" onClick={() => copyGrowthText(growthKit.description)} className="text-[10px] text-indigo-300">Copy description</button></div>
+                <p className="whitespace-pre-wrap text-xs leading-6 text-slate-300">{growthKit.description}</p>
+              </section>
+              <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                {[['Shorts ideas', growthKit.shortsIdeas], ['Thumbnail concepts', growthKit.thumbnailConcepts], ['Pre-publish checklist', growthKit.optimizationChecklist]].map(([title, items]) => (
+                  <section key={String(title)} className="rounded-xl border border-slate-800 bg-slate-900/70 p-4 space-y-2">
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-slate-200">{title}</h3>
+                    {(items as string[]).map((item,index) => <div key={index} className="flex items-start gap-2 border-b border-slate-800/70 pb-2 text-xs leading-5 text-slate-300"><span className="mt-0.5 text-indigo-300">•</span><span className="flex-1">{item}</span><button type="button" onClick={() => copyGrowthText(item)} className="shrink-0 text-slate-500 hover:text-indigo-300" aria-label="Copy item"><Copy className="h-3 w-3" /></button></div>)}
+                  </section>
+                ))}
+                <section className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-4 lg:col-span-2"><p className="text-[10px] leading-5 text-amber-100/80">Growth note: these are creative and optimization recommendations, not verified search-volume, ranking or performance measurements. Compare actual results in your connected channel analytics after publishing.</p></section>
+              </div>
+            </div>
+          )}
+        </div>
       )}
 
       {activeTab === 'best-practices' && (
