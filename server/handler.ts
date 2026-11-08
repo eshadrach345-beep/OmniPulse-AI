@@ -9,7 +9,7 @@ import { sql, ensureSchema } from './lib/db.js';
 import { PLANS, TIERS, Tier, Cycle, planId, tierFromPlanId, priceFor, BILLING_CURRENCY, TRIAL, TOPUPS, trialPrice } from './lib/plans.js';
 import { mail, flw, verifyFlwSignature, lookupEnv, geminiJson, geminiRaw, geminiFormat, webTrendResearch, aiWriterStatus, testAiWriters, falSubmit, falContinueSubmit, falReferenceVideoSubmit, falKlingReferenceSubmit, falGenerateCharacterReference, falGenerateLocationPlate, falEditLocationPlate, falStatus, falImageVideoSubmit, falGenerateBrandImages, deapiSubmit, deapiStatus, deapiAnimate, RateLimited, synthesize } from './lib/services.js';
 import { trendsFormatPrompt, scriptPrompt, adConceptPrompt, abPrompt, competitorPrompt, outrankPrompt, parseStoryBrief, type SeriesContinuity, type StoryBriefInput, storyBeats, STORY_MOODS, CAMERA_PROFILES, GENRES, INTENSITIES, ENDINGS, PRESENTATIONS, CASTS, TROPES, styleBlock, STORY_LIMITS, planScenes, castMinimum, storyboardPrompt, outlinePrompt, chunkPrompt, adaptPrompt, PART_SECONDS, SCENES_PER_WRITER_CALL, MAX_WORDS_PER_CLIP } from './lib/prompts.js';
-import { assembleParts, toNativeMultiShotPrompt, addDeapiCastNotes } from './lib/assemble.js';
+import { assembleParts, toNativeMultiShotPrompt, addDeapiCastNotes, buildCommercialShotPrompts } from './lib/assemble.js';
 import { refineScene, shownInstruction, proseToUnits, thoughtToVisual, type SpokenLine } from './lib/screenplay.js';
 import { renderComposition } from './lib/compositor.js';
 import { mergeClips, lastFrameJpeg } from './lib/merge.js';
@@ -2094,7 +2094,7 @@ async function reserveSource(row: any, user: ReturnType<typeof toUser>, seconds:
  * Starts one 10 second clip. The second half of a 20 second scene starts from the last picture of the first half (image-to-video),
  * so the scene carries on without a jump; if that is not possible it falls back to a normal clip with a "continue" prompt.
  */
-async function startPart(row: any, user: ReturnType<typeof toUser>, spec: { prompt: string; aspect: string; kind: 'text' | 'continue'; prevUrl?: string; startImageUrl?: string; referenceImages?: { name: string; url: string; description?: string }[]; multiPrompt?: { prompt: string; duration: number }[] }) {
+async function startPart(row: any, user: ReturnType<typeof toUser>, spec: { prompt: string; aspect: string; kind: 'text' | 'continue'; prevUrl?: string; startImageUrl?: string; referenceImages?: { name: string; url: string; description?: string }[]; multiPrompt?: { prompt: string; duration: number }[]; commercial?: boolean }) {
   const source = await reserveSource(row, user, PART_SECONDS);
   await rateLimit(`render:${row.id}`, 300, 3600);
   const reso = PLANS[user.tier]?.resolution || '480P';
@@ -2111,7 +2111,7 @@ async function startPart(row: any, user: ReturnType<typeof toUser>, spec: { prom
     const imageGuide = refs.map((x, i) => `@Image${i + 1} is ${x.name}. Use it as the exact supplied identity, location, product or visual design reference; do not substitute or redesign it.`).join(' ');
     const videoGuide = spec.prevUrl ? '@Video1 is the immediately preceding scene clip. Continue its established action, actors, clothing, props and screen direction without resetting.' : '';
     const openingGuide = spec.startImageUrl ? 'Begin on the supplied start image and preserve its exact composition.' : '';
-    const globalPrompt = [imageGuide, videoGuide, openingGuide, 'Premium vertical serialized live-action drama. Keep character identities, location layout, wardrobe and props consistent through the entire multi-shot clip.'].filter(Boolean).join(' ');
+    const globalPrompt = [imageGuide, videoGuide, openingGuide, spec.commercial ? 'Premium product-led brand commercial. Treat supplied brand/product references as the exact subject design. Keep the same package, device geometry, materials, colors, location and lighting consistent across the two shots. This is a polished advert, not a collage or a phone screenshot.' : 'Premium vertical serialized live-action drama. Keep character identities, location layout, wardrobe and props consistent through the entire multi-shot clip.'].filter(Boolean).join(' ');
     try {
       const j = await falKlingReferenceSubmit(
         globalPrompt, refs.map((x) => x.url), '720p', PART_SECONDS, spec.aspect,
@@ -2276,11 +2276,30 @@ async function stageRender(row: any, user: ReturnType<typeof toUser>, ep: any): 
        const selected = isCommercial
          ? [...locationRef, ...brandReferenceImages.slice(0, Math.max(0, 4 - locationRef.length))].slice(0, 4)
          : [...locationRef, ...characterRefs, ...brandReferenceImages.slice(0, brandSlots)].slice(0, 4);
+      const spokenPartLines = Array.isArray(scene.parts[k]?.lines)
+        ? scene.parts[k].lines.slice(0, 8).map((line: any) => ({ speaker: str(line?.speaker, 40), text: str(line?.text, 220) })).filter((line: any) => line.text)
+        : [];
+      const narrationOnly = spokenPartLines.every((line: any) => !line.speaker || line.speaker.toLowerCase() === 'narrator');
+      // With a saved product/logo reference and FAL access, direct the 10-second
+      // commercial part as two deliberate five-second shots instead of one drifting take.
+      // Dialogue scenes stay on the established single-take path to protect lip-sync.
+      const commercialMultiPrompt = isCommercial
+        && brandReferenceImages.length > 0
+        && (process.env.VIDEO_PROVIDER || 'fal').trim().toLowerCase() !== 'deapi'
+        && lookupEnv('FAL_KEY')
+        && narrationOnly
+        ? buildCommercialShotPrompts({
+            visual: visualForMatch,
+            action: k > 0 ? str(scene.secondHalfAction, 420) : '',
+            cameraMotion: str(scene.cameraMotion, 180),
+            spokenLines: spokenPartLines,
+          })
+        : undefined;
       const currentLocation = str(scene.location, 260);
       const continuityPrompt = previousUrl || startImageUrl
         ? `${scene.parts[k].prompt} Continue from the supplied reference frame. Preserve the exact visible character identities, faces, hair, wardrobe, carried props and screen direction. The intended current scene location is ${currentLocation || 'the location described in this scene'}. If it differs from the reference frame, make a clear motivated transition into this current location and replace the old background; do not carry the previous set into the new scene. Keep only the named people required by this scene.`
         : scene.parts[k].prompt;
-      const { jobId } = await startPart(row, user, { prompt: continuityPrompt, aspect, kind: previousUrl || startImageUrl ? 'continue' : 'text', prevUrl: previousUrl, startImageUrl, referenceImages: selected, multiPrompt: scene.parts[k].multiPrompt });
+      const { jobId } = await startPart(row, user, { prompt: continuityPrompt, aspect, kind: previousUrl || startImageUrl ? 'continue' : 'text', prevUrl: previousUrl, startImageUrl, referenceImages: selected, multiPrompt: scene.parts[k].multiPrompt || commercialMultiPrompt, commercial: isCommercial });
       p.jobId = jobId; p.tries += 1; p.checkAt = Date.now() + FIRST_CHECK_MS; delete p.error; started++;
     } catch (e: any) {
       if (e instanceof RateLimited) {
@@ -2520,10 +2539,11 @@ const episodeVideo: Handler = async ({ req, res, query }) => {
     const aspect = String(ep.brief?.aspect || '9:16');
     const [aw, ah] = aspect.split(':').map(Number);
     const ratio = aw > 0 && ah > 0 ? aw / ah : 9 / 16;
-    const width = ratio >= 1 ? 1280 : 720;
+    const width = ratio >= 1 ? 1920 : 1080;
     const height = Math.round(width / ratio / 2) * 2;
     const duration = Math.max(1, Math.min(90, scenes.reduce((sum, scene) => sum + (Number(scene.clipSeconds) || PART_SECONDS), 0)));
-    const closingDuration = Math.min(8, duration);
+    // A branded outro should resolve the ad, not occupy a quarter of the runtime.
+    const closingDuration = Math.min(4, duration);
     const cardStart = Math.max(0, duration - closingDuration);
     // Exact-size dark navy background plate. The model-generated final shot is covered,
     // so distorted faces, limbs or AI-written lettering cannot become the brand end card.
@@ -2533,17 +2553,28 @@ const episodeVideo: Handler = async ({ req, res, query }) => {
     const backgroundPath = path.join(workDir, 'closing-card.ppm');
     await fs.writeFile(backgroundPath, Buffer.concat([ppmHeader, pixels]));
     const output = path.join(workDir, 'omnipulse-branded.mp4');
-    const brandName = str(kit.brandName, 80);
-    const tagline = str(kit.tagline, 100);
-    const cardText = [brandName, tagline].filter(Boolean).join('  •  ');
+    const brandName = str(kit.brandName, 80) || str(ep.project_title, 80) || 'OmniPulse AI';
+    const isOmniPulse = /omnipulse/i.test(brandName);
+    const tagline = str(kit.tagline, 100) || (isOmniPulse ? 'One Platform. Endless Possibilities.' : '');
+    const cta = str(kit.cta, 60) || (isOmniPulse ? 'Start free today' : 'Learn more');
+    const website = str(kit.url, 140) || (isOmniPulse ? 'OmniPulseai.us.ci' : '');
+    const accent = /^#?[0-9a-f]{6}$/i.test(String(kit.primaryColor || ''))
+      ? '#' + String(kit.primaryColor).replace('#', '')
+      : '#2DE0B8';
     await renderComposition({
       base: merged.file,
       overlays: [
-        { layer: { kind: 'image', sourceIn: 0, duration: closingDuration, startAt: cardStart, scale: 100, opacity: 1, x: 50, y: 50, volume: 0 }, file: backgroundPath },
-        { layer: { kind: 'image', sourceIn: 0, duration: closingDuration, startAt: cardStart, scale: 48, opacity: 1, x: 50, y: 43, volume: 0 }, file: logoPath },
+        { layer: { kind: 'image', sourceIn: 0, duration: closingDuration, startAt: cardStart, scale: 100, opacity: 1, x: 50, y: 50, volume: 0, fadeIn: 0.35, fadeOut: 0.35 }, file: backgroundPath },
+        { layer: { kind: 'image', sourceIn: 0, duration: closingDuration, startAt: cardStart, scale: 34, opacity: 1, x: 50, y: 24, volume: 0, fadeIn: 0.45, fadeOut: 0.35 }, file: logoPath },
       ],
       audio: [],
-      captions: cardText ? [{ start: Math.max(cardStart + 0.8, duration - 2.8), end: Math.max(cardStart + 1, duration - 0.3), text: cardText }] : [],
+      captions: [],
+      textOverlays: [
+        { start: cardStart + 0.25, end: duration - 0.15, text: brandName, y: 'h*0.51', fontSize: 76, color: 'white', fadeIn: 0.45, fadeOut: 0.25 },
+        ...(tagline ? [{ start: cardStart + 0.35, end: duration - 0.15, text: tagline, y: 'h*0.59', fontSize: 48, color: '#DCE8F5', weight: 'regular' as const, fadeIn: 0.45, fadeOut: 0.25 }] : []),
+        { start: cardStart + 0.5, end: duration - 0.15, text: cta, y: 'h*0.70', fontSize: 48, color: '#06122B', boxColor: accent, boxBorderWidth: 24, fadeIn: 0.5, fadeOut: 0.25 },
+        ...(website ? [{ start: cardStart + 0.6, end: duration - 0.15, text: website, y: 'h*0.82', fontSize: 42, color: accent, weight: 'bold' as const, fadeIn: 0.5, fadeOut: 0.25 }] : []),
+      ],
       duration, width, height, output,
     });
     const stat = await fs.stat(output);
