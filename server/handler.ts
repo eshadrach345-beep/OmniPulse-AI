@@ -9,7 +9,7 @@ import { sql, ensureSchema } from './lib/db.js';
 import { PLANS, TIERS, Tier, Cycle, planId, tierFromPlanId, priceFor, BILLING_CURRENCY, TRIAL, TOPUPS, trialPrice } from './lib/plans.js';
 import { mail, flw, verifyFlwSignature, lookupEnv, geminiJson, geminiRaw, geminiFormat, webTrendResearch, aiWriterStatus, testAiWriters, falSubmit, falContinueSubmit, falReferenceVideoSubmit, falKlingReferenceSubmit, falGenerateCharacterReference, falGenerateLocationPlate, falEditLocationPlate, falStatus, falImageVideoSubmit, falGenerateBrandImages, deapiSubmit, deapiStatus, deapiAnimate, RateLimited, synthesize } from './lib/services.js';
 import { trendsFormatPrompt, scriptPrompt, adConceptPrompt, abPrompt, competitorPrompt, outrankPrompt, parseStoryBrief, type SeriesContinuity, type StoryBriefInput, storyBeats, STORY_MOODS, CAMERA_PROFILES, GENRES, INTENSITIES, ENDINGS, PRESENTATIONS, CASTS, TROPES, styleBlock, STORY_LIMITS, planScenes, castMinimum, storyboardPrompt, outlinePrompt, chunkPrompt, adaptPrompt, PART_SECONDS, SCENES_PER_WRITER_CALL, MAX_WORDS_PER_CLIP } from './lib/prompts.js';
-import { assembleParts, toNativeMultiShotPrompt } from './lib/assemble.js';
+import { assembleParts, toNativeMultiShotPrompt, addDeapiCastNotes } from './lib/assemble.js';
 import { refineScene, shownInstruction, proseToUnits, thoughtToVisual, type SpokenLine } from './lib/screenplay.js';
 import { renderComposition } from './lib/compositor.js';
 import { mergeClips, lastFrameJpeg } from './lib/merge.js';
@@ -1319,7 +1319,7 @@ const tts: Handler = async ({ req, res, body }) => {
 /** Sends one clip to the configured video provider (VIDEO_PROVIDER: fal, deapi or auto) and returns its queue addresses. */
 async function submitToProvider(prompt: string, reso: '480P' | '768P' | '1080P', seconds: 5 | 10, aspect: string, multiPrompt?: { prompt: string; duration: number }[]): Promise<{ statusUrl: string; responseUrl: string }> {
   const provider = (process.env.VIDEO_PROVIDER || 'fal').trim().toLowerCase();
-  const viaDeapi = async () => { const deapiPrompt = multiPrompt?.length ? toNativeMultiShotPrompt(multiPrompt) : prompt; const j = await deapiSubmit(deapiPrompt, reso, seconds, aspect); return { statusUrl: `deapi:${j.requestId}`, responseUrl: 'deapi' }; };
+  const viaDeapi = async () => { const deapiPrompt = multiPrompt?.length ? `${prompt} ${toNativeMultiShotPrompt(multiPrompt)}` : prompt; const j = await deapiSubmit(deapiPrompt, reso, seconds, aspect); return { statusUrl: `deapi:${j.requestId}`, responseUrl: 'deapi' }; };
   const viaFal = async () => { const j = await falSubmit(prompt, reso, seconds, aspect); return { statusUrl: j.statusUrl, responseUrl: j.responseUrl }; };
   if (provider === 'deapi') return viaDeapi();
   // Keep fal as the preferred engine, but automatically use the configured
@@ -2069,11 +2069,14 @@ async function reserveSource(row: any, user: ReturnType<typeof toUser>, seconds:
  * Starts one 10 second clip. The second half of a 20 second scene starts from the last picture of the first half (image-to-video),
  * so the scene carries on without a jump; if that is not possible it falls back to a normal clip with a "continue" prompt.
  */
-async function startPart(row: any, user: ReturnType<typeof toUser>, spec: { prompt: string; aspect: string; kind: 'text' | 'continue'; prevUrl?: string; startImageUrl?: string; referenceImages?: { name: string; url: string }[]; multiPrompt?: { prompt: string; duration: number }[] }) {
+async function startPart(row: any, user: ReturnType<typeof toUser>, spec: { prompt: string; aspect: string; kind: 'text' | 'continue'; prevUrl?: string; startImageUrl?: string; referenceImages?: { name: string; url: string; description?: string }[]; multiPrompt?: { prompt: string; duration: number }[] }) {
   const source = await reserveSource(row, user, PART_SECONDS);
   await rateLimit(`render:${row.id}`, 300, 3600);
   const reso = PLANS[user.tier]?.resolution || '480P';
   const provider = (process.env.VIDEO_PROVIDER || 'fal').trim().toLowerCase();
+  const deapiCast = addDeapiCastNotes(spec.prompt, spec.multiPrompt, (spec.referenceImages || []).map((ref) => ({ name: ref.name, description: ref.description })));
+  const deapiPrompt = deapiCast.prompt;
+  const deapiMultiPrompt = deapiCast.multiPrompt;
   let job: { statusUrl: string; responseUrl: string } | undefined;
 
   // Short-drama clips use Kling's multi-shot director and reusable reference assets.
@@ -2108,7 +2111,7 @@ async function startPart(row: any, user: ReturnType<typeof toUser>, spec: { prom
       frame = bytes;
     }
     if (provider === 'deapi') {
-      const j = await deapiAnimate(spec.prompt, frame, reso, PART_SECONDS, spec.aspect);
+      const j = await deapiAnimate(deapiPrompt, frame, reso, PART_SECONDS, spec.aspect);
       job = { statusUrl: `deapi:${j.requestId}`, responseUrl: 'deapi' };
     } else {
       try {
@@ -2121,7 +2124,7 @@ async function startPart(row: any, user: ReturnType<typeof toUser>, spec: { prom
       } catch (e: any) {
         if (e instanceof RateLimited) throw e;
         if (lookupEnv('DEAPI_API_KEY')) {
-          const j = await deapiAnimate(spec.prompt, frame, reso, PART_SECONDS, spec.aspect);
+          const j = await deapiAnimate(deapiPrompt, frame, reso, PART_SECONDS, spec.aspect);
           job = { statusUrl: `deapi:${j.requestId}`, responseUrl: 'deapi' };
         } else throw e;
       }
@@ -2136,11 +2139,11 @@ async function startPart(row: any, user: ReturnType<typeof toUser>, spec: { prom
         job = { statusUrl: j.statusUrl, responseUrl: j.responseUrl };
       } catch (e: any) {
         if (provider === 'auto' && lookupEnv('DEAPI_API_KEY')) {
-          const j = await deapiSubmit(spec.prompt, reso, PART_SECONDS, spec.aspect);
+          const j = await deapiSubmit(deapiPrompt, reso, PART_SECONDS, spec.aspect);
           job = { statusUrl: `deapi:${j.requestId}`, responseUrl: 'deapi' };
         } else throw e;
       }
-    } else job = await submitToProvider(spec.prompt, reso, PART_SECONDS, spec.aspect, spec.multiPrompt);
+    } else job = await submitToProvider(deapiPrompt, reso, PART_SECONDS, spec.aspect, deapiMultiPrompt);
   }
   const id = newId('job');
   await sql()`INSERT INTO video_jobs (id, user_id, status_url, response_url, seconds, source) VALUES (${id}, ${row.id}, ${job.statusUrl}, ${job.responseUrl}, ${PART_SECONDS}, ${source})`;
@@ -2221,7 +2224,7 @@ async function stageRender(row: any, user: ReturnType<typeof toUser>, ep: any): 
       const sceneText = [visualForMatch, ...(scene.lines || []).map((l: any) => l.speaker)].join(' ').toLowerCase();
       const cast: any[] = Array.isArray(ep.storyboard_json?.characters) ? ep.storyboard_json.characters : [];
       const relevant = cast.filter((c) => c.referenceImageUrl && /^https:\/\//i.test(c.referenceImageUrl) && (sceneText.includes(String(c.name || '').toLowerCase()) || (scene.lines || []).some((l: any) => String(l.speaker || '').toLowerCase() === String(c.name || '').toLowerCase())));
-       const characterRefs = (relevant.length ? relevant : cast.filter((c) => c.referenceImageUrl && /^https:\/\//i.test(c.referenceImageUrl)).slice(0, 2)).slice(0, projectReferences.locationPlateUrl ? 3 : 4).map((c) => ({ name: str(c.name, 30), url: String(c.referenceImageUrl) }));
+       const characterRefs = (relevant.length ? relevant : cast.filter((c) => c.referenceImageUrl && /^https:\/\//i.test(c.referenceImageUrl)).slice(0, 2)).slice(0, projectReferences.locationPlateUrl ? 3 : 4).map((c) => ({ name: str(c.name, 30), url: String(c.referenceImageUrl), description: str(c.description, 220) }));
        const locationRef = /^https:\/\//i.test(String(projectReferences.locationPlateUrl || '')) ? [{ name: 'the permanent location plate (room layout, furniture and props)', url: String(projectReferences.locationPlateUrl) }] : [];
        const selected = [...locationRef, ...characterRefs].slice(0, 4);
       const currentLocation = str(scene.location, 260);

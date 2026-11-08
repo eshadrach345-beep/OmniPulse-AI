@@ -33,6 +33,28 @@ export function toNativeMultiShotPrompt(shots: { prompt: string; duration: numbe
   return prose.join(' ') + ' Keep the same named cast, exact faces, hair, wardrobe, props, location geometry, light direction and screen direction consistent across every cut.';
 }
 
+/**
+ * DeAPI's current video endpoints accept one first-frame image, not a set of cast
+ * reference images. Preserve the saved cast descriptions as explicit text guidance
+ * instead of silently dropping them when the DeAPI provider is selected.
+ */
+export function addDeapiCastNotes(
+  prompt: string,
+  multiPrompt: { prompt: string; duration: number }[] | undefined,
+  cast: { name: string; description?: string }[],
+): { prompt: string; multiPrompt?: { prompt: string; duration: number }[] } {
+  const notes = cast
+    .filter((c) => String(c.name || '').trim() && String(c.description || '').trim())
+    .slice(0, 4)
+    .map((c) => `${cut(c.name, 40)}: ${cut(c.description, 220)}`);
+  if (!notes.length) return { prompt, multiPrompt };
+  const lock = `ESTABLISHED CAST APPEARANCE NOTES (text guidance only; no extra image inputs): ${notes.join(' | ')}. These describe the existing named characters, not additional people. Keep their faces, hair, skin tone, build and wardrobe consistent; do not reinterpret or recast them.`;
+  return {
+    prompt: `${lock} ${prompt}`,
+    multiPrompt: multiPrompt?.map((shot) => ({ ...shot, prompt: `${lock} ${shot.prompt}` })),
+  };
+}
+
 export interface AssembleInput {
   presentation: Presentation;
   brief: { genre: keyof typeof GENRES; intensity: keyof typeof INTENSITIES };
