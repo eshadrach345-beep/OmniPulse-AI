@@ -1,15 +1,18 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Loader2, Play, Plus, ChevronRight, Clock, Film, Camera, Check, AlertTriangle, Download, ArrowLeft, Clapperboard, RotateCcw, FileText, Users, Sparkles, Pause } from 'lucide-react';
+import { upload } from '@vercel/blob/client';
+import { Loader2, Play, Plus, ChevronRight, Clock, Film, Camera, Check, AlertTriangle, Download, ArrowLeft, Clapperboard, RotateCcw, FileText, Users, Sparkles, Pause, ImagePlus, Trash2 } from 'lucide-react';
 import { AspectRatioType, CameraProfileId, CastId, DialogueId, EndingId, GenreId, IntensityId, PresentationId, StoryMoodId, TropeId } from '../types';
 import { StoryFormat } from '../services/aiService';
 import { Episode, ProjectDetail, ProjectSummary, Series, isActive, isOpen, type EditableScene } from '../services/seriesService';
 import { ScriptEditor } from './ScriptEditor';
-import { ApiError } from '../services/api';
+import { ApiError, api } from '../services/api';
 import { MoviePoster } from './MoviePoster';
 import {
   CAMERA_OPTIONS, CAST_OPTIONS, DIALOGUE_OPTIONS, ENDING_OPTIONS, GENRE_OPTIONS, IDEA_STARTERS, INTENSITY_OPTIONS, LENGTH_CHOICES, MAX_PART_SECONDS, MIN_PART_SECONDS, MOOD_OPTIONS, PRESENTATION_OPTIONS, PRESETS, TROPE_OPTIONS, TROPE_STARTERS,
   buildBrief, clampSeconds, formatSeconds, sceneCountFor, type StyleOption,
 } from '../data/storyOptions';
+
+type BrandMediaAsset = { id: string; name: string; contentType: string; size: number; previewUrl?: string };
 
 interface Props {
   nicheName: string;
@@ -202,6 +205,46 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
   const [trope, setTrope] = useState<TropeId>('none');
   const [reviewFirst, setReviewFirst] = useState(true);
   const [characterReferences, setCharacterReferences] = useState(true);
+  const logoInputRef = useRef<HTMLInputElement | null>(null);
+  const brandRefsInputRef = useRef<HTMLInputElement | null>(null);
+  const [brandName, setBrandName] = useState('');
+  const [brandTagline, setBrandTagline] = useState('');
+  const [brandColor, setBrandColor] = useState('#687cff');
+  const [brandLogo, setBrandLogo] = useState<BrandMediaAsset | null>(null);
+  const [brandReferences, setBrandReferences] = useState<BrandMediaAsset[]>([]);
+  const [brandUploadBusy, setBrandUploadBusy] = useState(false);
+  const [brandUploadMessage, setBrandUploadMessage] = useState('');
+  const [brandUploadError, setBrandUploadError] = useState('');
+  const uploadBrandAssets = async (selection: FileList | null, role: 'logo' | 'reference') => {
+    const files = selection ? Array.from(selection) : [];
+    if (!files.length) return;
+    if (role === 'logo' && files.length > 1) { setBrandUploadError('Choose one logo file.'); return; }
+    if (role === 'reference' && brandReferences.length + files.length > 4) { setBrandUploadError('Add up to four visual reference images.'); return; }
+    setBrandUploadBusy(true); setBrandUploadError(''); setBrandUploadMessage('');
+    try {
+      for (const file of files) {
+        const mime = file.type || (/\.png$/i.test(file.name) ? 'image/png' : /\.webp$/i.test(file.name) ? 'image/webp' : 'image/jpeg');
+        if (!['image/jpeg', 'image/png', 'image/webp'].includes(mime)) throw new Error('Use a JPG, PNG or WebP image.');
+        if (file.size > 15 * 1024 * 1024) throw new Error('Each brand image must be 15 MB or smaller.');
+        const before = await api.get<{ assets: BrandMediaAsset[] }>('/media/list');
+        await upload('brand-assets/' + Date.now() + '-' + file.name.replace(/[^a-zA-Z0-9._-]/g, '_'), file, {
+          access: 'private', handleUploadUrl: '/api/media/upload',
+          clientPayload: JSON.stringify({ name: file.name, type: mime, size: file.size }),
+        });
+        const after = await api.get<{ assets: BrandMediaAsset[] }>('/media/list');
+        const oldIds = new Set(before.assets.map((asset) => asset.id));
+        const saved = after.assets.find((asset) => !oldIds.has(asset.id) && asset.contentType.startsWith('image/'));
+        if (!saved) throw new Error('Upload completed, but its library record was not found. Refresh and try again.');
+        const signed = await api.get<{ url: string }>('/media/url?id=' + encodeURIComponent(saved.id));
+        const ready = { ...saved, previewUrl: signed.url };
+        if (role === 'logo') setBrandLogo(ready);
+        else setBrandReferences((current) => [...current, ready].slice(0, 4));
+      }
+      setBrandUploadMessage(role === 'logo' ? 'Logo saved to your private Brand Library.' : 'Visual references saved to your private Brand Library.');
+    } catch (e) {
+      setBrandUploadError(e instanceof ApiError ? e.message : e instanceof Error ? e.message : 'Brand asset upload failed.');
+    } finally { setBrandUploadBusy(false); }
+  };
   const [locationEditInstruction, setLocationEditInstruction] = useState('Remove the used dishes and clutter from the table. Keep the exact same table, chairs, kitchen, camera angle, lighting and all other props unchanged.');
   const [locationEditBusy, setLocationEditBusy] = useState(false);
   const [locationEditMessage, setLocationEditMessage] = useState('');
@@ -333,6 +376,10 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
       const r = await Series.create({
         projectId: detail?.project.id, title: title.trim() || undefined, idea: idea.trim(), mode: writer, script: writer === 'paste' ? script.trim() : undefined,
         format, look, aspectRatio: ratio, niche: nicheName, brief: built.brief, reviewFirst, characterReferences,
+        brandKit: (brandName.trim() || brandTagline.trim() || brandLogo || brandReferences.length) ? {
+          brandName: brandName.trim(), tagline: brandTagline.trim(), primaryColor: brandColor,
+          logoAssetId: brandLogo?.id, referenceAssetIds: brandReferences.map((asset) => asset.id),
+        } : undefined,
         series: !continuing && kind === 'series' ? { parts, deliver } : undefined,
       });
       setEpisode(null); setEpisodeId(r.episodeId); setView('progress'); usageRef.current?.();
@@ -631,8 +678,36 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
               <label className="block text-xs font-semibold text-slate-300 mb-1.5" htmlFor="series-title">Title {writer === 'ai' ? '' : '(optional)'}</label>
               <input id="series-title" value={title} onChange={(e) => setTitle(e.target.value)} maxLength={100} placeholder={writer === 'ai' ? 'The name of your story' : 'We will name it from your script if you leave this empty'} className={selectCls} />
             </div>
+            <section className="rounded-2xl border border-indigo-400/25 bg-slate-950/75 p-4 space-y-3">
+              <div className="flex items-start justify-between gap-3">
+                <div><p className="text-xs font-bold text-white flex items-center gap-2"><ImagePlus className="w-4 h-4 text-amber-300" /> Brand kit & visual references</p><p className="mt-1 text-[11px] text-slate-400">Add your real logo, product photos, people and locations before writing the storyboard.</p></div>
+                <span className="shrink-0 rounded-full border border-slate-700 px-2 py-1 text-[10px] text-slate-400">Private</span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <label className="text-[11px] text-slate-400">Brand / business name<input value={brandName} onChange={(e) => setBrandName(e.target.value)} maxLength={80} placeholder="e.g. OmniPulse AI" className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white" /></label>
+                <label className="text-[11px] text-slate-400">Tagline (optional)<input value={brandTagline} onChange={(e) => setBrandTagline(e.target.value)} maxLength={100} placeholder="One AI. A million possibilities." className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white" /></label>
+              </div>
+              <label className="inline-flex items-center gap-2 text-[11px] text-slate-300">Primary brand colour<input aria-label="Primary brand colour" type="color" value={brandColor} onChange={(e) => setBrandColor(e.target.value)} className="h-8 w-12 cursor-pointer rounded border border-slate-700 bg-slate-900 p-0.5" /><span className="font-mono text-slate-400">{brandColor.toUpperCase()}</span></label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-3">
+                  <input ref={logoInputRef} type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={(e) => { void uploadBrandAssets(e.target.files, 'logo'); e.target.value = ''; }} />
+                  <button type="button" disabled={brandUploadBusy} onClick={() => logoInputRef.current?.click()} className="w-full rounded-lg border border-dashed border-slate-600 px-3 py-3 text-left hover:border-indigo-400 disabled:opacity-50"><span className="flex items-center gap-2 text-xs font-semibold text-white"><ImagePlus className="w-4 h-4 text-amber-300" /> {brandLogo ? 'Replace logo' : 'Upload brand logo'}</span><span className="mt-1 block text-[10px] text-slate-400">PNG, JPG or WebP · max 15 MB</span></button>
+                  {brandLogo && <div className="mt-2 flex items-center gap-2">{brandLogo.previewUrl && <img src={brandLogo.previewUrl} alt="Uploaded brand logo preview" className="h-10 w-10 rounded-lg bg-white object-contain p-1" />}<span className="min-w-0 flex-1 truncate text-[10px] text-slate-300">{brandLogo.name}</span><button type="button" aria-label="Remove uploaded logo" onClick={() => setBrandLogo(null)} className="rounded-md p-1 text-slate-400 hover:text-white"><Trash2 className="h-3.5 w-3.5" /></button></div>}
+                </div>
+                <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-3">
+                  <input ref={brandRefsInputRef} type="file" multiple accept="image/png,image/jpeg,image/webp" className="hidden" onChange={(e) => { void uploadBrandAssets(e.target.files, 'reference'); e.target.value = ''; }} />
+                  <button type="button" disabled={brandUploadBusy || brandReferences.length >= 4} onClick={() => brandRefsInputRef.current?.click()} className="w-full rounded-lg border border-dashed border-slate-600 px-3 py-3 text-left hover:border-indigo-400 disabled:opacity-50"><span className="flex items-center gap-2 text-xs font-semibold text-white"><ImagePlus className="w-4 h-4 text-amber-300" /> Add visual references</span><span className="mt-1 block text-[10px] text-slate-400">Products, people, locations · up to 4</span></button>
+                  {brandReferences.length > 0 && <div className="mt-2 grid grid-cols-4 gap-1.5">{brandReferences.map((asset) => <div key={asset.id} className="relative">{asset.previewUrl && <img src={asset.previewUrl} alt={asset.name} title={asset.name} className="h-12 w-full rounded-md bg-slate-800 object-cover" />}<button type="button" aria-label="Remove reference image" onClick={() => setBrandReferences((current) => current.filter((item) => item.id !== asset.id))} className="absolute -right-1 -top-1 rounded-full bg-slate-950 p-0.5 text-white"><Trash2 className="h-3 w-3" /></button></div>)}</div>}
+                </div>
+              </div>
+              {brandUploadBusy && <p className="text-[11px] text-indigo-300 animate-pulse">Uploading securely to your private media library…</p>}
+              {brandUploadMessage && <p className="text-[11px] text-emerald-300">{brandUploadMessage}</p>}
+              {brandUploadError && <p role="alert" className="text-[11px] text-rose-300">{brandUploadError}</p>}
+              <p className="text-[10px] leading-relaxed text-slate-500">Your exact logo is stored in your private media library and can be placed as a crisp overlay in Video Editor. Visual references are saved with this production and forwarded to FAL/Kling multi-reference renders when configured. DeAPI accepts one starting image, so its visual conditioning remains limited to that frame.</p>
+            </section>
+            {format === 'commercial' && <p className="rounded-lg border border-amber-300/20 bg-amber-300/5 px-3 py-2 text-[11px] text-amber-100">Commercial preset: six separately directed 10-second shots for a 60-second advert. You will review and edit the storyboard before any video clips render.</p>}
             <div className="grid grid-cols-3 gap-2">
-              {FORMATS.map((f) => <button key={f.id} type="button" onClick={() => { setFormat(f.id); setLook(f.look); if (f.id === 'documentary' || f.id === 'commercial') setPresentation('narrated'); else if (presentation === 'narrated') setPresentation('movie'); }} aria-pressed={format === f.id} className={chip(format === f.id)}><span className="block font-bold">{f.title}</span></button>)}
+              {FORMATS.map((f) => <button key={f.id} type="button" onClick={() => { setFormat(f.id); setLook(f.look); if (f.id === 'documentary' || f.id === 'commercial') setPresentation('narrated'); else if (presentation === 'narrated') setPresentation('movie'); if (f.id === 'commercial') { setSceneSeconds(10); setReviewFirst(true); setSeconds(60); } }} aria-pressed={format === f.id} className={chip(format === f.id)}><span className="block font-bold">{f.title}</span></button>)}
             </div>
             <div className="flex gap-2">{RATIOS.map((r) => <button key={r} type="button" onClick={() => setRatio(r)} aria-pressed={ratio === r} className={chip(ratio === r)}>{r}</button>)}</div>
           </>

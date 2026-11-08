@@ -1956,7 +1956,31 @@ const episodeCreate: Handler = async ({ req, res, body }) => {
   let projectId = str(body.projectId, 80);
   if (mode === 'paste' && !projectId && script.length < 40) throw new HttpError(400, 'Paste your script first (at least a few lines).');
   const fallbackIdea = mode === 'paste' ? (str(body.title, 100) || script.slice(0, 160) || 'Continue with the saved script.') : (str(body.idea, 800) || direction || (projectId ? 'Continue the story from where the last part ended.' : ''));
-  const input = parseStoryInput({ ...body, idea: fallbackIdea.length >= 10 ? fallbackIdea : `${fallbackIdea} (the story)` });
+  const kit = body.brandKit && typeof body.brandKit === 'object' ? body.brandKit : {};
+  const brandKit = {
+    brandName: str(kit.brandName, 80), tagline: str(kit.tagline, 100),
+    primaryColor: /^#[0-9a-f]{6}$/i.test(str(kit.primaryColor, 7)) ? str(kit.primaryColor, 7) : '#687cff',
+    logoAssetId: str(kit.logoAssetId, 80) || undefined,
+    referenceAssetIds: Array.isArray(kit.referenceAssetIds) ? [...new Set(kit.referenceAssetIds.map((id: any) => str(id, 80)).filter(Boolean))].slice(0, 4) : [],
+  };
+  const hasBrandKit = !!(brandKit.brandName || brandKit.tagline || brandKit.logoAssetId || brandKit.referenceAssetIds.length);
+  if (hasBrandKit) {
+    const assetIds = [...new Set([brandKit.logoAssetId, ...brandKit.referenceAssetIds].filter(Boolean))] as string[];
+    for (const assetId of assetIds) {
+      const owned = (await sql()`SELECT content_type FROM media_assets WHERE id = ${assetId} AND user_id = ${row.id} LIMIT 1`) as any[];
+      if (!owned[0]) throw new HttpError(404, 'A Brand Library image is missing or does not belong to this account.', 'BRAND_ASSET_NOT_FOUND');
+      if (!String(owned[0].content_type || '').toLowerCase().startsWith('image/')) throw new HttpError(415, 'Brand logos and visual references must be image files.', 'BRAND_ASSET_TYPE');
+    }
+  }
+  const brandNotes = hasBrandKit ? [
+    brandKit.brandName ? 'Brand identity: ' + brandKit.brandName + '.' : '',
+    brandKit.tagline ? 'Brand tagline: ' + brandKit.tagline + '.' : '',
+    brandKit.primaryColor ? 'Primary brand accent: ' + brandKit.primaryColor + '.' : '',
+    brandKit.logoAssetId ? 'A real logo is saved separately. Do not generate, redraw or spell a logo in video frames; leave the closing frame clean for the exact uploaded logo to be overlaid in the editor.' : '',
+    brandKit.referenceAssetIds.length ? 'Product and visual references are saved in the Brand Library. Do not invent additional objects or people.' : '',
+  ].filter(Boolean).join(' ') : '';
+  const promptIdea = [fallbackIdea, brandNotes].filter(Boolean).join('\n\n').slice(0, 1800);
+  const input = parseStoryInput({ ...body, idea: promptIdea.length >= 10 ? promptIdea : promptIdea + ' (the story)' });
   if ((await secondsAvailable(row, user)) < PART_SECONDS) throw new HttpError(403, 'You have no video seconds left. Buy extra seconds or upgrade your plan.', 'LIMIT');
 
   let partNumber = 1;
@@ -1978,7 +2002,7 @@ const episodeCreate: Handler = async ({ req, res, body }) => {
   }
 
   const episodeId = newId('ep');
-  const settings = { format: input.format, look: input.look, aspect: input.aspect, niche: input.niche, brief: input.brief, variationSeed: input.variationSeed, mode, script, direction, reviewFirst: body.reviewFirst === true, characterReferences: body.characterReferences === true, approved: false };
+  const settings = { format: input.format, look: input.look, aspect: input.aspect, niche: input.niche, brief: input.brief, variationSeed: input.variationSeed, mode, script, direction, brandKit: hasBrandKit ? brandKit : null, reviewFirst: body.reviewFirst === true, characterReferences: body.characterReferences === true, approved: false };
   try {
     await sql()`INSERT INTO episodes (id, project_id, part_number, prompt_input, status, brief) VALUES (${episodeId}, ${projectId}, ${partNumber}, ${input.idea}, 'PROCESSING', ${jsonb(settings)}::jsonb)`;
   } catch (e: any) {
@@ -1986,6 +2010,7 @@ const episodeCreate: Handler = async ({ req, res, body }) => {
     if (e?.code === '23505') throw new HttpError(409, 'Another part of this project was just started. Please refresh.', 'SERIES_BUSY');
     throw e;
   }
+  if (hasBrandKit) await sql()`UPDATE projects SET reference_assets = COALESCE(reference_assets, '{}'::jsonb) || ${jsonb({ brandKit })}::jsonb, updated_at = now() WHERE id = ${projectId} AND user_id = ${row.id}`;
   await sql()`UPDATE projects SET updated_at = now() WHERE id = ${projectId}`;
   json(res, 202, { projectId, episodeId, partNumber, status: 'PROCESSING' });
 };
@@ -2083,7 +2108,7 @@ async function startPart(row: any, user: ReturnType<typeof toUser>, spec: { prom
   // If Kling is unavailable or out of credit, fall back to the existing H3 Max path.
   if (provider !== 'deapi' && spec.multiPrompt?.length && lookupEnv('FAL_KEY')) {
     const refs = (spec.referenceImages || []).filter((x) => /^https:\/\//i.test(x.url)).slice(0, 10);
-    const imageGuide = refs.map((x, i) => `@Image${i + 1} is ${x.name}. Use it as the exact identity or location reference; do not substitute or redesign it.`).join(' ');
+    const imageGuide = refs.map((x, i) => `@Image${i + 1} is ${x.name}. Use it as the exact supplied identity, location, product or visual design reference; do not substitute or redesign it.`).join(' ');
     const videoGuide = spec.prevUrl ? '@Video1 is the immediately preceding scene clip. Continue its established action, actors, clothing, props and screen direction without resetting.' : '';
     const openingGuide = spec.startImageUrl ? 'Begin on the supplied start image and preserve its exact composition.' : '';
     const globalPrompt = [imageGuide, videoGuide, openingGuide, 'Premium vertical serialized live-action drama. Keep character identities, location layout, wardrobe and props consistent through the entire multi-shot clip.'].filter(Boolean).join(' ');
@@ -2164,6 +2189,19 @@ async function stageRender(row: any, user: ReturnType<typeof toUser>, ep: any): 
   const entries = normalizeEntries(ep.render_jobs, scenes);
   const projectRow = ((await sql()`SELECT reference_assets FROM projects WHERE id = ${ep.project_id}`) as any[])[0];
   const projectReferences = projectRow?.reference_assets || {};
+  const savedBrandKit = ep.brief?.brandKit || projectReferences.brandKit || {};
+  const brandReferenceImages: { name: string; url: string }[] = [];
+  const brandReferenceIds = Array.isArray(savedBrandKit.referenceAssetIds) ? savedBrandKit.referenceAssetIds.slice(0, 4) : [];
+  if (brandReferenceIds.length) {
+    const mediaToken = await issueSignedToken({ operations: ['get'] });
+    for (const [index, assetId] of brandReferenceIds.entries()) {
+      const mediaRows = await sql()`SELECT pathname, original_name, content_type FROM media_assets WHERE id = ${assetId} AND user_id = ${row.id} LIMIT 1`;
+      const asset = mediaRows[0] as any;
+      if (!asset || !String(asset.content_type || '').toLowerCase().startsWith('image/')) continue;
+      const signed = await presignUrl(mediaToken, { pathname: String(asset.pathname), operation: 'get', access: 'private', validUntil: Date.now() + 10 * 60 * 1000 });
+      brandReferenceImages.push({ name: 'Brand visual reference ' + (index + 1) + ': ' + str(asset.original_name, 70), url: signed.presignedUrl });
+    }
+  }
   const openingReference = Number(projectReferences.openingFrameForPart) === Number(ep.part_number) && /^https:\/\//i.test(String(projectReferences.openingFrameUrl || ''))
     ? String(projectReferences.openingFrameUrl) : undefined;
   let previousEpisodeAnchorUrl: string | undefined;
@@ -2226,7 +2264,8 @@ async function stageRender(row: any, user: ReturnType<typeof toUser>, ep: any): 
       const relevant = cast.filter((c) => c.referenceImageUrl && /^https:\/\//i.test(c.referenceImageUrl) && (sceneText.includes(String(c.name || '').toLowerCase()) || (scene.lines || []).some((l: any) => String(l.speaker || '').toLowerCase() === String(c.name || '').toLowerCase())));
        const characterRefs = (relevant.length ? relevant : cast.filter((c) => c.referenceImageUrl && /^https:\/\//i.test(c.referenceImageUrl)).slice(0, 2)).slice(0, projectReferences.locationPlateUrl ? 3 : 4).map((c) => ({ name: str(c.name, 30), url: String(c.referenceImageUrl), description: str(c.description, 220) }));
        const locationRef = /^https:\/\//i.test(String(projectReferences.locationPlateUrl || '')) ? [{ name: 'the permanent location plate (room layout, furniture and props)', url: String(projectReferences.locationPlateUrl) }] : [];
-       const selected = [...locationRef, ...characterRefs].slice(0, 4);
+       const brandSlots = Math.max(0, 4 - locationRef.length - characterRefs.length);
+       const selected = [...locationRef, ...characterRefs, ...brandReferenceImages.slice(0, brandSlots)].slice(0, 4);
       const currentLocation = str(scene.location, 260);
       const continuityPrompt = previousUrl || startImageUrl
         ? `${scene.parts[k].prompt} Continue from the supplied reference frame. Preserve the exact visible character identities, faces, hair, wardrobe, carried props and screen direction. The intended current scene location is ${currentLocation || 'the location described in this scene'}. If it differs from the reference frame, make a clear motivated transition into this current location and replace the old background; do not carry the previous set into the new scene. Keep only the named people required by this scene.`

@@ -10,7 +10,8 @@
     "build:api": "esbuild server/handler.ts --bundle --platform=node --format=esm --target=node20 --packages=external --outfile=api/index.js",
     "preview": "vite preview",
     "build:api:ts": "node scripts/build-api.mjs",
-    "typecheck": "tsc --noEmit --pretty false"
+    "typecheck": "tsc --noEmit --pretty false",
+    "test:video": "node scripts/test-commercial-brand.mjs && node scripts/test-render-smoke.mjs"
   },
   "dependencies": {
     "@neondatabase/serverless": "0.10.4",

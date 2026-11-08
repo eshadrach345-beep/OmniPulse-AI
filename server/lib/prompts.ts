@@ -444,12 +444,25 @@ export function storyPrompt(a: {
     drama: 'A focused short cinematic drama played out like a movie: physical conflict, danger, chases or confrontations, with brief charged dialogue spoken during the action. Prefer 1 or 2 principal characters; never create crowds or decorative background people. A clear arc (setup, escalation, turn).',
     documentary: 'A short documentary. A "Narrator" character guides the viewer, plus 1 to 3 other speakers (experts or people involved, all fictional or generic roles, never real named people). Calm, factual tone. Only use widely established facts. Never invent statistics, studies or quotes from real people or organisations.',
     animation: 'A short animated story with expressive cartoon characters, humour and heart, suitable for all ages. 2 to 4 characters, a simple clear plot with a payoff.',
+    commercial: 'A premium brand commercial built around a real product, service or organisation. Show credible people using it in the real environment where it belongs. Use confident narration, clear visual demonstrations and a believable benefit, never action-movie danger or generic corporate stock footage.',
   };
   const mood = STORY_MOODS[a.mood], cam = CAMERA_PROFILES[a.cameraProfile];
   // Vertical short dramas need deliberate mobile-first coverage, not generic "cinematic" adjectives.
   const verticalDrama = a.aspectRatio === '9:16' && a.format === 'drama'
     ? `VERTICAL LIVE-ACTION DRAMA LOOK (9:16): Compose for a phone screen. Keep the principal face and essential action inside the central safe area; place eyes near the upper third for close and medium shots. Prefer medium close-ups, clean over-the-shoulder coverage and motivated reaction inserts; establish geography before tightening. Simulate a premium large-format cinema image with a natural 35mm or 50mm prime-lens perspective, restrained shallow depth of field, realistic highlight roll-off and natural 24fps motion blur resembling a 180-degree shutter. Use soft directional key light, subtle rim separation and motivated practical lights; choose a coherent palette suited to the emotion. Render natural skin with visible pores and fine texture, believable hair and detailed fabric. Avoid waxy skin, excessive sharpening, fake lens flares and overdone bokeh. Keep one consistent facial identity, age, skin tone, hair, build, wardrobe and props for each named character across every shot. Hands must remain anatomically plausible and interact with props with clear contact and weight. Keep architecture, perspective, horizon and object scale fixed; use physically possible blocking and grounded foot contact. Background people are omitted unless story-essential; if present, keep them few, distant and performing simple coherent actions. No random camera moves, snap zooms, mirror flips, morphing, limb distortions, duplicate faces, floating, sliding or frozen extras. These are quality targets, not a guarantee that a generative model can eliminate every artifact.`
     : '';
+  const commercialDirection = a.format === 'commercial' ? [
+    'COMMERCIAL DIRECTOR\'S BRIEF:',
+    '- This is a polished advertisement, not a random montage and not a fictional action movie.',
+    '- Build a clear scene arc: human hook, real-world context, product or service in use, meaningful close detail, wider benefit, then clean call to action.',
+    '- Every scene must have a different visual purpose, shot size, camera angle, subject position and setting where appropriate. Never repeat the same person in the same pose or show unrelated stock-style people.',
+    '- People must perform authentic profession-specific actions. A bricklayer lays bricks, measures a wall or records completed work; an office worker uses real office tools; a student studies; a shop owner handles products.',
+    '- One simple, physically believable action per shot. Keep hands simple; use medium shots when precise finger contact is not essential.',
+    '- Never place unexplained papers, bundles, tools, maps, boxes or props on a person\'s head, hair or shoulders. Objects belong in hands, on work surfaces or in their actual physical place.',
+    '- No floating or fused props, morphing objects, duplicate people, extra limbs, impossible grips or unexplained wardrobe changes.',
+    '- No generated logo, brand name, subtitle, sign or readable lettering inside any scene. Reserve a clean closing composition so the exact supplied logo can be overlaid in post-production.',
+    '- Add hats, helmets or headwear only when explicitly required by the person\'s profession and the established wardrobe.',
+  ].join('\n') : '';
   const beats = storyBeats(a.clips.length);
   const plan = a.clips.map((c, i) => `  Scene ${i + 1} | ${c} seconds | ${beats[i]} | spoken text at most ${maxWordsForClip(c)} words in total`).join('\n');
   const lock = a.characterLock
@@ -465,7 +478,7 @@ Frame: ${a.aspectRatio}
 GLOBAL MOOD: ${mood.label}. ${mood.write}
 Every "visualPrompt" must show this mood through lighting, colour, weather, texture and physical detail. Visual treatment to build on: ${mood.render}.
 ${verticalDrama}
-CAMERA PROFILE: ${cam.label}. Base instruction: ${cam.direct}.
+${commercialDirection}\nCAMERA PROFILE: ${cam.label}. Base instruction: ${cam.direct}.
 PACING: ${a.pacing}
 ${lock}
 STORYBOARD. Write EXACTLY ${a.clips.length} scenes, in chronological order, one after another as ONE continuous story (not separate ideas). Each scene becomes ONE separate video clip, a single moment in a single place, with these lengths:

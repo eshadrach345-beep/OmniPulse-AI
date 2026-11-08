@@ -56,11 +56,9 @@ export const TopNav: React.FC<TopNavProps> = ({
       <header className="border-b border-slate-800/80 bg-slate-950/85 backdrop-blur-md sticky top-0 z-40 px-4 sm:px-6">
         <div className="max-w-7xl mx-auto flex items-center justify-between gap-3 h-16">
           <div className="flex items-center gap-2.5 min-w-0">
-            <div className="w-8 h-8 shrink-0 rounded-lg bg-linear-to-br from-indigo-500 to-indigo-700 flex items-center justify-center">
-              <Zap className="w-4 h-4 text-white" />
-            </div>
+            <img src="/omnipulse-mark.svg" alt="" className="w-9 h-9 shrink-0 rounded-xl" />
             <span className="font-display text-lg font-bold tracking-tight text-white whitespace-nowrap">
-              OmniPulse<span className="hidden sm:inline text-indigo-300"> Studio</span>
+              OmniPulse<span className="text-amber-300"> AI</span>
             </span>
           </div>
 

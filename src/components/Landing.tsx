@@ -66,8 +66,8 @@ export const Landing: React.FC<{ onGetStarted: (mode: 'signup' | 'signin') => vo
       <header className="sticky top-0 z-30 border-b border-slate-800/70 bg-slate-950/80 backdrop-blur-md">
         <div className="max-w-6xl mx-auto flex items-center justify-between px-4 sm:px-6 h-16">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-linear-to-br from-indigo-500 to-indigo-700 flex items-center justify-center"><Zap className="w-4 h-4 text-white" /></div>
-            <span className="font-display text-lg font-bold text-white tracking-tight">{COMPANY}</span>
+            <img src="/omnipulse-mark.svg" alt="" className="w-9 h-9 rounded-xl" />
+            <span className="font-display text-lg font-bold text-white tracking-tight">OmniPulse<span className="text-amber-300"> AI</span></span>
           </div>
           <nav className="flex items-center gap-2 sm:gap-5 text-sm">
             <a href="#pricing" className="hidden sm:inline text-slate-300 hover:text-white">Pricing</a>
@@ -81,10 +81,10 @@ export const Landing: React.FC<{ onGetStarted: (mode: 'signup' | 'signin') => vo
 
       <section className="max-w-6xl mx-auto px-4 sm:px-6 pt-14 sm:pt-24 pb-6">
         <h1 className="font-display text-[2.6rem] leading-[1.02] sm:text-7xl font-extrabold text-white max-w-4xl">
-          Know what to post, make the video, publish it everywhere.
+          Your ideas deserve a proper studio.
         </h1>
         <p className="mt-6 text-slate-300 text-lg sm:text-xl max-w-2xl leading-relaxed">
-          OmniPulse is an AI movie and video studio with a social media scheduler. It researches your niche live, writes and renders action movies, dramas and narrated stories in 17 genres, then schedules them to every channel you connect.
+          From the job site to the boardroom, turn ideas into scripts, videos and content, then plan and publish from one focused workspace. OmniPulse AI brings creative tools and everyday productivity together.
         </p>
         <div className="mt-8 flex flex-wrap gap-3">
           <button onClick={() => onGetStarted('signup')} className="bg-indigo-600 hover:bg-indigo-500 text-white font-semibold rounded-xl px-6 py-3.5 transition-colors">Create your account</button>
