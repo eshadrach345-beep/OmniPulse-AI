@@ -56,6 +56,15 @@ import {
 } from 'lucide-react';
 
 /** YouTube exposes a stable public thumbnail URL for verified public video IDs. */
+const TREND_WINDOW_MS = 14 * 24 * 60 * 60 * 1000;
+const isFreshPublishedAt = (value?: string) => {
+  const timestamp = Date.parse(value || '');
+  if (!Number.isFinite(timestamp)) return false;
+  const age = Date.now() - timestamp;
+  return age >= -24 * 60 * 60 * 1000 && age <= TREND_WINDOW_MS;
+};
+
+/** YouTube exposes a stable public thumbnail URL for verified public video IDs. */
 const youtubeThumbnail = (url: string) => {
   try {
     const parsed = new URL(url);
@@ -104,6 +113,9 @@ export const TrendHashtagRadar: React.FC<TrendHashtagRadarProps> = ({
   const [showAllCreators, setShowAllCreators] = useState(false);
   const [creatorPlatformFilter, setCreatorPlatformFilter] = useState('All');
   const [creatorSort, setCreatorSort] = useState<'rank' | 'views' | 'velocity' | 'recent'>('rank');
+
+  const recentResearchSources = (activeNiche.researchSources || []).filter((source) => isFreshPublishedAt(source.publishedAt));
+  const hasFreshResearch = activeNiche.researchGrounded === true && recentResearchSources.length >= 4;
 
   const copyGrowthText = (value: string) => { void navigator.clipboard.writeText(value); };
 
@@ -182,6 +194,7 @@ export const TrendHashtagRadar: React.FC<TrendHashtagRadarProps> = ({
   };
 
   const creatorResults = (activeNiche.trendingCreators || [])
+    .filter((creator) => (creator.recentVideos || []).some((video) => isFreshPublishedAt(video.publishedAt)))
     .filter((c) => creatorPlatformFilter === 'All' || c.platform.toLowerCase().includes(creatorPlatformFilter.toLowerCase()))
     .slice()
     .sort((a, b) => {
@@ -333,6 +346,14 @@ export const TrendHashtagRadar: React.FC<TrendHashtagRadarProps> = ({
       {/* Tab 1: Trending Topics & Viral Content Inspiration */}
       {analysisError && <div role="alert" className="text-xs text-rose-300 bg-rose-500/10 border border-rose-500/30 rounded-lg px-3 py-2">{analysisError}</div>}
 
+      {activeTab === 'topics' && activeNiche.trendingTopics.length > 0 && !hasFreshResearch && (
+        <div className="rounded-xl border border-amber-500/25 bg-amber-500/5 p-4">
+          <p className="text-xs font-semibold text-amber-200">Saved trend research has expired</p>
+          <p className="mt-1 text-xs leading-5 text-slate-400">These older cards are hidden. Refresh the research to see topics supported by sources dated within the last 14 days.</p>
+          <button type="button" onClick={() => void handleRunAnalysis()} disabled={isAnalyzing} className="mt-3 rounded-lg bg-indigo-600 px-3 py-2 text-[11px] font-semibold text-white disabled:opacity-50">{isAnalyzing ? 'Refreshing…' : 'Refresh current trends'}</button>
+        </div>
+      )}
+
       {activeNiche.trendingTopics.length === 0 && activeTab === 'topics' && (
         <div className="bg-slate-900/60 border border-dashed border-slate-700 rounded-xl p-6 text-center space-y-2">
           <p className="text-sm text-slate-300">{isAnalyzing ? 'Researching live trends for this niche...' : 'No research loaded for this niche yet.'}</p>
@@ -340,7 +361,7 @@ export const TrendHashtagRadar: React.FC<TrendHashtagRadarProps> = ({
         </div>
       )}
 
-      {activeNiche.trendingTopics.length > 0 && activeTab === 'topics' && activeNiche.researchGrounded && (
+      {activeNiche.trendingTopics.length > 0 && activeTab === 'topics' && hasFreshResearch && (
         <section className="overflow-hidden rounded-2xl border border-emerald-500/20 bg-slate-900/75 shadow-xl shadow-black/10">
           <div className="flex flex-col gap-3 border-b border-slate-800 bg-gradient-to-r from-emerald-500/10 via-slate-900 to-cyan-500/5 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
             <div className="flex items-center gap-3">
@@ -353,7 +374,7 @@ export const TrendHashtagRadar: React.FC<TrendHashtagRadarProps> = ({
                   <h2 className="text-sm font-bold text-white sm:text-base">Live Web Research</h2>
                   <span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-emerald-300">Live sources</span>
                 </div>
-                <p className="mt-0.5 text-[11px] text-slate-400">Real pages and public videos used to build this research · {activeNiche.researchSources?.length || 0} sources found</p>
+                <p className="mt-0.5 text-[11px] text-slate-400">Real pages and public videos dated within the last 14 days · {recentResearchSources.length} verified sources</p>
               </div>
             </div>
             <div className="flex items-center gap-2 text-[10px] text-slate-400">
@@ -361,9 +382,9 @@ export const TrendHashtagRadar: React.FC<TrendHashtagRadarProps> = ({
               Evidence-linked results
             </div>
           </div>
-          {(activeNiche.researchSources || []).length ? (
+          {recentResearchSources.length ? (
             <div className="grid grid-cols-1 gap-3 p-3 sm:grid-cols-2 sm:p-4 xl:grid-cols-3">
-              {(activeNiche.researchSources || []).slice(0, 15).map((x) => {
+              {recentResearchSources.slice(0, 15).map((x) => {
                 const preview = x.imageUrl || youtubeThumbnail(x.url);
                 const isVideo = x.sourceType === 'video' || !!youtubeThumbnail(x.url);
                 const SourceIcon = isVideo ? Youtube : x.sourceType === 'news' ? Newspaper : Globe2;
@@ -407,7 +428,7 @@ export const TrendHashtagRadar: React.FC<TrendHashtagRadarProps> = ({
       )}
 
       {/* Tab: Trending creators and evidence-backed video inspiration */}
-      {activeTab === 'creators' && (
+      {activeTab === 'creators' && hasFreshResearch && (
         <div className="space-y-4">
           <div className="rounded-xl border border-indigo-500/20 bg-indigo-500/5 p-3 text-xs text-slate-300">
             <p className="font-semibold text-indigo-200">Creator discovery · ranked by available public evidence</p>
@@ -572,7 +593,15 @@ export const TrendHashtagRadar: React.FC<TrendHashtagRadarProps> = ({
       )}
 
       {/* Tab 2: Categorized Hashtags & Keyword Radar */}
-      {activeTab === 'hashtags' && (
+      {activeTab === 'hashtags' && !hasFreshResearch && (
+        <div className="rounded-xl border border-amber-500/25 bg-amber-500/5 p-4">
+          <p className="text-xs font-semibold text-amber-200">Hashtag radar needs fresh evidence</p>
+          <p className="mt-1 text-xs leading-5 text-slate-400">Older saved velocity and volume estimates are hidden until they can be rebuilt from sources dated within the last 14 days.</p>
+          <button type="button" onClick={() => void handleRunAnalysis()} disabled={isAnalyzing} className="mt-3 rounded-lg bg-indigo-600 px-3 py-2 text-[11px] font-semibold text-white disabled:opacity-50">{isAnalyzing ? 'Refreshing…' : 'Refresh current trend data'}</button>
+        </div>
+      )}
+
+      {activeTab === 'hashtags' && hasFreshResearch && (
         <div className="space-y-6">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-900/60 p-4 rounded-xl border border-slate-800">
             <div>
