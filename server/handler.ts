@@ -2250,7 +2250,12 @@ async function stageRender(row: any, user: ReturnType<typeof toUser>, ep: any): 
     if (p.jobId || p.url || p.tries >= MAX_PART_TRIES || (p.retryAt || 0) > Date.now()) continue;
     const previousSceneLastUrl = en.index > 0 ? entries[en.index - 1]?.parts.slice(-1)[0]?.url : undefined;
     const isEpisodeOpening = en.index === 0 && k === 0;
-    const startImageUrl = isEpisodeOpening ? openingReference : undefined;
+    // DeAPI/LTX can accept only one image reference. For a commercial, use the user's first
+    // product/brand visual as the opening frame rather than silently discarding every brand image.
+    const deapiCommercialOpening = String(ep.brief?.format || '') === 'commercial'
+      && (process.env.VIDEO_PROVIDER || 'fal').trim().toLowerCase() === 'deapi'
+      ? brandReferenceImages[0]?.url : undefined;
+    const startImageUrl = isEpisodeOpening ? (deapiCommercialOpening || openingReference) : undefined;
     const carriesVisualReference = scenes[en.index].continuesPrevious === true || scenes[en.index].referencePrevious === true;
     const previousUrl = k > 0 ? en.parts[k - 1]?.url : (carriesVisualReference ? previousSceneLastUrl : (isEpisodeOpening && !startImageUrl ? previousEpisodeAnchorUrl : undefined));
     if (k > 0 && !previousUrl) continue; // the second half starts from the first half's last picture
@@ -2264,8 +2269,13 @@ async function stageRender(row: any, user: ReturnType<typeof toUser>, ep: any): 
       const relevant = cast.filter((c) => c.referenceImageUrl && /^https:\/\//i.test(c.referenceImageUrl) && (sceneText.includes(String(c.name || '').toLowerCase()) || (scene.lines || []).some((l: any) => String(l.speaker || '').toLowerCase() === String(c.name || '').toLowerCase())));
        const characterRefs = (relevant.length ? relevant : cast.filter((c) => c.referenceImageUrl && /^https:\/\//i.test(c.referenceImageUrl)).slice(0, 2)).slice(0, projectReferences.locationPlateUrl ? 3 : 4).map((c) => ({ name: str(c.name, 30), url: String(c.referenceImageUrl), description: str(c.description, 220) }));
        const locationRef = /^https:\/\//i.test(String(projectReferences.locationPlateUrl || '')) ? [{ name: 'the permanent location plate (room layout, furniture and props)', url: String(projectReferences.locationPlateUrl) }] : [];
+       // In a commercial, supplied product/brand references are more important than generated cast portraits.
+       // Keep the location plate when present, then reserve the remaining provider slots for the user's actual assets.
+       const isCommercial = String(ep.brief?.format || '') === 'commercial';
        const brandSlots = Math.max(0, 4 - locationRef.length - characterRefs.length);
-       const selected = [...locationRef, ...characterRefs, ...brandReferenceImages.slice(0, brandSlots)].slice(0, 4);
+       const selected = isCommercial
+         ? [...locationRef, ...brandReferenceImages.slice(0, Math.max(0, 4 - locationRef.length))].slice(0, 4)
+         : [...locationRef, ...characterRefs, ...brandReferenceImages.slice(0, brandSlots)].slice(0, 4);
       const currentLocation = str(scene.location, 260);
       const continuityPrompt = previousUrl || startImageUrl
         ? `${scene.parts[k].prompt} Continue from the supplied reference frame. Preserve the exact visible character identities, faces, hair, wardrobe, carried props and screen direction. The intended current scene location is ${currentLocation || 'the location described in this scene'}. If it differs from the reference frame, make a clear motivated transition into this current location and replace the old background; do not carry the previous set into the new scene. Keep only the named people required by this scene.`
@@ -2455,7 +2465,7 @@ const projectGet: Handler = async ({ req, res, query }) => {
   });
 };
 
-/** Downloads the whole episode as one MP4: the scene clips are joined by fluent-ffmpeg in this request, not while the episode is being made. */
+/** Downloads the whole episode as one MP4. Commercial exports receive a deterministic, real-asset closing card. */
 const episodeVideo: Handler = async ({ req, res, query }) => {
   const { row } = await requireAccess(req);
   await rateLimit(`merge:${row.id}`, 12, 3600);
@@ -2471,9 +2481,92 @@ const episodeVideo: Handler = async ({ req, res, query }) => {
   }));
   const urls = await Promise.all(jobs.map((j) => jobVideoUrl(j)));
   const name = `${ep.project_title || 'series'} part ${ep.part_number}`;
+  const kit = ep.brief?.brandKit || {};
+  const logoAssetId = str(kit.logoAssetId, 80);
 
-  // Refresh failed clips from their original provider jobs, without generating replacements.
-  await streamMergedVideoWithRecovery(res, jobs, urls, name);
+  // Non-commercial productions retain the original fast path.
+  if (String(ep.brief?.format || '') !== 'commercial' || !logoAssetId) {
+    await streamMergedVideoWithRecovery(res, jobs, urls, name);
+    return;
+  }
+
+  // The logo is intentionally NOT sent to the video model. It is downloaded from the
+  // owner's private library and composited over a clean closing card after AI rendering.
+  const logoRows = await sql()`SELECT pathname, original_name, content_type FROM media_assets WHERE id = ${logoAssetId} AND user_id = ${row.id} LIMIT 1`;
+  const logoAsset = logoRows[0] as any;
+  if (!logoAsset || !String(logoAsset.content_type || '').toLowerCase().startsWith('image/')) {
+    throw new HttpError(404, 'Your saved Brand Kit logo could not be found. Re-upload it in Brand Kit before exporting.', 'BRAND_LOGO_NOT_FOUND');
+  }
+
+  const fs = await import('node:fs/promises');
+  const path = await import('node:path');
+  const os = await import('node:os');
+  const { createReadStream } = await import('node:fs');
+  const workDir = await fs.mkdtemp(path.join(os.tmpdir(), 'omnipulse-brand-export-'));
+  let merged: { file: string; cleanup: () => Promise<void> } | null = null;
+  try {
+    merged = await mergeClips(urls);
+    const token = await issueSignedToken({ operations: ['get'] });
+    const signed = await presignUrl(token, { pathname: String(logoAsset.pathname), operation: 'get', access: 'private', validUntil: Date.now() + 10 * 60 * 1000 });
+    const logoResponse = await fetch(signed.presignedUrl, { signal: AbortSignal.timeout(30_000) });
+    if (!logoResponse.ok || !logoResponse.body) throw new HttpError(424, 'The exact saved brand logo could not be loaded for the closing card.', 'BRAND_LOGO_FETCH_FAILED');
+    const logoBytes = Buffer.from(await logoResponse.arrayBuffer());
+    if (!logoBytes.length || logoBytes.length > 15 * 1024 * 1024) throw new HttpError(413, 'The saved brand logo is empty or larger than the 15 MB image limit.', 'BRAND_LOGO_SIZE');
+    const mime = String(logoAsset.content_type || '').toLowerCase();
+    const extension = mime.includes('png') ? 'png' : mime.includes('webp') ? 'webp' : 'jpg';
+    const logoPath = path.join(workDir, `brand-logo.${extension}`);
+    await fs.writeFile(logoPath, logoBytes);
+
+    const aspect = String(ep.brief?.aspect || '9:16');
+    const [aw, ah] = aspect.split(':').map(Number);
+    const ratio = aw > 0 && ah > 0 ? aw / ah : 9 / 16;
+    const width = ratio >= 1 ? 1280 : 720;
+    const height = Math.round(width / ratio / 2) * 2;
+    const duration = Math.max(1, Math.min(90, scenes.reduce((sum, scene) => sum + (Number(scene.clipSeconds) || PART_SECONDS), 0)));
+    const cardStart = Math.max(0, duration - 3.2);
+    // Exact-size dark navy background plate. The model-generated final shot is covered,
+    // so distorted faces, limbs or AI-written lettering cannot become the brand end card.
+    const ppmHeader = Buffer.from(`P6\n${width} ${height}\n255\n`);
+    const pixels = Buffer.alloc(width * height * 3);
+    for (let i = 0; i < pixels.length; i += 3) { pixels[i] = 8; pixels[i + 1] = 18; pixels[i + 2] = 38; }
+    const backgroundPath = path.join(workDir, 'closing-card.ppm');
+    await fs.writeFile(backgroundPath, Buffer.concat([ppmHeader, pixels]));
+    const output = path.join(workDir, 'omnipulse-branded.mp4');
+    const brandName = str(kit.brandName, 80);
+    const tagline = str(kit.tagline, 100);
+    const cardText = [brandName, tagline].filter(Boolean).join('  •  ');
+    await renderComposition({
+      base: merged.file,
+      overlays: [
+        { layer: { kind: 'image', sourceIn: 0, duration: 3.2, startAt: cardStart, scale: 100, opacity: 1, x: 50, y: 50, volume: 0 }, file: backgroundPath },
+        { layer: { kind: 'image', sourceIn: 0, duration: 3.2, startAt: cardStart, scale: 48, opacity: 1, x: 50, y: 43, volume: 0 }, file: logoPath },
+      ],
+      audio: [],
+      captions: cardText ? [{ start: Math.max(cardStart + 1.7, duration - 1.25), end: Math.max(cardStart + 1.8, duration - 0.2), text: cardText }] : [],
+      duration, width, height, output,
+    });
+    const stat = await fs.stat(output);
+    if (!stat.size || stat.size > 500 * 1024 * 1024) throw new HttpError(413, 'The branded export is too large to stream.', 'BRANDED_EXPORT_SIZE');
+    res.statusCode = 200;
+    res.setHeader('Content-Type', 'video/mp4');
+    res.setHeader('Content-Length', String(stat.size));
+    res.setHeader('Content-Disposition', `attachment; filename="${safeName(name)}.mp4"`);
+    res.setHeader('Cache-Control', 'private, no-store');
+    await new Promise<void>((resolve, reject) => {
+      const stream = createReadStream(output);
+      stream.on('error', reject);
+      res.on('finish', resolve);
+      res.on('close', resolve);
+      stream.pipe(res);
+    });
+  } catch (error: any) {
+    if (error instanceof HttpError) throw error;
+    console.error('commercial closing-card render failed:', error?.message);
+    throw new HttpError(424, 'The commercial closing card could not be rendered. Your original generated clips are unchanged; try exporting again.', 'BRAND_CARD_RENDER_FAILED');
+  } finally {
+    if (merged) await merged.cleanup().catch(() => undefined);
+    await fs.rm(workDir, { recursive: true, force: true }).catch(() => undefined);
+  }
 };
 
 /** Pauses a part. Clips that were already sent to the video provider keep rendering there and are collected when the part is resumed. */
