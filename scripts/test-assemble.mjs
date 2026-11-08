@@ -109,6 +109,7 @@ check(handlerSource.includes('preserve camera axis, screen direction, perspectiv
 check(handlerSource.includes('sharesVisibleCharacter && !explicitTimeJump && !explicitCostumeChange && !timeChanged'), 'same character keeps a frame anchor through a location change');
 check(handlerSource.includes('replace the old background; do not carry the previous set'), 'a location transition replaces the previous scene background');
 check(handlerSource.includes('toNativeMultiShotPrompt(multiPrompt)'), 'DeAPI receives native multi-shot prose when a coverage pair exists');
+check(handlerSource.includes('${prompt} ${toNativeMultiShotPrompt(multiPrompt)}'), 'DeAPI multi-shot requests retain the shared scene prompt and continuity context');
 
 const savedContinuity = P.continuityBlock({
   partNumber: 2, previousTitle: 'The Lighthouse', previousLogline: 'A map is found.', storySoFar: 'The crew found a stone anchor.',
