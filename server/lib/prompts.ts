@@ -462,7 +462,7 @@ export function storyPrompt(a: {
     '- No floating or fused props, morphing objects, duplicate people, extra limbs, impossible grips or unexplained wardrobe changes.',
     '- No generated logo, brand name, subtitle, sign or readable lettering inside any scene. Reserve a clean closing composition so the exact supplied logo can be overlaid in post-production.',
     '- Add hats, helmets or headwear only when explicitly required by the person\'s profession and the established wardrobe.',
-  ].join('\\n') : '';
+  ].join('\n') : '';
   const beats = storyBeats(a.clips.length);
   const plan = a.clips.map((c, i) => `  Scene ${i + 1} | ${c} seconds | ${beats[i]} | spoken text at most ${maxWordsForClip(c)} words in total`).join('\n');
   const lock = a.characterLock
