@@ -14,6 +14,8 @@ export interface CompositionInput {
   playbackSpeed?: number;
   clipFadeIn?: number;
   clipFadeOut?: number;
+  fitMode?: 'contain' | 'cover';
+  colorGrade?: 'none' | 'cinematic' | 'warm' | 'cool' | 'monochrome' | 'vintage' | 'vivid';
   overlays: Array<{ layer: VideoMediaLayer; file: string }>;
   audio: Array<{ layer: VideoMediaLayer; file: string }>;
   captions: VideoCaptionCue[];
@@ -71,10 +73,24 @@ export async function renderComposition(input: CompositionInput): Promise<void> 
     clipFadeOut > 0 ? `afade=t=out:st=${Math.max(0, duration - clipFadeOut)}:d=${clipFadeOut}` : '',
   ].filter(Boolean).join(',');
   const sourceDuration = duration * playbackSpeed;
+  const fitMode = input.fitMode === 'cover' ? 'cover' : 'contain';
+  const frameFit = fitMode === 'cover'
+    ? `scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height}`
+    : `scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2`;
+  const colorGrades: Record<string, string> = {
+    cinematic: 'eq=contrast=1.12:saturation=0.92:brightness=-0.02',
+    warm: 'colorbalance=rs=0.10:gs=0.02:bs=-0.08',
+    cool: 'colorbalance=rs=-0.08:gs=0.01:bs=0.10',
+    monochrome: 'hue=s=0',
+    vintage: 'eq=contrast=0.92:saturation=0.72:brightness=0.02,colorbalance=rs=0.06:gs=0.01:bs=-0.05',
+    vivid: 'eq=contrast=1.08:saturation=1.25',
+  };
+  const grade = colorGrades[String(input.colorGrade || 'none')] || '';
   const args = ['-hide_banner', '-y'];
   if (input.baseIsImage) args.push('-loop', '1', '-t', String(duration), '-i', input.base);
   else args.push('-ss', String(Math.max(0, input.baseSourceIn || 0)), '-t', String(sourceDuration), '-i', input.base);
-  const filter: string[] = [`[0:v]setpts=(PTS-STARTPTS)/${playbackSpeed},tpad=stop_mode=clone:stop_duration=${duration},trim=duration=${duration},scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30${videoFade ? ',' + videoFade : ''},format=yuv420p[v0]`];
+  const baseFilters = [`[0:v]setpts=(PTS-STARTPTS)/${playbackSpeed},tpad=stop_mode=clone:stop_duration=${duration},trim=duration=${duration},${frameFit},setsar=1,fps=30`, grade, videoFade, 'format=yuv420p[v0]'].filter(Boolean);
+  const filter: string[] = [baseFilters.join(',')];
   let videoLabel = 'v0';
   let nextInput = 1;
 
