@@ -29,7 +29,12 @@ assert.match(prompt, /No action-movie danger, crowds, hand close-ups or invented
 assert.match(prompt, /screens-within-screens/i);
 assert.match(prompt, /disembodied hands/i);
 const ui = fs.readFileSync(new URL('../src/components/SeriesStudio.tsx', import.meta.url), 'utf8');
-assert.ok(ui.includes("if (f.id === 'commercial') { setSceneSeconds(10); setReviewFirst(true); setSeconds(60); }"));
+assert.ok(ui.includes("if (f.id === 'commercial') { setSceneSeconds(10); setReviewFirst(true); setSeconds(30); }"));
+assert.ok(ui.includes('six directed 5-second shots'));
+const merge = fs.readFileSync(new URL('../server/lib/merge.ts', import.meta.url), 'utf8');
+assert.ok(merge.includes("'-crf 21'"));
+assert.ok(merge.includes("'-b:a 192k'"));
+assert.ok(merge.includes("'-ar 48000'"));
 assert.ok(ui.includes('Brand kit & visual references'));
 assert.ok(ui.includes("handleUploadUrl: '/api/media/upload'"));
 assert.ok(ui.includes('brandReferences.map'));
