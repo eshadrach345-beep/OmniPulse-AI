@@ -211,6 +211,8 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
   const startFrameInputRef = useRef<HTMLInputElement | null>(null);
   const [startFrame, setStartFrame] = useState<BrandMediaAsset | null>(null);
   const [videoProvider, setVideoProvider] = useState<'fal' | 'deapi' | 'auto'>('fal');
+  const [falEnabled, setFalEnabled] = useState(false);
+  const [deapiEnabled, setDeapiEnabled] = useState(false);
   const [videoModels, setVideoModels] = useState<{ slug: string; name: string; description: string; supportsImageToVideo: boolean }[]>([]);
   const [videoModel, setVideoModel] = useState('Ltx2_5_22B_Dist_INT8');
   const [videoModelsLoading, setVideoModelsLoading] = useState(true);
@@ -309,10 +311,13 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
 
   useEffect(() => {
     let active = true;
-    api.get<{ provider: 'fal' | 'deapi' | 'auto'; models: { slug: string; name: string; description: string; supportsImageToVideo: boolean }[]; deapiEnabled: boolean }>('/video/models')
+    api.get<{ provider: 'fal' | 'deapi' | 'auto'; models: { slug: string; name: string; description: string; supportsImageToVideo: boolean }[]; falEnabled: boolean; deapiEnabled: boolean; availableProviders: string[] }>('/video/models')
       .then((result) => {
         if (!active) return;
-        setVideoProvider(result.provider);
+        setFalEnabled(result.falEnabled);
+        setDeapiEnabled(result.deapiEnabled);
+        const defaultChoice = result.availableProviders.includes(result.provider) ? result.provider : (result.falEnabled ? 'fal' : result.deapiEnabled ? 'deapi' : result.provider);
+        setVideoProvider(defaultChoice as 'fal' | 'deapi' | 'auto');
         setVideoModels(result.models || []);
         if (result.models?.length && !result.models.some((model) => model.slug === videoModel)) setVideoModel(result.models[0].slug);
         setVideoModelsError('');
@@ -407,6 +412,7 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
       const r = await Series.create({
         projectId: detail?.project.id, title: title.trim() || undefined, idea: idea.trim(), mode: writer, script: writer === 'paste' ? script.trim() : undefined,
         format, look, aspectRatio: ratio, niche: nicheName, brief: built.brief, reviewFirst, characterReferences,
+        videoProvider,
         videoModel: videoProvider === 'deapi' || videoProvider === 'auto' ? videoModel : undefined,
         brandKit: (brandName.trim() || brandTagline.trim() || brandCta.trim() || brandUrl.trim() || brandLogo || brandReferences.length || startFrame) ? {
           brandName: brandName.trim(), tagline: brandTagline.trim(), primaryColor: brandColor,
@@ -941,16 +947,19 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
 
         <fieldset className="space-y-3 rounded-xl border border-indigo-500/25 bg-slate-950/60 p-3">
           <legend className="px-1 text-xs font-semibold text-slate-200">Video engine & source image</legend>
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div>
-              <p className="text-[11px] font-semibold text-white">Connected engine: <span className="uppercase text-indigo-300">{videoProvider}</span></p>
-              <p className="text-[10px] text-slate-500">Provider routing stays controlled by the server so failed renders are not silently downgraded.</p>
-            </div>
-            {videoProvider === 'deapi' || videoProvider === 'auto' ? (
-              <span className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2 py-1 text-[9px] font-semibold text-emerald-300">deAPI model controls</span>
-            ) : <span className="rounded-full border border-slate-700 bg-slate-900 px-2 py-1 text-[9px] font-semibold text-slate-400">FAL managed model</span>}
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+            <label className="block space-y-1">
+              <span className="text-[11px] font-medium text-slate-400">Video engine for this production</span>
+              <select value={videoProvider} onChange={(event) => setVideoProvider(event.target.value as 'fal' | 'deapi' | 'auto')} className={selectCls}>
+                {falEnabled && <option value="fal">FAL · Kling / FAL video models</option>}
+                {deapiEnabled && <option value="deapi">DeAPI · select from live model list</option>}
+                {falEnabled && deapiEnabled && <option value="auto">Automatic · FAL first, DeAPI backup</option>}
+              </select>
+              <p className="text-[10px] text-slate-500">The choice is saved on this production. FAL and DeAPI selections are strict; Automatic is the only mode that can fail over between them.</p>
+            </label>
+            <span className="mb-0.5 rounded-full border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-center text-[9px] font-semibold uppercase tracking-wide text-slate-400">{videoProvider === 'auto' ? 'Automatic failover' : videoProvider === 'deapi' ? 'DeAPI engine' : 'FAL engine'}</span>
           </div>
-          {(videoProvider === 'deapi' || videoProvider === 'auto') && (
+          {(videoProvider === 'deapi' || videoProvider === 'auto') && deapiEnabled && (
             <label className="block space-y-1">
               <span className="text-[11px] font-medium text-slate-400">Video generation model</span>
               <select value={videoModel} onChange={(event) => setVideoModel(event.target.value)} disabled={videoModelsLoading || videoModels.length === 0} className={selectCls}>
