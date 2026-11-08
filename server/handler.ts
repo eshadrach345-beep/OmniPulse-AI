@@ -2250,7 +2250,12 @@ async function stageRender(row: any, user: ReturnType<typeof toUser>, ep: any): 
     if (p.jobId || p.url || p.tries >= MAX_PART_TRIES || (p.retryAt || 0) > Date.now()) continue;
     const previousSceneLastUrl = en.index > 0 ? entries[en.index - 1]?.parts.slice(-1)[0]?.url : undefined;
     const isEpisodeOpening = en.index === 0 && k === 0;
-    const startImageUrl = isEpisodeOpening ? openingReference : undefined;
+    // DeAPI/LTX can accept only one image reference. For a commercial, use the user's first
+    // product/brand visual as the opening frame rather than silently discarding every brand image.
+    const deapiCommercialOpening = String(ep.brief?.format || '') === 'commercial'
+      && (process.env.VIDEO_PROVIDER || 'fal').trim().toLowerCase() === 'deapi'
+      ? brandReferenceImages[0]?.url : undefined;
+    const startImageUrl = isEpisodeOpening ? (deapiCommercialOpening || openingReference) : undefined;
     const carriesVisualReference = scenes[en.index].continuesPrevious === true || scenes[en.index].referencePrevious === true;
     const previousUrl = k > 0 ? en.parts[k - 1]?.url : (carriesVisualReference ? previousSceneLastUrl : (isEpisodeOpening && !startImageUrl ? previousEpisodeAnchorUrl : undefined));
     if (k > 0 && !previousUrl) continue; // the second half starts from the first half's last picture
