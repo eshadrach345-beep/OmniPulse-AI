@@ -828,8 +828,9 @@ export async function deapiVideoModels(): Promise<{ slug: string; name: string; 
     const evidence = [slug, name, item?.type, item?.category, item?.task, item?.modality,
       JSON.stringify(info)].filter(Boolean).join(' ').toLowerCase();
     if (!/(video|ltx|seedance|h3|hunyuan|wan|svd|animatediff|kling)/i.test(evidence)) return [];
+    const normalizedSlug = slug.toLowerCase().replace(/[^a-z0-9]/g, '');
     const supportsImageToVideo = /(image.?to.?video|image.?video|i2v|first_frame_image|first frame)/i.test(evidence)
-      || /^(ltx2?[_-]?2?.?5|ltx[-_]?2.?3|seedance[-_]?2.?5)/i.test(slug);
+      || /^(ltx25|ltx23|seedance25)/.test(normalizedSlug);
     return [{
       slug,
       name,
