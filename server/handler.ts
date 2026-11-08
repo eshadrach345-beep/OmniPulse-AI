@@ -2523,7 +2523,8 @@ const episodeVideo: Handler = async ({ req, res, query }) => {
     const width = ratio >= 1 ? 1280 : 720;
     const height = Math.round(width / ratio / 2) * 2;
     const duration = Math.max(1, Math.min(90, scenes.reduce((sum, scene) => sum + (Number(scene.clipSeconds) || PART_SECONDS), 0)));
-    const cardStart = Math.max(0, duration - 3.2);
+    const closingDuration = Math.min(8, duration);
+    const cardStart = Math.max(0, duration - closingDuration);
     // Exact-size dark navy background plate. The model-generated final shot is covered,
     // so distorted faces, limbs or AI-written lettering cannot become the brand end card.
     const ppmHeader = Buffer.from(`P6\n${width} ${height}\n255\n`);
@@ -2538,11 +2539,11 @@ const episodeVideo: Handler = async ({ req, res, query }) => {
     await renderComposition({
       base: merged.file,
       overlays: [
-        { layer: { kind: 'image', sourceIn: 0, duration: 3.2, startAt: cardStart, scale: 100, opacity: 1, x: 50, y: 50, volume: 0 }, file: backgroundPath },
-        { layer: { kind: 'image', sourceIn: 0, duration: 3.2, startAt: cardStart, scale: 48, opacity: 1, x: 50, y: 43, volume: 0 }, file: logoPath },
+        { layer: { kind: 'image', sourceIn: 0, duration: closingDuration, startAt: cardStart, scale: 100, opacity: 1, x: 50, y: 50, volume: 0 }, file: backgroundPath },
+        { layer: { kind: 'image', sourceIn: 0, duration: closingDuration, startAt: cardStart, scale: 48, opacity: 1, x: 50, y: 43, volume: 0 }, file: logoPath },
       ],
       audio: [],
-      captions: cardText ? [{ start: Math.max(cardStart + 1.7, duration - 1.25), end: Math.max(cardStart + 1.8, duration - 0.2), text: cardText }] : [],
+      captions: cardText ? [{ start: Math.max(cardStart + 0.8, duration - 2.8), end: Math.max(cardStart + 1, duration - 0.3), text: cardText }] : [],
       duration, width, height, output,
     });
     const stat = await fs.stat(output);
