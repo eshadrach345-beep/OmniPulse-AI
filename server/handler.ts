@@ -2348,8 +2348,9 @@ async function stageRender(row: any, user: ReturnType<typeof toUser>, ep: any): 
       const signedFrame = await presignUrl(frameToken, { pathname: String(frameAsset.pathname), operation: 'get', access: 'private', validUntil: Date.now() + 10 * 60 * 1000 });
       userOpeningFrameUrl = signedFrame.presignedUrl;
     }
+    const selectedEpisodeProvider = parseVideoProvider(str(ep.brief?.videoProvider, 20) || process.env.VIDEO_PROVIDER);
     const deapiCommercialOpening = String(ep.brief?.format || '') === 'commercial'
-      && (provider === 'deapi' || provider === 'auto')
+      && (selectedEpisodeProvider === 'deapi' || selectedEpisodeProvider === 'auto')
       ? brandReferenceImages[0]?.url : undefined;
     const startImageUrl = isEpisodeOpening ? (userOpeningFrameUrl || deapiCommercialOpening || openingReference) : undefined;
     const carriesVisualReference = scenes[en.index].continuesPrevious === true || scenes[en.index].referencePrevious === true;
