@@ -649,8 +649,13 @@ Return one valid JSON object only, with these exact keys:
   "description": "A ready-to-paste YouTube description with the topic stated naturally near the start and a useful call to action",
   "tags": ["15-25 relevant YouTube tags, without #"],
   "hashtags": ["3-5 relevant hashtags, each beginning with #"],
+  "keywordIdeas": ["12 natural long-tail search phrases and related audience questions; no volume or difficulty scores"],
   "shortsIdeas": ["5 specific short-form video angles derived from this exact topic"],
+  "shortsTitles": ["5 concise Shorts title options based on the same topic"],
   "thumbnailConcepts": ["3 distinct thumbnail directions; include focal subject, emotion or contrast, composition and 2-4 words of thumbnail text"],
+  "chapterIdeas": ["5 ordered chapter headings; do not invent timestamps or content not present in the brief"],
+  "communityPosts": ["3 ready-to-edit YouTube community post drafts with a clear audience prompt"],
+  "channelGrowthPlan": ["7 practical publishing and learning actions tailored to this brief, without invented analytics"],
   "optimizationChecklist": ["5 practical checks the creator should make before publishing"]
 }
 Rules: do not invent search volumes, keyword difficulty, rankings, trends, view counts, click-through rates, audience demographics or channel analytics. Do not claim the video will go viral or guarantee rankings. Recommendations are hypotheses, not measured facts. Do not pad tags with unrelated high-volume phrases. Avoid repeating the same title with minor word changes. Use only information present in the request and general platform writing practices; if context is missing, be conservative.`;
@@ -663,8 +668,13 @@ Rules: do not invent search volumes, keyword difficulty, rankings, trends, view 
     description: str(data?.description, 5000),
     tags: strings(data?.tags, 25, 50),
     hashtags: strings(data?.hashtags, 8, 40),
+    keywordIdeas: strings(data?.keywordIdeas, 15, 140),
     shortsIdeas: strings(data?.shortsIdeas, 6, 260),
+    shortsTitles: strings(data?.shortsTitles, 6, 140),
     thumbnailConcepts: strings(data?.thumbnailConcepts, 4, 360),
+    chapterIdeas: strings(data?.chapterIdeas, 8, 140),
+    communityPosts: strings(data?.communityPosts, 4, 700),
+    channelGrowthPlan: strings(data?.channelGrowthPlan, 10, 320),
     optimizationChecklist: strings(data?.optimizationChecklist, 8, 260),
   };
   if (result.titleOptions.length < 3 || !result.description || result.tags.length < 5) {
