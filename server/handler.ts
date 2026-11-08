@@ -2105,6 +2105,11 @@ async function startPart(row: any, user: ReturnType<typeof toUser>, spec: { prom
   const deapiCast = addDeapiCastNotes(spec.prompt, spec.multiPrompt, (spec.referenceImages || []).map((ref) => ({ name: ref.name, description: ref.description })));
   const deapiPrompt = deapiCast.prompt;
   const deapiMultiPrompt = deapiCast.multiPrompt;
+  // LTX accepts one opening image. Preserve the two-shot ad direction as prompt prose
+  // rather than claiming it can consume Kling-style independent multi-image references.
+  const deapiAnimationPrompt = deapiMultiPrompt?.length
+    ? `${deapiPrompt} ${toNativeMultiShotPrompt(deapiMultiPrompt)}`
+    : deapiPrompt;
   let job: { statusUrl: string; responseUrl: string } | undefined;
 
   // Short-drama clips use Kling's multi-shot director and reusable reference assets.
@@ -2139,7 +2144,7 @@ async function startPart(row: any, user: ReturnType<typeof toUser>, spec: { prom
       frame = bytes;
     }
     if (provider === 'deapi') {
-      const j = await deapiAnimate(deapiPrompt, frame, reso, PART_SECONDS, spec.aspect);
+      const j = await deapiAnimate(deapiAnimationPrompt, frame, reso, PART_SECONDS, spec.aspect);
       job = { statusUrl: `deapi:${j.requestId}`, responseUrl: 'deapi' };
     } else {
       try {
@@ -2288,8 +2293,6 @@ async function stageRender(row: any, user: ReturnType<typeof toUser>, ep: any): 
       // Dialogue scenes stay on the established single-take path to protect lip-sync.
       const commercialMultiPrompt = isCommercial
         && brandReferenceImages.length > 0
-        && (process.env.VIDEO_PROVIDER || 'fal').trim().toLowerCase() !== 'deapi'
-        && lookupEnv('FAL_KEY')
         && narrationOnly
         ? buildCommercialShotPrompts({
             visual: visualForMatch,
@@ -2302,7 +2305,7 @@ async function stageRender(row: any, user: ReturnType<typeof toUser>, ep: any): 
       const continuityPrompt = previousUrl || startImageUrl
         ? `${scene.parts[k].prompt} Continue from the supplied reference frame. Preserve the exact visible character identities, faces, hair, wardrobe, carried props and screen direction. The intended current scene location is ${currentLocation || 'the location described in this scene'}. If it differs from the reference frame, make a clear motivated transition into this current location and replace the old background; do not carry the previous set into the new scene. Keep only the named people required by this scene.`
         : scene.parts[k].prompt;
-      const { jobId } = await startPart(row, user, { prompt: continuityPrompt, aspect, kind: previousUrl || startImageUrl ? 'continue' : 'text', prevUrl: previousUrl, startImageUrl, referenceImages: selected, multiPrompt: scene.parts[k].multiPrompt || commercialMultiPrompt, commercial: isCommercial });
+      const { jobId } = await startPart(row, user, { prompt: continuityPrompt, aspect, kind: previousUrl || startImageUrl ? 'continue' : 'text', prevUrl: previousUrl, startImageUrl, referenceImages: selected, multiPrompt: commercialMultiPrompt || scene.parts[k].multiPrompt, commercial: isCommercial });
       p.jobId = jobId; p.tries += 1; p.checkAt = Date.now() + FIRST_CHECK_MS; delete p.error; started++;
     } catch (e: any) {
       if (e instanceof RateLimited) {
