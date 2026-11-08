@@ -2025,6 +2025,7 @@ const episodeCreate: Handler = async ({ req, res, body }) => {
     logoAssetId: str(kit.logoAssetId, 80) || undefined,
     referenceAssetIds: Array.isArray(kit.referenceAssetIds) ? [...new Set(kit.referenceAssetIds.map((id: any) => str(id, 80)).filter(Boolean))].slice(0, 4) : [],
     startFrameAssetId: str(kit.startFrameAssetId, 80) || undefined,
+    endFrameAssetId: str(kit.endFrameAssetId, 80) || undefined,
   };
   let videoProvider: ReturnType<typeof parseVideoProvider>;
   try { videoProvider = parseVideoProvider(str(body.videoProvider, 20) || process.env.VIDEO_PROVIDER); }
@@ -2034,9 +2035,9 @@ const episodeCreate: Handler = async ({ req, res, body }) => {
   if (videoProvider === 'auto' && !lookupEnv('FAL_KEY') && !lookupEnv('DEAPI_API_KEY')) throw new HttpError(424, 'No video provider is configured. Add FAL_KEY or DEAPI_API_KEY in Vercel.', 'VIDEO_PROVIDER_UNAVAILABLE');
   const videoModel = (videoProvider === 'deapi' || videoProvider === 'auto') ? str(body.videoModel, 120) : '';
   if (videoProvider === 'auto' && !lookupEnv('DEAPI_API_KEY') && videoModel) throw new HttpError(400, 'A DeAPI model cannot be selected because DeAPI is not configured as a fallback.', 'VIDEO_PROVIDER_UNAVAILABLE');
-  const hasBrandKit = !!(brandKit.brandName || brandKit.tagline || brandKit.cta || brandKit.url || brandKit.logoAssetId || brandKit.referenceAssetIds.length || brandKit.startFrameAssetId);
+  const hasBrandKit = !!(brandKit.brandName || brandKit.tagline || brandKit.cta || brandKit.url || brandKit.logoAssetId || brandKit.referenceAssetIds.length || brandKit.startFrameAssetId || brandKit.endFrameAssetId);
   if (hasBrandKit) {
-    const assetIds = [...new Set([brandKit.logoAssetId, ...brandKit.referenceAssetIds, brandKit.startFrameAssetId].filter(Boolean))] as string[];
+    const assetIds = [...new Set([brandKit.logoAssetId, ...brandKit.referenceAssetIds, brandKit.startFrameAssetId, brandKit.endFrameAssetId].filter(Boolean))] as string[];
     for (const assetId of assetIds) {
       const owned = (await sql()`SELECT content_type FROM media_assets WHERE id = ${assetId} AND user_id = ${row.id} LIMIT 1`) as any[];
       if (!owned[0]) throw new HttpError(404, 'A Brand Library image is missing or does not belong to this account.', 'BRAND_ASSET_NOT_FOUND');
@@ -2052,6 +2053,7 @@ const episodeCreate: Handler = async ({ req, res, body }) => {
     brandKit.logoAssetId ? 'A real logo is saved separately. Do not generate, redraw or spell a logo in video frames; leave the closing frame clean for the exact uploaded logo to be overlaid in the editor.' : '',
     brandKit.referenceAssetIds.length ? 'Product and visual references are saved in the Brand Library. Do not invent additional objects or people.' : '',
     brandKit.startFrameAssetId ? 'A user-supplied opening frame is attached. Start the first shot from its composition and preserve the subject identity and visual style.' : '',
+    brandKit.endFrameAssetId ? 'A user-supplied ending frame is attached. When using a DeAPI model that supports last_frame_image, guide the shot to end on this exact composition.' : '',
   ].filter(Boolean).join(' ') : '';
   const promptIdea = [fallbackIdea, brandNotes].filter(Boolean).join('\n\n').slice(0, 1800);
   const input = parseStoryInput({ ...body, idea: promptIdea.length >= 10 ? promptIdea : promptIdea + ' (the story)' });
@@ -2168,7 +2170,7 @@ async function reserveSource(row: any, user: ReturnType<typeof toUser>, seconds:
  * Starts one 10 second clip. The second half of a 20 second scene starts from the last picture of the first half (image-to-video),
  * so the scene carries on without a jump; if that is not possible it falls back to a normal clip with a "continue" prompt.
  */
-async function startPart(row: any, user: ReturnType<typeof toUser>, spec: { prompt: string; aspect: string; kind: 'text' | 'continue'; prevUrl?: string; startImageUrl?: string; referenceImages?: { name: string; url: string; description?: string }[]; multiPrompt?: { prompt: string; duration: number }[]; commercial?: boolean; videoModel?: string; videoProvider?: string }) {
+async function startPart(row: any, user: ReturnType<typeof toUser>, spec: { prompt: string; aspect: string; kind: 'text' | 'continue'; prevUrl?: string; startImageUrl?: string; lastFrame?: Buffer; referenceImages?: { name: string; url: string; description?: string }[]; multiPrompt?: { prompt: string; duration: number }[]; commercial?: boolean; videoModel?: string; videoProvider?: string }) {
   const source = await reserveSource(row, user, PART_SECONDS);
   await rateLimit(`render:${row.id}`, 300, 3600);
   const reso = PLANS[user.tier]?.resolution || '480P';
@@ -2222,7 +2224,7 @@ async function startPart(row: any, user: ReturnType<typeof toUser>, spec: { prom
       frame = bytes;
     }
     if (provider === 'deapi') {
-      const j = await deapiAnimate(deapiAnimationPrompt, frame, reso, PART_SECONDS, spec.aspect, spec.videoModel);
+      const j = await deapiAnimate(deapiAnimationPrompt, frame, reso, PART_SECONDS, spec.aspect, spec.videoModel, spec.lastFrame);
       job = { statusUrl: `deapi:${j.requestId}`, responseUrl: 'deapi' };
     } else {
       try {
@@ -2353,6 +2355,19 @@ async function stageRender(row: any, user: ReturnType<typeof toUser>, ep: any): 
       && (selectedEpisodeProvider === 'deapi' || selectedEpisodeProvider === 'auto')
       ? brandReferenceImages[0]?.url : undefined;
     const startImageUrl = isEpisodeOpening ? (userOpeningFrameUrl || deapiCommercialOpening || openingReference) : undefined;
+    let userEndingFrame: Buffer | undefined;
+    const userEndingFrameId = str(savedBrandKit.endFrameAssetId, 80);
+    if (isEpisodeOpening && userEndingFrameId && (selectedEpisodeProvider === 'deapi' || selectedEpisodeProvider === 'auto')) {
+      const frameRows = await sql()`SELECT pathname, content_type FROM media_assets WHERE id = ${userEndingFrameId} AND user_id = ${row.id} LIMIT 1`;
+      const frameAsset = frameRows[0] as any;
+      if (!frameAsset || !String(frameAsset.content_type || '').toLowerCase().startsWith('image/')) throw new HttpError(404, 'The saved ending frame is missing from your private library.', 'REFERENCE_IMAGE');
+      const frameToken = await issueSignedToken({ operations: ['get'] });
+      const signedFrame = await presignUrl(frameToken, { pathname: String(frameAsset.pathname), operation: 'get', access: 'private', validUntil: Date.now() + 10 * 60 * 1000 });
+      const frameResponse = await fetch(signedFrame.presignedUrl, { signal: AbortSignal.timeout(15_000) });
+      if (!frameResponse.ok) throw new HttpError(424, 'The saved ending frame could not be loaded.', 'REFERENCE_IMAGE');
+      userEndingFrame = Buffer.from(await frameResponse.arrayBuffer());
+      if (userEndingFrame.length > 15 * 1024 * 1024) throw new HttpError(413, 'The saved ending frame is too large.', 'REFERENCE_IMAGE');
+    }
     const carriesVisualReference = scenes[en.index].continuesPrevious === true || scenes[en.index].referencePrevious === true;
     const previousUrl = k > 0 ? en.parts[k - 1]?.url : (carriesVisualReference ? previousSceneLastUrl : (isEpisodeOpening && !startImageUrl ? previousEpisodeAnchorUrl : undefined));
     if (k > 0 && !previousUrl) continue; // the second half starts from the first half's last picture
@@ -2394,7 +2409,7 @@ async function stageRender(row: any, user: ReturnType<typeof toUser>, ep: any): 
       const continuityPrompt = previousUrl || startImageUrl
         ? `${scene.parts[k].prompt} Continue from the supplied reference frame. Preserve the exact visible character identities, faces, hair, wardrobe, carried props and screen direction. The intended current scene location is ${currentLocation || 'the location described in this scene'}. If it differs from the reference frame, make a clear motivated transition into this current location and replace the old background; do not carry the previous set into the new scene. Keep only the named people required by this scene.`
         : scene.parts[k].prompt;
-      const { jobId } = await startPart(row, user, { prompt: continuityPrompt, aspect, kind: previousUrl || startImageUrl ? 'continue' : 'text', prevUrl: previousUrl, startImageUrl, referenceImages: selected, multiPrompt: commercialMultiPrompt || scene.parts[k].multiPrompt, commercial: isCommercial, videoModel: str(ep.brief?.videoModel, 120) || undefined, videoProvider: str(ep.brief?.videoProvider, 20) || undefined });
+      const { jobId } = await startPart(row, user, { prompt: continuityPrompt, aspect, kind: previousUrl || startImageUrl ? 'continue' : 'text', prevUrl: previousUrl, startImageUrl, referenceImages: selected, multiPrompt: commercialMultiPrompt || scene.parts[k].multiPrompt, commercial: isCommercial, videoModel: str(ep.brief?.videoModel, 120) || undefined, videoProvider: str(ep.brief?.videoProvider, 20) || undefined, lastFrame: userEndingFrame });
       p.jobId = jobId; p.tries += 1; p.checkAt = Date.now() + FIRST_CHECK_MS; delete p.error; started++;
     } catch (e: any) {
       if (e instanceof RateLimited) {
