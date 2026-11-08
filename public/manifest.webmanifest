@@ -1,13 +1,17 @@
 {
   "name": "OmniPulse AI",
-  "short_name": "OmniPulse",
-  "description": "AI video generator and social media scheduler with live trend research.",
+  "short_name": "OmniPulse AI",
+  "description": "AI creative studio for scripts, stories, videos and productivity.",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#08111a",
-  "theme_color": "#08111a",
+  "background_color": "#111D31",
+  "theme_color": "#111D31",
   "icons": [
-    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
-    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+    {
+      "src": "/omnipulse-mark.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
   ]
 }
