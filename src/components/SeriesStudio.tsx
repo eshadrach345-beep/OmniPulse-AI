@@ -987,8 +987,33 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
           {brandUploadMessage && <p className="text-[10px] text-emerald-300">{brandUploadMessage}</p>}
           {brandUploadError && <p role="alert" className="text-[10px] text-rose-300">{brandUploadError}</p>}
         </fieldset>
+        {continuing && (
+          <fieldset className="space-y-3 rounded-xl border border-indigo-500/25 bg-slate-950/60 p-3">
+            <legend className="px-1 text-xs font-semibold text-slate-200">Video engine for this part</legend>
+            <label className="block space-y-1">
+              <span className="text-[11px] font-medium text-slate-400">Choose the rendering provider</span>
+              <select value={videoProvider} onChange={(event) => setVideoProvider(event.target.value as 'fal' | 'deapi' | 'auto')} className={selectCls}>
+                {falEnabled && <option value="fal">FAL · Kling / FAL video models</option>}
+                {deapiEnabled && <option value="deapi">DeAPI · choose model</option>}
+                {falEnabled && deapiEnabled && <option value="auto">Automatic · FAL first, DeAPI backup</option>}
+              </select>
+              <p className="text-[10px] text-slate-500">Saved to this new part. Provider choices are strict unless Automatic is selected.</p>
+            </label>
+            {(videoProvider === 'deapi' || videoProvider === 'auto') && deapiEnabled && (
+              <label className="block space-y-1">
+                <span className="text-[11px] font-medium text-slate-400">DeAPI video model</span>
+                <select value={videoModel} onChange={(event) => setVideoModel(event.target.value)} disabled={videoModelsLoading || videoModels.length === 0} className={selectCls}>
+                  {videoModels.map((model) => <option key={model.slug} value={model.slug}>{model.name}{model.supportsImageToVideo ? ' · image-to-video' : ''}</option>)}
+                </select>
+                {videoModelsError && <p role="alert" className="text-[10px] text-rose-300">{videoModelsError}</p>}
+              </label>
+            )}
+            {!falEnabled && !deapiEnabled && <p role="alert" className="text-[11px] text-rose-300">No video engine is connected. Add FAL_KEY or DEAPI_API_KEY in Vercel before rendering another part.</p>}
+          </fieldset>
+        )}
+        {!falEnabled && !deapiEnabled && !continuing && <p role="alert" className="rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-300">No video engine is connected. Add FAL_KEY or DEAPI_API_KEY in Vercel before generating a video.</p>}
         {errorBox}
-        <button type="button" onClick={submit} disabled={busy} className="w-full py-3 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-xs font-semibold flex items-center justify-center gap-2">
+        <button type="button" onClick={submit} disabled={busy || (!falEnabled && !deapiEnabled)} className="w-full py-3 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-xs font-semibold flex items-center justify-center gap-2">
           {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Clapperboard className="w-4 h-4" />}{continuing ? `Write and make Part ${partNumber}` : kind === 'series' ? (deliver === 'all' ? `Make all ${parts} parts` : 'Write and make Part 1') : 'Write and make the video'}
         </button>
         <p className="text-[11px] text-slate-500 text-center">It starts right away and keeps working on our servers. You do not have to wait on this page.</p>
