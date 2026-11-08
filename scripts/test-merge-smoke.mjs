@@ -103,9 +103,9 @@ try {
   mergedTransition = await mergeClips([base + '/scene-a.mp4', base + '/scene-b.mp4'], { transition: 'fade', transitionDuration: 0.4 });
   const transitionProbe = await run(['-hide_banner', '-i', mergedTransition.file, '-f', 'null', '-']);
   assert.equal(transitionProbe.code, 0, `Crossfade MP4 must decode: ${transitionProbe.stderr.slice(-1200)}`);
-  assert.match(transitionProbe.stderr, /Video:\\s*h264/i, 'Crossfade output should retain H.264 video.');
-  assert.match(transitionProbe.stderr, /Audio:\\s*aac/i, 'Crossfade output should retain AAC audio.');
-  const transitionDuration = transitionProbe.stderr.match(/Duration:\\s*(\\d+):(\\d+):(\\d+(?:\\.\\d+)?)/);
+  assert.match(transitionProbe.stderr, /Video:\s*h264/i, 'Crossfade output should retain H.264 video.');
+  assert.match(transitionProbe.stderr, /Audio:\s*aac/i, 'Crossfade output should retain AAC audio.');
+  const transitionDuration = transitionProbe.stderr.match(/Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)/);
   assert.ok(transitionDuration, 'FFmpeg should report the transitioned film duration.');
   const transitionSeconds = Number(transitionDuration[1]) * 3600 + Number(transitionDuration[2]) * 60 + Number(transitionDuration[3]);
   assert.ok(transitionSeconds >= 3.4 && transitionSeconds <= 3.8, `Expected about 3.6 seconds after one 0.4-second crossfade, got ${transitionSeconds}.`);
