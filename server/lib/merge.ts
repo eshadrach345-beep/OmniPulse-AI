@@ -162,7 +162,7 @@ async function mergeClipsFresh(urls: string[], options: Required<MergeOptions>):
     const audioLabels: string[] = [];
     const totalDuration = info.reduce((sum, clip) => sum + Math.max(0.1, clip.seconds), 0);
     info.forEach((c, i) => {
-      parts.push(`[${i}:v]scale=${W}:${H}:force_original_aspect_ratio=decrease,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=24,format=yuv420p,setpts=PTS-STARTPTS[v${i}]`);
+      parts.push(`[${i}:v]scale=${W}:${H}:force_original_aspect_ratio=decrease,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=24,format=yuv420p,settb=AVTB,setpts=PTS-STARTPTS[v${i}]`);
       videoLabels.push(`[v${i}]`);
       if (c.audio) {
         // Match each audio segment to its video's measured duration before concatenating.
