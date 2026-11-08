@@ -199,7 +199,7 @@ async function mergeClipsFresh(urls: string[]): Promise<MergeResult> {
     // every boundary, progressively shifting dialogue earlier than the matching picture.
     parts.push(`${audioLabels.join('')}concat=n=${files.length}:v=0:a=1,loudnorm=I=-16:TP=-1.5:LRA=11,apad,atrim=duration=${totalDuration.toFixed(2)}[aout]`);
     const graph = parts.join(';');
-    const encodeOpts = ['-c:v libx264', '-preset ultrafast', '-crf 24', '-c:a aac', '-b:a 160k', ...WEB_FLAGS];
+    const encodeOpts = ['-c:v libx264', '-preset superfast', '-crf 21', '-profile:v high', '-pix_fmt yuv420p', '-c:a aac', '-b:a 192k', '-ar 48000', ...WEB_FLAGS];
     let r2ok = false;
     if (fluent) {
       try {
@@ -211,7 +211,7 @@ async function mergeClipsFresh(urls: string[]): Promise<MergeResult> {
     } else {
       const args: string[] = ['-y'];
       files.forEach((f) => args.push('-i', f));
-      args.push('-filter_complex', graph, '-map', '[v]', '-map', '[aout]', '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '24', '-c:a', 'aac', '-b:a', '160k', '-movflags', '+faststart', out);
+      args.push('-filter_complex', graph, '-map', '[v]', '-map', '[aout]', '-c:v', 'libx264', '-preset', 'superfast', '-crf', '21', '-profile:v', 'high', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '192k', '-ar', '48000', '-movflags', '+faststart', out);
       r2ok = (await run(bin, args, 50_000)).code === 0;
     }
     const st2 = await fs.stat(out).catch(() => null);
