@@ -796,10 +796,14 @@ export const TrendHashtagRadar: React.FC<TrendHashtagRadarProps> = ({
                 <p className="whitespace-pre-wrap text-xs leading-6 text-slate-300">{growthKit.description}</p>
               </section>
               <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-                {[['Shorts ideas', growthKit.shortsIdeas], ['Thumbnail concepts', growthKit.thumbnailConcepts], ['Pre-publish checklist', growthKit.optimizationChecklist]].map(([title, items]) => (
-                  <section key={String(title)} className="rounded-xl border border-slate-800 bg-slate-900/70 p-4 space-y-2">
+                {[
+                  { title: 'Shorts ideas', items: growthKit.shortsIdeas },
+                  { title: 'Thumbnail concepts', items: growthKit.thumbnailConcepts },
+                  { title: 'Pre-publish checklist', items: growthKit.optimizationChecklist },
+                ].map(({ title, items }) => (
+                  <section key={title} className="rounded-xl border border-slate-800 bg-slate-900/70 p-4 space-y-2">
                     <h3 className="text-xs font-bold uppercase tracking-wider text-slate-200">{title}</h3>
-                    {(items as string[]).map((item,index) => <div key={index} className="flex items-start gap-2 border-b border-slate-800/70 pb-2 text-xs leading-5 text-slate-300"><span className="mt-0.5 text-indigo-300">•</span><span className="flex-1">{item}</span><button type="button" onClick={() => copyGrowthText(item)} className="shrink-0 text-slate-500 hover:text-indigo-300" aria-label="Copy item"><Copy className="h-3 w-3" /></button></div>)}
+                    {items.map((item,index) => <div key={index} className="flex items-start gap-2 border-b border-slate-800/70 pb-2 text-xs leading-5 text-slate-300"><span className="mt-0.5 text-indigo-300">•</span><span className="flex-1">{item}</span><button type="button" onClick={() => copyGrowthText(item)} className="shrink-0 text-slate-500 hover:text-indigo-300" aria-label="Copy item"><Copy className="h-3 w-3" /></button></div>)}
                   </section>
                 ))}
                 <section className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-4 lg:col-span-2"><p className="text-[10px] leading-5 text-amber-100/80">Growth note: these are creative and optimization recommendations, not verified search-volume, ranking or performance measurements. Compare actual results in your connected channel analytics after publishing.</p></section>
