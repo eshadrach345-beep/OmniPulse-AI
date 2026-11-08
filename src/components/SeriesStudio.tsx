@@ -408,8 +408,8 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
       setError('The selected deAPI model does not support image-to-video. Choose a model marked “image-to-video” or remove the opening frame.');
       return;
     }
-    if (endFrame && videoProvider === 'fal') {
-      setError('Ending-frame control is available through DeAPI models. Select DeAPI or Automatic for this production.');
+    if (endFrame && videoProvider !== 'deapi') {
+      setError('Ending-frame control is currently available only when DeAPI is selected as the video engine. Select DeAPI for this production.');
       return;
     }
     if (endFrame && selectedDeapiModel && !selectedDeapiModel.supportsLastFrame) {
@@ -996,7 +996,7 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
               {startFrame && <button type="button" onClick={() => setStartFrame(null)} className="rounded-lg border border-slate-700 px-3 py-2 text-[11px] text-slate-300">Remove</button>}
             </div>
           </div>
-          {(videoProvider === 'deapi' || videoProvider === 'auto') && (
+          {videoProvider === 'deapi' && (
             <div className="border-t border-slate-800 pt-3 space-y-2">
               <div>
                 <p className="text-[11px] font-semibold text-white">Optional ending frame</p>
