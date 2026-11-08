@@ -25,6 +25,8 @@ assert.match(prompt, /profession-specific actions/i);
 assert.match(prompt, /Never place unexplained papers, bundles, tools, maps, boxes or props on a person.s head/i);
 assert.match(prompt, /No generated logo, brand name, subtitle, sign or readable lettering/i);
 assert.match(prompt, /clean closing composition/i);
+assert.match(prompt, /screens-within-screens/i);
+assert.match(prompt, /disembodied hands/i);
 const ui = fs.readFileSync(new URL('../src/components/SeriesStudio.tsx', import.meta.url), 'utf8');
 assert.ok(ui.includes("if (f.id === 'commercial') { setSceneSeconds(10); setReviewFirst(true); setSeconds(60); }"));
 assert.ok(ui.includes('Brand kit & visual references'));
