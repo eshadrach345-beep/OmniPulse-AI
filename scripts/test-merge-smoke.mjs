@@ -54,12 +54,12 @@ try {
   ]) {
     const result = await run([
       '-hide_banner', '-loglevel', 'error', '-y',
-      '-f', 'lavfi', '-i', \`color=c=\${color}:s=360x640:r=24\`,
-      '-f', 'lavfi', '-i', \`sine=frequency=\${frequency}:sample_rate=48000\`,
+      '-f', 'lavfi', '-i', `color=c=${color}:s=360x640:r=24`,
+      '-f', 'lavfi', '-i', `sine=frequency=${frequency}:sample_rate=48000`,
       '-t', '2', '-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p',
       '-c:a', 'aac', '-b:a', '96k', '-ar', '48000', '-ac', '2', '-shortest', file,
     ]);
-    assert.equal(result.code, 0, \`Could not create test MP4: \${result.stderr.slice(-1200)}\`);
+    assert.equal(result.code, 0, `Could not create test MP4: ${result.stderr.slice(-1200)}`);
   }
 
   // Compile the actual merge implementation so this test exercises production code.
@@ -82,22 +82,22 @@ try {
     server.listen(0, '127.0.0.1', resolve);
   });
   const address = server.address();
-  const base = \`http://127.0.0.1:\${address.port}\`;
+  const base = `http://127.0.0.1:${address.port}`;
 
-  merged = await mergeClips([\`\${base}/scene-a.mp4\`, \`\${base}/scene-b.mp4\`]);
+  merged = await mergeClips([`${base}/scene-a.mp4`, `${base}/scene-b.mp4`]);
   const stat = await fs.stat(merged.file);
   assert.ok(stat.size > 2_000, 'Merged MP4 should not be empty.');
   assert.ok(infoLines.some((line) => line.includes('Scene merge used packet stream-copy')),
     'Matching clips with AAC audio should take the packet stream-copy fast path.');
 
   const probe = await run(['-hide_banner', '-i', merged.file, '-f', 'null', '-']);
-  assert.equal(probe.code, 0, \`Merged MP4 must decode: \${probe.stderr.slice(-1200)}\`);
+  assert.equal(probe.code, 0, `Merged MP4 must decode: ${probe.stderr.slice(-1200)}`);
   assert.match(probe.stderr, /Video:\\s*h264/i, 'Merged output should retain H.264 video.');
   assert.match(probe.stderr, /Audio:\\s*aac/i, 'Merged output should retain AAC audio.');
   const duration = probe.stderr.match(/Duration:\\s*(\d+):(\d+):(\d+(?:\.\d+)?)/);
   assert.ok(duration, 'FFmpeg should report the merged MP4 duration.');
   const seconds = Number(duration[1]) * 3600 + Number(duration[2]) * 60 + Number(duration[3]);
-  assert.ok(seconds >= 3.8 && seconds <= 4.3, \`Expected about 4 seconds of video, got \${seconds}.\`);
+  assert.ok(seconds >= 3.8 && seconds <= 4.3, `Expected about 4 seconds of video, got ${seconds}.`);
 
   console.log('Audio scene-merge smoke test passed (two H.264/AAC clips joined by stream-copy).');
 } finally {
