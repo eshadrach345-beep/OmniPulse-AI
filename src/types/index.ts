@@ -235,6 +235,10 @@ export interface VideoScene {
   /** Main scene fade in/out in seconds; applied to picture and source audio. */
   clipFadeIn?: number;
   clipFadeOut?: number;
+  /** How the source frame fits into the output canvas. */
+  fitMode?: 'contain' | 'cover';
+  /** Restrained color-grading preset applied during export. */
+  colorGrade?: 'none' | 'cinematic' | 'warm' | 'cool' | 'monochrome' | 'vintage' | 'vivid';
   visualCue: string;
   narration: string;
   onScreenText: string;
