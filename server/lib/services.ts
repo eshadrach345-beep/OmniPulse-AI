@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import { HttpError } from './core.js';
 import { buildDeapiVideoFields } from './deapi-tuning.js';
+import { isRecentTrendSource, normalizeTrendPublishedAt, TREND_FRESHNESS_DAYS } from './trend-freshness.js';
 
 export const ENV_ALIASES: Record<string, string[]> = {
   GEMINI_API_KEY: ['GEMINI_API_KEY', 'GOOGLE_API_KEY', 'GOOGLE_GENAI_API_KEY', 'GEMINI_KEY', 'GOOGLE_AI_API_KEY'],
@@ -498,10 +499,10 @@ export async function geminiRaw(prompt: string, opts: { grounded?: boolean; time
 
 /** Step 1 of research: a Google-Search-grounded pass. Kept under ~30s so no single request runs long. THROWS if search did not really run. */
 // Official YouTube public statistics, when the owner has configured a YouTube Data API key.
-async function youtubePublicTrendEvidence(niche: string): Promise<{ text: string; sources: { title: string; url: string }[] }> {
+async function youtubePublicTrendEvidence(niche: string): Promise<{ text: string; sources: { title: string; url: string; publishedAt: string }[] }> {
   const key = (process.env.YOUTUBE_API_KEY || process.env.YOUTUBE_DATA_API_KEY || '').trim();
   if (!key) return { text: 'YouTube Data API: not configured. Web-search discoveries may still include YouTube links, but official public view-count ranking is unavailable.', sources: [] };
-  const after = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
+  const after = new Date(Date.now() - TREND_FRESHNESS_DAYS * 24 * 60 * 60 * 1000).toISOString();
   const base = 'https://www.googleapis.com/youtube/v3/';
   const searchUrl = new URL(base + 'search');
   searchUrl.search = new URLSearchParams({ part: 'snippet', type: 'video', order: 'viewCount', maxResults: '50', publishedAfter: after, q: niche, key }).toString();
@@ -509,7 +510,7 @@ async function youtubePublicTrendEvidence(niche: string): Promise<{ text: string
   if (!sr.ok) throw new Error('YouTube search returned ' + sr.status);
   const sd: any = await sr.json();
   const found = (sd.items || []).filter((x: any) => x && x.id && x.id.videoId && x.snippet && x.snippet.channelId);
-  if (!found.length) return { text: 'YouTube Data API: no recent public videos found for this niche in the last 90 days.', sources: [] };
+  if (!found.length) return { text: 'YouTube Data API: no public videos found for this niche in the last 14 days.', sources: [] };
   const videoIds = found.map((x: any) => x.id.videoId);
   const channelIds = [...new Set(found.map((x: any) => x.snippet.channelId))];
   const [vr, cr] = await Promise.all([
@@ -550,11 +551,11 @@ async function youtubePublicTrendEvidence(niche: string): Promise<{ text: string
     (c.topVideos.slice(1).map((v: any) => v.title + ' | ' + v.videoUrl + ' | ' + v.views + ' public views | ' + v.viewsPerHour + ' public views/hour (calculated) | ' + v.publishedAt + ' | ' + v.thumbnail).join(' ; ') || 'None returned')
   ).join('\n\n');
   const sources = creators.flatMap((c: any) => [
-    { title: c.channelTitle + ' — YouTube channel', url: c.channelUrl },
-    ...c.topVideos.map((v: any) => ({ title: v.title, url: v.videoUrl })),
+    { title: c.channelTitle + ' — YouTube channel', url: c.channelUrl, publishedAt: c.publishedAt },
+    ...c.topVideos.map((v: any) => ({ title: v.title, url: v.videoUrl, publishedAt: v.publishedAt })),
   ]);
   return {
-    text: 'OFFICIAL YOUTUBE DATA API RESULTS. Search ordered by public view count, restricted to videos published in the last 90 days. These are public views, NOT private impressions. This is a discovery sample, not a complete platform-wide ranking.\n\n' + evidence,
+    text: 'OFFICIAL YOUTUBE DATA API RESULTS. Search ordered by public view count, restricted to videos published in the last 14 days. These are public views, NOT private impressions. This is a discovery sample, not a complete platform-wide ranking.\n\n' + evidence,
     sources,
   };
 }
@@ -563,12 +564,12 @@ async function youtubePublicTrendEvidence(niche: string): Promise<{ text: string
 export async function webTrendResearch(niche: string, customQuery: string): Promise<{ text: string; sources: { title: string; url: string; domain: string; faviconUrl: string; imageUrl?: string; snippet: string; publishedAt?: string; sourceType: 'video' | 'article' | 'news' | 'website'; platform?: string }[]; provider: string }> {
   const focus = customQuery ? ' ' + customQuery : '';
   const queries = [
-    '"' + niche + '" trends launches news last 14 days' + focus,
-    '"' + niche + '" top YouTube creators recent high view videos' + focus,
-    '"' + niche + '" TikTok creators viral videos examples' + focus,
-    '"' + niche + '" Instagram Reels creators popular recent videos' + focus,
-    '"' + niche + '" creator accounts video formats hooks audience' + focus,
-    '"' + niche + '" market reports hashtags search keywords audience questions' + focus,
+    '"' + niche + '" trends launches news published in the last 14 days' + focus,
+    '"' + niche + '" top YouTube creators and videos published in the last 14 days' + focus,
+    '"' + niche + '" TikTok videos and creators trending in the last 14 days' + focus,
+    '"' + niche + '" Instagram Reels published in the last 14 days' + focus,
+    '"' + niche + '" creator formats and audience conversations from the last 14 days' + focus,
+    '"' + niche + '" recent audience questions, hashtags and market updates published in the last 14 days' + focus,
   ];
   const unique = new Map<string, any>();
   const braveKey = (process.env.BRAVE_SEARCH_API_KEY || '').trim();
@@ -581,7 +582,7 @@ export async function webTrendResearch(niche: string, customQuery: string): Prom
       url.searchParams.set('q', q); url.searchParams.set('count', '15');
       url.searchParams.set('maximum_number_of_tokens', '2048'); url.searchParams.set('maximum_number_of_urls', '10');
       url.searchParams.set('context_threshold_mode', 'balanced'); url.searchParams.set('enable_source_metadata', 'true');
-      if (i < 4) url.searchParams.set('freshness', 'pm');
+      url.searchParams.set('freshness', 'pm');
       const r = await fetch(url, { headers: { 'X-Subscription-Token': braveKey, Accept: 'application/json' }, signal: AbortSignal.timeout(25000) });
       if (!r.ok) throw new HttpError(424, 'Brave LLM Context returned ' + r.status + '. Check BRAVE_SEARCH_API_KEY and its plan.', 'SEARCH');
       const d: any = await r.json(), generic = d && d.grounding && d.grounding.generic || [], meta = d && d.sources || {};
@@ -592,9 +593,9 @@ export async function webTrendResearch(niche: string, customQuery: string): Prom
       if (oldItem) oldItem.content = (oldItem.content + '\n' + x.content).slice(0, 10000);
       else unique.set(x.url, x);
     }
-    if (unique.size < 8) throw new HttpError(424, 'Live search returned too few independent sources. Try a more specific or broader niche.', 'SEARCH');
-    const items = [...unique.values()].slice(0, 36);
-    searchText = items.map((x, i) => '[SOURCE ' + (i + 1) + '] ' + x.title + '\nURL: ' + x.url + '\nPublished/updated: ' + (x.date || 'Not supplied') + '\nSearch query: ' + x.query + '\nExtracted evidence: ' + x.content).join('\n\n');
+    const items = [...unique.values()].filter((x) => isRecentTrendSource(x.date)).slice(0, 36);
+    if (items.length < 4) throw new HttpError(424, `Live search returned only ${items.length} date-verified sources published in the last 14 days. Older and undated pages were excluded; try a broader niche.`, 'TREND_FRESHNESS');
+    searchText = items.map((x, i) => '[SOURCE ' + (i + 1) + '] ' + x.title + '\nURL: ' + x.url + '\nPublished/updated: ' + normalizeTrendPublishedAt(x.date) + '\nSearch query: ' + x.query + '\nExtracted evidence: ' + x.content).join('\n\n');
     provider = 'brave-llm-context';
   } else if (tavilyKey) {
     const groups = await Promise.all(queries.map(async q => {
@@ -604,9 +605,9 @@ export async function webTrendResearch(niche: string, customQuery: string): Prom
       return (d.results || []).map((x: any) => { const pageImages = Array.isArray(x.images) ? x.images : []; const pageImage = pageImages.map((v: any) => typeof v === 'string' ? v : String(v?.url || '')).find((v: string) => /^https?:\/\//i.test(v)) || ''; return { title: String(x.title || '').slice(0, 240), url: String(x.url || ''), content: String(x.content || '').slice(0, 2200), date: String(x.published_date || ''), imageUrl: String(x.image || x.image_url || x.thumbnail_url || x.thumbnail?.src || pageImage), faviconUrl: String(x.favicon || ''), query: q }; });
     }));
     for (const group of groups) for (const x of group) if (/^https?:\/\//i.test(x.url)) unique.set(x.url, x);
-    if (unique.size < 8) throw new HttpError(424, 'Live search returned too few independent sources. Try a more specific or broader niche.', 'SEARCH');
-    const items = [...unique.values()].slice(0, 36);
-    searchText = items.map((x, i) => '[SOURCE ' + (i + 1) + '] ' + x.title + '\nURL: ' + x.url + '\nPublished: ' + (x.date || 'Not supplied') + '\nSearch query: ' + x.query + '\nEvidence: ' + x.content).join('\n\n');
+    const items = [...unique.values()].filter((x) => isRecentTrendSource(x.date)).slice(0, 36);
+    if (items.length < 4) throw new HttpError(424, `Live search returned only ${items.length} date-verified sources published in the last 14 days. Older and undated pages were excluded; try a broader niche.`, 'TREND_FRESHNESS');
+    searchText = items.map((x, i) => '[SOURCE ' + (i + 1) + '] ' + x.title + '\nURL: ' + x.url + '\nPublished: ' + normalizeTrendPublishedAt(x.date) + '\nSearch query: ' + x.query + '\nEvidence: ' + x.content).join('\n\n');
     provider = 'tavily';
   } else {
     throw new HttpError(424, 'Live niche research needs a search API key. Add TAVILY_API_KEY in Vercel, then redeploy. This research step does not use Gemini.', 'SEARCH_SETUP');
@@ -615,11 +616,13 @@ export async function webTrendResearch(niche: string, customQuery: string): Prom
   try {
     const yt = await youtubePublicTrendEvidence(niche);
     youtubeText = yt.text;
-    for (const s of yt.sources) if (!unique.has(s.url)) unique.set(s.url, { title: s.title, url: s.url });
+    for (const source of yt.sources) if (!unique.has(source.url)) unique.set(source.url, { title: source.title, url: source.url, date: source.publishedAt, query: 'Official YouTube Data API · last 14 days' });
   } catch (e) {
     youtubeText = 'YouTube Data API enrichment unavailable: ' + (e instanceof Error ? e.message : 'request failed') + '. Use only public metrics visible in web-search evidence; do not infer private impressions.';
   }
-  const sources = [...unique.values()].slice(0, 80).map(x => {
+  const recentSources = [...unique.values()].filter((x) => isRecentTrendSource(x.date));
+  if (recentSources.length < 4) throw new HttpError(424, 'Trend research did not return enough source dates from the last 14 days. No older trend cards were generated.', 'TREND_FRESHNESS');
+  const sources = recentSources.slice(0, 80).map(x => {
     const parsed = new URL(x.url);
     const domain = parsed.hostname.replace(/^www\./i, '');
     const host = parsed.hostname.toLowerCase();
@@ -630,9 +633,9 @@ export async function webTrendResearch(niche: string, customQuery: string): Prom
     const imageUrl = /^https?:\/\//i.test(rawImage) ? rawImage : (youtubeImage || undefined);
     const platform = isYouTube ? 'YouTube' : host.includes('tiktok') ? 'TikTok' : host.includes('instagram') ? 'Instagram' : host.includes('facebook') ? 'Facebook' : host.includes('linkedin') ? 'LinkedIn' : host.includes('x.com') || host.includes('twitter') ? 'X' : undefined;
     const sourceType: 'video' | 'news' | 'article' = isYouTube && videoId ? 'video' : /news|bbc|cnn|reuters|guardian|forbes|techcrunch|wired|nytimes/i.test(domain) ? 'news' : 'article';
-    return { title: x.title || x.url, url: x.url, domain, faviconUrl: String(x.faviconUrl || '').startsWith('http') ? String(x.faviconUrl) : 'https://www.google.com/s2/favicons?domain=' + encodeURIComponent(domain) + '&sz=64', imageUrl, snippet: String(x.content || '').slice(0, 360), publishedAt: x.date || undefined, sourceType, platform };
+    return { title: x.title || x.url, url: x.url, domain, faviconUrl: String(x.faviconUrl || '').startsWith('http') ? String(x.faviconUrl) : 'https://www.google.com/s2/favicons?domain=' + encodeURIComponent(domain) + '&sz=64', imageUrl, snippet: String(x.content || '').slice(0, 360), publishedAt: normalizeTrendPublishedAt(x.date), sourceType, platform };
   });
-  const text = 'Search provider: ' + provider + '. Research date: ' + new Date().toISOString() + '. Web sources: ' + sources.length + '.\n\n' + searchText + '\n\n' + youtubeText;
+  const text = 'Search provider: ' + provider + '. Research date: ' + new Date().toISOString() + '. Strict freshness window: 14 days. Older and undated pages were excluded. Web sources: ' + sources.length + '.\n\n' + searchText + '\n\n' + youtubeText;
   return { text, sources, provider: provider + ((process.env.YOUTUBE_API_KEY || process.env.YOUTUBE_DATA_API_KEY) ? '+youtube-data-api' : '') };
 }
 export async function geminiSearch(researchPrompt: string): Promise<{ text: string; sources: { title: string; url: string }[]; model: string }> {
