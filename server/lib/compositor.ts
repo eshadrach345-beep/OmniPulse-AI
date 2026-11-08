@@ -1,5 +1,10 @@
 type VideoMediaLayer = { kind: 'video' | 'image' | 'audio'; sourceIn: number; duration: number; startAt: number; scale: number; opacity: number; x: number; y: number; volume: number; fadeIn?: number; fadeOut?: number };
 type VideoCaptionCue = { start: number; end: number; text: string };
+type VideoTextOverlay = {
+  start: number; end: number; text: string; y: string; fontSize: number; color?: string;
+  boxColor?: string; boxBorderWidth?: number; fadeIn?: number; fadeOut?: number;
+  weight?: 'regular' | 'bold';
+};
 
 export interface CompositionInput {
   base: string;
@@ -8,6 +13,7 @@ export interface CompositionInput {
   overlays: Array<{ layer: VideoMediaLayer; file: string }>;
   audio: Array<{ layer: VideoMediaLayer; file: string }>;
   captions: VideoCaptionCue[];
+  textOverlays?: VideoTextOverlay[];
   title?: string;
   titlePosition?: 'top' | 'center' | 'bottom';
   duration: number;
@@ -68,9 +74,44 @@ export async function renderComposition(input: CompositionInput): Promise<void> 
     const rawX = Number(layer.x), rawY = Number(layer.y);
     const x = Math.max(0, Math.min(100, Number.isFinite(rawX) ? rawX : 50)) / 100;
     const y = Math.max(0, Math.min(100, Number.isFinite(rawY) ? rawY : 50)) / 100;
-    filter.push(`[${index}:v]scale=${Math.round(width * scale / 100 / 2) * 2}:-2,format=rgba,colorchannelmixer=aa=${opacity},setpts=PTS-STARTPTS+${start}/TB[ov${index}]`);
+    const clipDuration = Math.max(0.1, end - start);
+    const fadeIn = Math.max(0, Math.min(clipDuration / 2, Number(layer.fadeIn) || 0));
+    const fadeOut = Math.max(0, Math.min(clipDuration / 2, Number(layer.fadeOut) || 0));
+    const visualFade = [
+      fadeIn > 0 ? `fade=t=in:st=0:d=${fadeIn}:alpha=1` : '',
+      fadeOut > 0 ? `fade=t=out:st=${Math.max(0, clipDuration - fadeOut)}:d=${fadeOut}:alpha=1` : '',
+    ].filter(Boolean).join(',');
+    filter.push(`[${index}:v]scale=${Math.round(width * scale / 100 / 2) * 2}:-2,format=rgba${visualFade ? ',' + visualFade : ''},colorchannelmixer=aa=${opacity},setpts=PTS-STARTPTS+${start}/TB[ov${index}]`);
     filter.push(`[${videoLabel}][ov${index}]overlay=x=(W-w)*${x}:y=(H-h)*${y}:enable='between(t,${start},${end})':eof_action=pass:shortest=0[${nextLabel}]`);
     videoLabel = nextLabel;
+  }
+
+  // Brand text is drawn by FFmpeg from temporary text files; the video model never writes logos or typography.
+  const textOverlays = (input.textOverlays || []).slice(0, 12);
+  const fontBold = path.resolve('server/assets/fonts/Lato-Bold.ttf').replace(/\\/g, '/').replace(/:/g, '\\:').replace(/'/g, "\\'");
+  const fontRegular = path.resolve('server/assets/fonts/Lato-Regular.ttf').replace(/\\/g, '/').replace(/:/g, '\\:').replace(/'/g, "\\'");
+  for (const [i, layer] of textOverlays.entries()) {
+    const start = Math.max(0, Math.min(duration, Number(layer.start) || 0));
+    const end = Math.max(start + 0.1, Math.min(duration, Number(layer.end) || duration));
+    const text = String(layer.text || '').replace(/[\\r\\n]+/g, '\\n').slice(0, 220);
+    if (!text.trim()) continue;
+    const textPath = path.join(path.dirname(input.output), `overlay-text-${Date.now()}-${i}.txt`);
+    await fs.writeFile(textPath, text, 'utf8');
+    const escapedTextPath = textPath.replace(/\\/g, '/').replace(/:/g, '\\:').replace(/'/g, "\\'");
+    const fontFile = layer.weight === 'regular' ? fontRegular : fontBold;
+    const fontSize = Math.max(18, Math.min(112, Math.round(Number(layer.fontSize) || 44)));
+    const color = /^#?[0-9a-f]{6}$/i.test(String(layer.color || '')) ? '0x' + String(layer.color).replace('#', '') : 'white';
+    const boxColor = /^#?[0-9a-f]{6}$/i.test(String(layer.boxColor || '')) ? '0x' + String(layer.boxColor).replace('#', '') + '@1' : '';
+    const border = Math.max(0, Math.min(48, Math.round(Number(layer.boxBorderWidth) || 0)));
+    const fadeIn = Math.max(0, Math.min((end - start) / 2, Number(layer.fadeIn) || 0));
+    const fadeOut = Math.max(0, Math.min((end - start) / 2, Number(layer.fadeOut) || 0));
+    const alpha = (fadeIn || fadeOut)
+      ? `:alpha='if(lt(t,${start + fadeIn}),${fadeIn ? `(t-${start})/${fadeIn}` : '1'},if(gt(t,${end - fadeOut}),${fadeOut ? `(${end}-t)/${fadeOut}` : '1'},1))'`
+      : '';
+    const box = boxColor ? `:box=1:boxcolor=${boxColor}:boxborderw=${border || 12}` : '';
+    const y = /^[a-z0-9().*+\\/-]+$/i.test(String(layer.y || '')) ? layer.y : 'h*0.5';
+    filter.push(`[${videoLabel}]drawtext=fontfile='${fontFile}':textfile='${escapedTextPath}':fontsize=${fontSize}:fontcolor=${color}:x=(w-text_w)/2:y=${y}:line_spacing=10${box}${alpha}:enable='between(t,${start},${end})'[${videoLabel}t${i}]`);
+    videoLabel = `${videoLabel}t${i}`;
   }
 
   if (input.captions.length || input.title?.trim()) {
@@ -125,6 +166,6 @@ export async function renderComposition(input: CompositionInput): Promise<void> 
   args.push('-filter_complex', filter.join(';'), '-map', `[${videoLabel}]`);
   if (audioLabels.length) args.push('-map', '[aout]');
   else if (hasBaseAudio) args.push('-map', '0:a?');
-  args.push('-t', String(duration), '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '160k', '-movflags', '+faststart', '-max_muxing_queue_size', '2048', input.output);
+  args.push('-t', String(duration), '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '192k', '-ar', '48000', '-movflags', '+faststart', '-max_muxing_queue_size', '2048', input.output);
   await run(bin, args, 240_000);
 }
