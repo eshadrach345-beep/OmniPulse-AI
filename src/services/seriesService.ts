@@ -38,6 +38,8 @@ export interface Episode {
   logline: string;
   storySoFar: string;
   finalVideoUrl: string | null;
+  /** True when this Brand Ad has an exact private logo saved for the deterministic final export. */
+  hasBrandLogo: boolean;
   error: string | null;
   createdAt: string | null;
   updatedAt: string | null;
