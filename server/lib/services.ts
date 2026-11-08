@@ -778,6 +778,12 @@ async function deapiParse(r: Response): Promise<string> {
 export async function deapiSubmit(prompt: string, resolution: string = '480P', seconds = 5, aspect: string = '9:16', requestedModel?: string) {
   const [width, height] = deapiCanvas(resolution, aspect);
   const selectedModel = await resolveDeapiVideoModel(requestedModel);
+  if (requestedModel) {
+    const selected = (await deapiVideoModels()).find((item) => item.slug === selectedModel);
+    if (selected && !selected.supportsImageToVideo) {
+      throw new HttpError(400, 'The selected deAPI model does not support image-to-video. Choose a model marked “image-to-video” or remove the opening image.', 'DEAPI_MODEL_MODE');
+    }
+  }
   const c = deapiClip(seconds, selectedModel);
   const [modelInfo, overrides] = await Promise.all([
     getDeapiVideoModelInfo(c.model),
@@ -829,7 +835,7 @@ export async function deapiVideoModels(): Promise<{ slug: string; name: string; 
       JSON.stringify(info)].filter(Boolean).join(' ').toLowerCase();
     if (!/(video|ltx|seedance|h3|hunyuan|wan|svd|animatediff|kling)/i.test(evidence)) return [];
     const supportsImageToVideo = /(image.?to.?video|image.?video|i2v|first_frame_image|first frame)/i.test(evidence)
-      || /^(ltx2?[_-]?2?.?5|ltx[-_]?2.?3|seedance[-_]?2.?5)$/i.test(slug);
+      || /^(ltx2?[_-]?2?.?5|ltx[-_]?2.?3|seedance[-_]?2.?5)/i.test(slug);
     return [{
       slug,
       name,
