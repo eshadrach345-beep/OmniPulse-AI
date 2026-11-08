@@ -204,9 +204,17 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
   const [animalsTalk, setAnimalsTalk] = useState(false);
   const [trope, setTrope] = useState<TropeId>('none');
   const [reviewFirst, setReviewFirst] = useState(true);
-  const [characterReferences, setCharacterReferences] = useState(true);
+  // Character portraits/location plates are optional because they spend additional image credits.
+  const [characterReferences, setCharacterReferences] = useState(false);
   const logoInputRef = useRef<HTMLInputElement | null>(null);
   const brandRefsInputRef = useRef<HTMLInputElement | null>(null);
+  const startFrameInputRef = useRef<HTMLInputElement | null>(null);
+  const [startFrame, setStartFrame] = useState<BrandMediaAsset | null>(null);
+  const [videoProvider, setVideoProvider] = useState<'fal' | 'deapi' | 'auto'>('fal');
+  const [videoModels, setVideoModels] = useState<{ slug: string; name: string; description: string; supportsImageToVideo: boolean }[]>([]);
+  const [videoModel, setVideoModel] = useState('Ltx2_5_22B_Dist_INT8');
+  const [videoModelsLoading, setVideoModelsLoading] = useState(true);
+  const [videoModelsError, setVideoModelsError] = useState('');
   const [brandName, setBrandName] = useState('');
   const [brandTagline, setBrandTagline] = useState('');
   const [brandCta, setBrandCta] = useState('');
@@ -217,10 +225,10 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
   const [brandUploadBusy, setBrandUploadBusy] = useState(false);
   const [brandUploadMessage, setBrandUploadMessage] = useState('');
   const [brandUploadError, setBrandUploadError] = useState('');
-  const uploadBrandAssets = async (selection: FileList | null, role: 'logo' | 'reference') => {
+  const uploadBrandAssets = async (selection: FileList | null, role: 'logo' | 'reference' | 'startFrame') => {
     const files = selection ? Array.from(selection) : [];
     if (!files.length) return;
-    if (role === 'logo' && files.length > 1) { setBrandUploadError('Choose one logo file.'); return; }
+    if ((role === 'logo' || role === 'startFrame') && files.length > 1) { setBrandUploadError('Choose one image for this slot.'); return; }
     if (role === 'reference' && brandReferences.length + files.length > 4) { setBrandUploadError('Add up to four visual reference images.'); return; }
     setBrandUploadBusy(true); setBrandUploadError(''); setBrandUploadMessage('');
     try {
@@ -240,9 +248,10 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
         const signed = await api.get<{ url: string }>('/media/url?id=' + encodeURIComponent(saved.id));
         const ready = { ...saved, previewUrl: signed.url };
         if (role === 'logo') setBrandLogo(ready);
+        else if (role === 'startFrame') setStartFrame(ready);
         else setBrandReferences((current) => [...current, ready].slice(0, 4));
       }
-      setBrandUploadMessage(role === 'logo' ? 'Logo saved to your private Brand Library.' : 'Visual references saved to your private Brand Library.');
+      setBrandUploadMessage(role === 'logo' ? 'Logo saved to your private Brand Library.' : role === 'startFrame' ? 'Opening frame saved to your private media library.' : 'Visual references saved to your private Brand Library.');
     } catch (e) {
       setBrandUploadError(e instanceof ApiError ? e.message : e instanceof Error ? e.message : 'Brand asset upload failed.');
     } finally { setBrandUploadBusy(false); }
@@ -297,6 +306,21 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
     catch (e) { setError(e instanceof Error ? e.message : 'Your series could not be loaded.'); setProjects((p) => p || []); }
   }, [single]);
   useEffect(() => { void loadList(); }, [loadList]);
+
+  useEffect(() => {
+    let active = true;
+    api.get<{ provider: 'fal' | 'deapi' | 'auto'; models: { slug: string; name: string; description: string; supportsImageToVideo: boolean }[]; deapiEnabled: boolean }>('/video/models')
+      .then((result) => {
+        if (!active) return;
+        setVideoProvider(result.provider);
+        setVideoModels(result.models || []);
+        if (result.models?.length && !result.models.some((model) => model.slug === videoModel)) setVideoModel(result.models[0].slug);
+        setVideoModelsError('');
+      })
+      .catch((error) => { if (active) setVideoModelsError(error instanceof Error ? error.message : 'The video model list is unavailable.'); })
+      .finally(() => { if (active) setVideoModelsLoading(false); });
+    return () => { active = false; };
+  }, []);
 
   useEffect(() => { setNextId(null); }, [episodeId]);
 
@@ -378,10 +402,12 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
       const r = await Series.create({
         projectId: detail?.project.id, title: title.trim() || undefined, idea: idea.trim(), mode: writer, script: writer === 'paste' ? script.trim() : undefined,
         format, look, aspectRatio: ratio, niche: nicheName, brief: built.brief, reviewFirst, characterReferences,
-        brandKit: (brandName.trim() || brandTagline.trim() || brandCta.trim() || brandUrl.trim() || brandLogo || brandReferences.length) ? {
+        videoModel: videoProvider === 'deapi' || videoProvider === 'auto' ? videoModel : undefined,
+        brandKit: (brandName.trim() || brandTagline.trim() || brandCta.trim() || brandUrl.trim() || brandLogo || brandReferences.length || startFrame) ? {
           brandName: brandName.trim(), tagline: brandTagline.trim(), primaryColor: brandColor,
           cta: brandCta.trim(), url: brandUrl.trim(),
           logoAssetId: brandLogo?.id, referenceAssetIds: brandReferences.map((asset) => asset.id),
+          startFrameAssetId: startFrame?.id,
         } : undefined,
         series: !continuing && kind === 'series' ? { parts, deliver } : undefined,
       });
@@ -881,10 +907,50 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
           <input type="checkbox" checked={reviewFirst} onChange={(e) => setReviewFirst(e.target.checked)} className="mt-0.5 accent-indigo-500" />
           <span><span className="font-semibold">Review and edit the screenplay first (recommended).</span> The script is written, then waits for you. Check every scene and line before any video seconds are spent. No video seconds are used until you approve it.</span>
         </label>
-        <label className="flex items-start gap-2 text-xs text-slate-300 cursor-pointer rounded-lg border border-indigo-500/30 bg-indigo-950/20 p-3">
+        <label className="flex items-start gap-2 text-xs text-slate-300 cursor-pointer rounded-lg border border-slate-800 bg-slate-950/60 p-3">
           <input type="checkbox" checked={characterReferences} onChange={(e) => setCharacterReferences(e.target.checked)} className="mt-0.5 accent-indigo-500" />
-          <span><span className="font-semibold text-indigo-200">Use consistent cast and location references (recommended).</span> Creates reusable cast portraits and a master location image, then supplies them to each video clip to help keep faces, hair, wardrobe, room layout and props consistent. Uses additional fal.ai image credits; turn it off to save those credits, but expect less visual continuity.</span>
+          <span><span className="font-semibold text-slate-200">Generate cast and location reference images (optional).</span> This can improve visual continuity, but it uses additional image-generation credits. It is off by default to avoid unexpected charges.</span>
         </label>
+
+        <fieldset className="space-y-3 rounded-xl border border-indigo-500/25 bg-slate-950/60 p-3">
+          <legend className="px-1 text-xs font-semibold text-slate-200">Video engine & source image</legend>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <p className="text-[11px] font-semibold text-white">Connected engine: <span className="uppercase text-indigo-300">{videoProvider}</span></p>
+              <p className="text-[10px] text-slate-500">Provider routing stays controlled by the server so failed renders are not silently downgraded.</p>
+            </div>
+            {videoProvider === 'deapi' || videoProvider === 'auto' ? (
+              <span className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2 py-1 text-[9px] font-semibold text-emerald-300">deAPI model controls</span>
+            ) : <span className="rounded-full border border-slate-700 bg-slate-900 px-2 py-1 text-[9px] font-semibold text-slate-400">FAL managed model</span>}
+          </div>
+          {(videoProvider === 'deapi' || videoProvider === 'auto') && (
+            <label className="block space-y-1">
+              <span className="text-[11px] font-medium text-slate-400">Video generation model</span>
+              <select value={videoModel} onChange={(event) => setVideoModel(event.target.value)} disabled={videoModelsLoading || videoModels.length === 0} className={selectCls}>
+                {videoModelsLoading && <option value={videoModel}>Loading available deAPI models…</option>}
+                {!videoModelsLoading && videoModels.length === 0 && <option value={videoModel}>No video models returned</option>}
+                {videoModels.map((model) => <option key={model.slug} value={model.slug}>{model.name}{model.supportsImageToVideo ? ' · image-to-video' : ''}</option>)}
+              </select>
+              {videoModels.find((model) => model.slug === videoModel)?.description && <p className="text-[10px] text-slate-500">{videoModels.find((model) => model.slug === videoModel)?.description}</p>}
+              {videoModelsError && <p role="alert" className="text-[10px] text-rose-300">{videoModelsError}</p>}
+              {videoProvider === 'auto' && <p className="text-[10px] text-amber-300/80">The selected deAPI model is used only when automatic failover reaches deAPI. FAL remains the primary engine.</p>}
+            </label>
+          )}
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <p className="text-[11px] font-semibold text-white">Image-to-video opening frame</p>
+              <p className="text-[10px] text-slate-500">Upload one JPG, PNG or WebP to animate its composition as the first shot. The image is stored privately and attached to this production.</p>
+              {startFrame && <p className="mt-1 truncate text-[10px] text-emerald-300">Selected: {startFrame.name}</p>}
+            </div>
+            <div className="flex shrink-0 gap-2">
+              <input ref={startFrameInputRef} type="file" accept="image/jpeg,image/png,image/webp" disabled={brandUploadBusy} onChange={(event) => { void uploadBrandAssets(event.target.files, 'startFrame'); event.currentTarget.value = ''; }} className="hidden" />
+              <button type="button" onClick={() => startFrameInputRef.current?.click()} disabled={brandUploadBusy} className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-500/40 bg-indigo-500/10 px-3 py-2 text-[11px] font-semibold text-indigo-200 disabled:opacity-40"><ImagePlus className="h-3.5 w-3.5" />{startFrame ? 'Replace frame' : 'Upload first frame'}</button>
+              {startFrame && <button type="button" onClick={() => setStartFrame(null)} className="rounded-lg border border-slate-700 px-3 py-2 text-[11px] text-slate-300">Remove</button>}
+            </div>
+          </div>
+          {brandUploadMessage && <p className="text-[10px] text-emerald-300">{brandUploadMessage}</p>}
+          {brandUploadError && <p role="alert" className="text-[10px] text-rose-300">{brandUploadError}</p>}
+        </fieldset>
         {errorBox}
         <button type="button" onClick={submit} disabled={busy} className="w-full py-3 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-xs font-semibold flex items-center justify-center gap-2">
           {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Clapperboard className="w-4 h-4" />}{continuing ? `Write and make Part ${partNumber}` : kind === 'series' ? (deliver === 'all' ? `Make all ${parts} parts` : 'Write and make Part 1') : 'Write and make the video'}
