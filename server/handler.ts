@@ -3021,6 +3021,8 @@ const videoEditorAssemble: Handler = async ({ req, res, body }) => {
   if (!process.env.BLOB_READ_WRITE_TOKEN) throw new HttpError(503, 'Private media storage is not configured.', 'STORAGE_UNAVAILABLE');
   const ids = Array.isArray(body.assetIds) ? [...new Set(body.assetIds.map((id: any) => str(id, 80)).filter(Boolean))].slice(0, 14) : [];
   if (ids.length < 2) throw new HttpError(400, 'Render at least two scenes before assembling the full film.');
+  const transition = ['cut', 'fade', 'wipeleft', 'slideleft', 'circleopen'].includes(String(body.transition)) ? String(body.transition) : 'cut';
+  const transitionDuration = Number.isFinite(Number(body.transitionDuration)) ? Math.max(0.2, Math.min(1, Number(body.transitionDuration))) : 0.45;
   const urls: string[] = [];
   let totalInputBytes = 0;
   for (const id of ids) {
@@ -3034,7 +3036,7 @@ const videoEditorAssemble: Handler = async ({ req, res, body }) => {
     urls.push(signed.presignedUrl);
   }
   let merged: { file: string; cleanup: () => Promise<void> };
-  try { merged = await mergeClips(urls); }
+  try { merged = await mergeClips(urls, { transition: transition as any, transitionDuration }); }
   catch (error: any) {
     console.error('editor film assembly failed', error?.message);
     if (error?.message === 'NO_FFMPEG') throw new HttpError(424, 'The server video compositor is not installed.', 'FFMPEG_NOT_AVAILABLE');
@@ -3052,7 +3054,7 @@ const videoEditorAssemble: Handler = async ({ req, res, body }) => {
       VALUES (${id}, ${row.id}, ${blob.pathname}, ${blob.url}, ${name}, 'video/mp4', ${stat.size})`;
     const token = await issueSignedToken({ operations: ['get'] });
     const signed = await presignUrl(token, { pathname: blob.pathname, operation: 'get', access: 'private', validUntil: Date.now() + 60 * 60 * 1000 });
-    json(res, 200, { asset: { id, name, contentType: 'video/mp4', size: stat.size }, downloadUrl: signed.presignedUrl, sceneCount: ids.length });
+    json(res, 200, { asset: { id, name, contentType: 'video/mp4', size: stat.size }, downloadUrl: signed.presignedUrl, sceneCount: ids.length, transition, transitionDuration: transition === 'cut' ? 0 : transitionDuration });
   } finally { await merged.cleanup().catch(() => undefined); }
 };
 
