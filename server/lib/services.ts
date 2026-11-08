@@ -744,9 +744,9 @@ function deapiCanvas(resolution: string, aspect: string): [number, number] {
 }
 
 /** The numbers deAPI needs for a clip of `seconds` seconds. 24 frames a second, the last frame included. Nothing here may shorten a clip. */
-function deapiClip(seconds: number) {
+function deapiClip(seconds: number, model?: string) {
   const frames = Math.min(241, Math.max(49, Math.round(seconds * 24) + 1));
-  return { frames, fps: 24, seed: Math.floor(Math.random() * 2_000_000_000), model: process.env.DEAPI_VIDEO_MODEL || 'Ltx2_5_22B_Dist_INT8' };
+  return { frames, fps: 24, seed: Math.floor(Math.random() * 2_000_000_000), model: model || process.env.DEAPI_VIDEO_MODEL || 'Ltx2_5_22B_Dist_INT8' };
 }
 
 async function deapiParse(r: Response): Promise<string> {
@@ -768,9 +768,10 @@ async function deapiParse(r: Response): Promise<string> {
   return String(id);
 }
 
-export async function deapiSubmit(prompt: string, resolution: string = '480P', seconds = 5, aspect: string = '9:16') {
+export async function deapiSubmit(prompt: string, resolution: string = '480P', seconds = 5, aspect: string = '9:16', requestedModel?: string) {
   const [width, height] = deapiCanvas(resolution, aspect);
-  const c = deapiClip(seconds);
+  const selectedModel = await resolveDeapiVideoModel(requestedModel);
+  const c = deapiClip(seconds, selectedModel);
   const [modelInfo, overrides] = await Promise.all([
     getDeapiVideoModelInfo(c.model),
     Promise.resolve(deapiVideoOverrides()),
@@ -793,6 +794,52 @@ export async function deapiSubmit(prompt: string, resolution: string = '480P', s
 }
 
 const deapiModelInfoCache = new Map<string, { expiresAt: number; info: any }>();
+let deapiModelCatalogueCache: { expiresAt: number; models: any[] } | null = null;
+
+/** Read the account's live model catalogue. The API key remains server-side. */
+async function loadDeapiModelCatalogue(): Promise<any[]> {
+  if (deapiModelCatalogueCache && deapiModelCatalogueCache.expiresAt > Date.now()) return deapiModelCatalogueCache.models;
+  const response = await fetch(`${DEAPI_BASE}/models?limit=100`, {
+    headers: deapiHeaders(),
+    signal: AbortSignal.timeout(12_000),
+  });
+  if (!response.ok) throw new HttpError(424, `deAPI model catalogue returned ${response.status}.`, 'DEAPI_MODELS');
+  const payload: any = await response.json().catch(() => ({}));
+  const list = Array.isArray(payload?.data) ? payload.data : [];
+  deapiModelCatalogueCache = { expiresAt: Date.now() + 5 * 60_000, models: list };
+  return list;
+}
+
+/** Safe model metadata for the authenticated generator UI. No credentials or internal headers are returned. */
+export async function deapiVideoModels(): Promise<{ slug: string; name: string; description: string; supportsImageToVideo: boolean }[]> {
+  const list = await loadDeapiModelCatalogue();
+  return list.flatMap((item: any) => {
+    const slug = String(item?.slug || '').trim();
+    const name = String(item?.name || slug).trim();
+    if (!slug || !name) return [];
+    const info = item?.info && typeof item.info === 'object' ? item.info : {};
+    const evidence = [slug, name, item?.type, item?.category, item?.task, item?.modality,
+      JSON.stringify(info)].filter(Boolean).join(' ').toLowerCase();
+    if (!/(video|ltx|seedance|h3|hunyuan|wan|svd|animatediff|kling)/i.test(evidence)) return [];
+    const supportsImageToVideo = /(image.?to.?video|image.?video|i2v|first_frame_image|first frame)/i.test(evidence)
+      || /^(ltx2?[_-]?2?.?5|ltx[-_]?2.?3|seedance[-_]?2.?5)$/i.test(slug);
+    return [{
+      slug,
+      name,
+      description: String(item?.description || info?.description || '').slice(0, 260),
+      supportsImageToVideo,
+    }];
+  }).sort((a, b) => a.name.localeCompare(b.name));
+}
+
+async function resolveDeapiVideoModel(requested?: string): Promise<string> {
+  const model = String(requested || '').trim();
+  if (!model) return String(process.env.DEAPI_VIDEO_MODEL || 'Ltx2_5_22B_Dist_INT8');
+  const catalogue = await deapiVideoModels();
+  const match = catalogue.find((item) => item.slug === model);
+  if (!match) throw new HttpError(400, 'That video model is not available on the connected deAPI account. Refresh the model list and choose an available model.', 'DEAPI_MODEL_UNAVAILABLE');
+  return match.slug;
+}
 
 /** Fetch capabilities per account/model; deAPI model lists are plan-scoped and defaults vary by model. */
 async function getDeapiVideoModelInfo(model: string): Promise<any> {
@@ -827,9 +874,10 @@ function deapiVideoOverrides(): Record<string, unknown> {
 }
 
 /** Image-to-video: starts the clip from a picture (the last frame of the previous clip), so a scene carries on without a visible jump. */
-export async function deapiAnimate(prompt: string, firstFrame: Buffer, resolution: string = '480P', seconds = 10, aspect: string = '9:16') {
+export async function deapiAnimate(prompt: string, firstFrame: Buffer, resolution: string = '480P', seconds = 10, aspect: string = '9:16', requestedModel?: string) {
   const [width, height] = deapiCanvas(resolution, aspect);
-  const c = deapiClip(seconds);
+  const selectedModel = await resolveDeapiVideoModel(requestedModel);
+  const c = deapiClip(seconds, selectedModel);
   const [modelInfo, overrides] = await Promise.all([
     getDeapiVideoModelInfo(c.model),
     Promise.resolve(deapiVideoOverrides()),
