@@ -703,7 +703,7 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
               {brandUploadBusy && <p className="text-[11px] text-indigo-300 animate-pulse">Uploading securely to your private media library…</p>}
               {brandUploadMessage && <p className="text-[11px] text-emerald-300">{brandUploadMessage}</p>}
               {brandUploadError && <p role="alert" className="text-[11px] text-rose-300">{brandUploadError}</p>}
-              <p className="text-[10px] leading-relaxed text-slate-500">Your exact logo is stored in your private media library and can be placed as a crisp overlay in Video Editor. Visual references are saved with this production and forwarded to FAL/Kling multi-reference renders when configured. DeAPI accepts one starting image, so its visual conditioning remains limited to that frame.</p>
+              <p className="text-[10px] leading-relaxed text-slate-500">Your exact logo is stored privately and automatically composited onto the clean closing card of the final exported Brand Ad MP4; it will not appear in raw generated-shot previews. Product and visual references are prioritised for commercial renders. FAL/Kling can receive multiple references when configured; DeAPI accepts one starting image, so its first commercial shot uses your first visual reference as its opening-frame anchor.</p>
             </section>
             {format === 'commercial' && <p className="rounded-lg border border-amber-300/20 bg-amber-300/5 px-3 py-2 text-[11px] text-amber-100">Commercial preset: six separately directed 10-second shots for a 60-second advert. You will review and edit the storyboard before any video clips render.</p>}
             <div className="grid grid-cols-3 gap-2">
