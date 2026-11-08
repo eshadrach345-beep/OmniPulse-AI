@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vercel dev",
     "dev:web": "vite",
-    "build": "vite build",
+    "build": "npm run test:video && vite build",
     "build:api": "esbuild server/handler.ts --bundle --platform=node --format=esm --target=node20 --packages=external --outfile=api/index.js",
     "preview": "vite preview",
     "build:api:ts": "node scripts/build-api.mjs",
