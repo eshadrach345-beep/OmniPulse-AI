@@ -291,7 +291,7 @@ export const TrendHashtagRadar: React.FC<TrendHashtagRadarProps> = ({
           }`}
         >
           <Trophy className="w-3.5 h-3.5 text-amber-400" />
-          <span>Trending Creators ({activeNiche.trendingCreators?.length || 0})</span>
+          <span>Trending Creators ({(activeNiche.trendingCreators || []).filter((creator) => (creator.recentVideos || []).some((video) => isFreshPublishedAt(video.publishedAt))).length})</span>
         </button>
 
         <button
@@ -423,20 +423,28 @@ export const TrendHashtagRadar: React.FC<TrendHashtagRadarProps> = ({
           ) : (
             <p className="p-5 text-xs text-slate-400">Research completed, but no individual source cards were returned.</p>
           )}
-          {(activeNiche.researchSources || []).length > 15 && <p className="border-t border-slate-800 px-4 py-3 text-center text-[10px] text-slate-500">Showing 15 of {activeNiche.researchSources?.length} live sources</p>}
+          {recentResearchSources.length > 15 && <p className="border-t border-slate-800 px-4 py-3 text-center text-[10px] text-slate-500">Showing 15 of {recentResearchSources.length} verified recent sources</p>}
         </section>
       )}
 
       {/* Tab: Trending creators and evidence-backed video inspiration */}
+      {activeTab === 'creators' && !hasFreshResearch && (
+        <div className="rounded-xl border border-amber-500/25 bg-amber-500/5 p-4">
+          <p className="text-xs font-semibold text-amber-200">Creator research needs a refresh</p>
+          <p className="mt-1 text-xs leading-5 text-slate-400">Saved creator cards without at least four current supporting sources are hidden. Refresh research to see public creator examples dated within the last 14 days.</p>
+          <button type="button" onClick={() => void handleRunAnalysis()} disabled={isAnalyzing} className="mt-3 rounded-lg bg-indigo-600 px-3 py-2 text-[11px] font-semibold text-white disabled:opacity-50">{isAnalyzing ? 'Refreshing…' : 'Refresh creator research'}</button>
+        </div>
+      )}
+
       {activeTab === 'creators' && hasFreshResearch && (
         <div className="space-y-4">
           <div className="rounded-xl border border-indigo-500/20 bg-indigo-500/5 p-3 text-xs text-slate-300">
             <p className="font-semibold text-indigo-200">Creator discovery · ranked by available public evidence</p>
             <p className="mt-1 text-slate-400">YouTube view counts are public views, not impressions. Where official YouTube data is connected, you can also sort by calculated views/hour. TikTok and Instagram metrics appear only when a source makes them public. Use the examples to study structure and adapt the approach in your own voice.</p>
           </div>
-          {(activeNiche.trendingCreators?.length || 0) === 0 ? (
+          {creatorResults.length === 0 ? (
             <div className="bg-slate-900/60 border border-dashed border-slate-700 rounded-xl p-6 text-center text-sm text-slate-300">
-              {isAnalyzing ? 'Finding creators and their recent high-performing videos...' : 'Run live research to discover creators in this niche.'}
+              {isAnalyzing ? 'Finding creators and their recent high-performing videos...' : 'No creator examples with a verified publish date in the last 14 days were found. Refresh the research or try a broader niche.'}
             </div>
           ) : (
             <>
