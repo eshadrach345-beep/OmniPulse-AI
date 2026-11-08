@@ -209,11 +209,13 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
   const logoInputRef = useRef<HTMLInputElement | null>(null);
   const brandRefsInputRef = useRef<HTMLInputElement | null>(null);
   const startFrameInputRef = useRef<HTMLInputElement | null>(null);
+  const endFrameInputRef = useRef<HTMLInputElement | null>(null);
   const [startFrame, setStartFrame] = useState<BrandMediaAsset | null>(null);
+  const [endFrame, setEndFrame] = useState<BrandMediaAsset | null>(null);
   const [videoProvider, setVideoProvider] = useState<'fal' | 'deapi' | 'auto'>('fal');
   const [falEnabled, setFalEnabled] = useState(false);
   const [deapiEnabled, setDeapiEnabled] = useState(false);
-  const [videoModels, setVideoModels] = useState<{ slug: string; name: string; description: string; supportsImageToVideo: boolean }[]>([]);
+  const [videoModels, setVideoModels] = useState<{ slug: string; name: string; description: string; supportsImageToVideo: boolean; supportsLastFrame: boolean }[]>([]);
   const [videoModel, setVideoModel] = useState('Ltx2_5_22B_Dist_INT8');
   const [videoModelsLoading, setVideoModelsLoading] = useState(true);
   const [videoModelsError, setVideoModelsError] = useState('');
@@ -227,10 +229,10 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
   const [brandUploadBusy, setBrandUploadBusy] = useState(false);
   const [brandUploadMessage, setBrandUploadMessage] = useState('');
   const [brandUploadError, setBrandUploadError] = useState('');
-  const uploadBrandAssets = async (selection: FileList | null, role: 'logo' | 'reference' | 'startFrame') => {
+  const uploadBrandAssets = async (selection: FileList | null, role: 'logo' | 'reference' | 'startFrame' | 'endFrame') => {
     const files = selection ? Array.from(selection) : [];
     if (!files.length) return;
-    if ((role === 'logo' || role === 'startFrame') && files.length > 1) { setBrandUploadError('Choose one image for this slot.'); return; }
+    if ((role === 'logo' || role === 'startFrame' || role === 'endFrame') && files.length > 1) { setBrandUploadError('Choose one image for this slot.'); return; }
     if (role === 'reference' && brandReferences.length + files.length > 4) { setBrandUploadError('Add up to four visual reference images.'); return; }
     setBrandUploadBusy(true); setBrandUploadError(''); setBrandUploadMessage('');
     try {
@@ -251,9 +253,10 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
         const ready = { ...saved, previewUrl: signed.url };
         if (role === 'logo') setBrandLogo(ready);
         else if (role === 'startFrame') setStartFrame(ready);
+        else if (role === 'endFrame') setEndFrame(ready);
         else setBrandReferences((current) => [...current, ready].slice(0, 4));
       }
-      setBrandUploadMessage(role === 'logo' ? 'Logo saved to your private Brand Library.' : role === 'startFrame' ? 'Opening frame saved to your private media library.' : 'Visual references saved to your private Brand Library.');
+      setBrandUploadMessage(role === 'logo' ? 'Logo saved to your private Brand Library.' : role === 'startFrame' ? 'Opening frame saved to your private media library.' : role === 'endFrame' ? 'Ending frame saved to your private media library.' : 'Visual references saved to your private Brand Library.');
     } catch (e) {
       setBrandUploadError(e instanceof ApiError ? e.message : e instanceof Error ? e.message : 'Brand asset upload failed.');
     } finally { setBrandUploadBusy(false); }
@@ -311,7 +314,7 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
 
   useEffect(() => {
     let active = true;
-    api.get<{ provider: 'fal' | 'deapi' | 'auto'; models: { slug: string; name: string; description: string; supportsImageToVideo: boolean }[]; falEnabled: boolean; deapiEnabled: boolean; availableProviders: string[] }>('/video/models')
+    api.get<{ provider: 'fal' | 'deapi' | 'auto'; models: { slug: string; name: string; description: string; supportsImageToVideo: boolean; supportsLastFrame: boolean }[]; falEnabled: boolean; deapiEnabled: boolean; availableProviders: string[] }>('/video/models')
       .then((result) => {
         if (!active) return;
         setFalEnabled(result.falEnabled);
@@ -405,6 +408,14 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
       setError('The selected deAPI model does not support image-to-video. Choose a model marked “image-to-video” or remove the opening frame.');
       return;
     }
+    if (endFrame && videoProvider === 'fal') {
+      setError('Ending-frame control is available through DeAPI models. Select DeAPI or Automatic for this production.');
+      return;
+    }
+    if (endFrame && selectedDeapiModel && !selectedDeapiModel.supportsLastFrame) {
+      setError('The selected DeAPI model does not support a separate ending frame. Choose a model marked “start/end frame” or remove the ending frame.');
+      return;
+    }
     const built = buildBrief({ seconds, sceneSeconds, mood, camera, presentation: format === 'documentary' ? 'narrated' : presentation, genre, intensity, dialogue, ending, cast, animalsTalk, trope, lockEnabled: !continuing && lockEnabled, lockName, lockDescriptor, secondsLeft });
     if (built.ok === false) { setError(built.error); return; }
     setError(null); setBusy(true);
@@ -414,11 +425,12 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
         format, look, aspectRatio: ratio, niche: nicheName, brief: built.brief, reviewFirst, characterReferences,
         videoProvider,
         videoModel: videoProvider === 'deapi' || videoProvider === 'auto' ? videoModel : undefined,
-        brandKit: (brandName.trim() || brandTagline.trim() || brandCta.trim() || brandUrl.trim() || brandLogo || brandReferences.length || startFrame) ? {
+        brandKit: (brandName.trim() || brandTagline.trim() || brandCta.trim() || brandUrl.trim() || brandLogo || brandReferences.length || startFrame || endFrame) ? {
           brandName: brandName.trim(), tagline: brandTagline.trim(), primaryColor: brandColor,
           cta: brandCta.trim(), url: brandUrl.trim(),
           logoAssetId: brandLogo?.id, referenceAssetIds: brandReferences.map((asset) => asset.id),
           startFrameAssetId: startFrame?.id,
+          endFrameAssetId: endFrame?.id,
         } : undefined,
         series: !continuing && kind === 'series' ? { parts, deliver } : undefined,
       });
@@ -984,6 +996,21 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
               {startFrame && <button type="button" onClick={() => setStartFrame(null)} className="rounded-lg border border-slate-700 px-3 py-2 text-[11px] text-slate-300">Remove</button>}
             </div>
           </div>
+          {(videoProvider === 'deapi' || videoProvider === 'auto') && (
+            <div className="border-t border-slate-800 pt-3 space-y-2">
+              <div>
+                <p className="text-[11px] font-semibold text-white">Optional ending frame</p>
+                <p className="text-[10px] text-slate-500">For models marked start/end frame, DeAPI guides the shot from your first image toward this final composition.</p>
+                {endFrame && <p className="mt-1 truncate text-[10px] text-emerald-300">Selected: {endFrame.name}</p>}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <input ref={endFrameInputRef} type="file" accept="image/jpeg,image/png,image/webp" disabled={brandUploadBusy} onChange={(event) => { void uploadBrandAssets(event.target.files, 'endFrame'); event.currentTarget.value = ''; }} className="hidden" />
+                <button type="button" onClick={() => endFrameInputRef.current?.click()} disabled={brandUploadBusy || !videoModels.find((model) => model.slug === videoModel)?.supportsLastFrame} className="rounded-lg border border-indigo-500/40 bg-indigo-500/10 px-3 py-2 text-[11px] font-semibold text-indigo-200 disabled:opacity-40">{endFrame ? 'Replace ending frame' : 'Upload ending frame'}</button>
+                {endFrame && <button type="button" onClick={() => setEndFrame(null)} className="rounded-lg border border-slate-700 px-3 py-2 text-[11px] text-slate-300">Remove</button>}
+              </div>
+              {!videoModels.find((model) => model.slug === videoModel)?.supportsLastFrame && <p className="text-[10px] text-slate-500">Choose a model marked “start/end frame” to enable this option.</p>}
+            </div>
+          )}
           {brandUploadMessage && <p className="text-[10px] text-emerald-300">{brandUploadMessage}</p>}
           {brandUploadError && <p role="alert" className="text-[10px] text-rose-300">{brandUploadError}</p>}
         </fieldset>
