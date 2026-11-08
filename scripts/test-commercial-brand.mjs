@@ -25,6 +25,7 @@ assert.match(prompt, /profession-specific actions/i);
 assert.match(prompt, /Never place unexplained papers, bundles, tools, maps, boxes or props on a person.s head/i);
 assert.match(prompt, /No generated logo, brand name, subtitle, sign or readable lettering/i);
 assert.match(prompt, /clean closing composition/i);
+assert.match(prompt, /No action-movie danger, crowds, hand close-ups or invented product features/i);
 assert.match(prompt, /screens-within-screens/i);
 assert.match(prompt, /disembodied hands/i);
 const ui = fs.readFileSync(new URL('../src/components/SeriesStudio.tsx', import.meta.url), 'utf8');
