@@ -1904,7 +1904,7 @@ function episodeView(e: any) {
   return {
     id: e.id as string, projectId: e.project_id as string, partNumber: e.part_number as number, status: e.status as string,
     promptInput: e.prompt_input as string, title: String(sb.title || ''), logline: String(sb.logline || ''), storySoFar: String(sb.storySoFar || ''),
-    finalVideoUrl: (e.final_video_url as string | null) || null, error: e.status === 'FAILED' ? ((e.error as string | null) || 'This part could not be finished.') : null, note,
+    finalVideoUrl: (e.final_video_url as string | null) || null, hasBrandLogo: !!cfg.brandKit?.logoAssetId, error: e.status === 'FAILED' ? ((e.error as string | null) || 'This part could not be finished.') : null, note,
     createdAt: iso(e.created_at), updatedAt: iso(e.updated_at),
     totalScenes: scenes.length, renderedScenes: sceneStates.filter((s) => s === 'done').length, partsTotal, partsDone, sceneStates,
     totalSeconds: Number(sb.totalSeconds) || 0,
