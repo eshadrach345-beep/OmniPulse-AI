@@ -616,7 +616,11 @@ export async function webTrendResearch(niche: string, customQuery: string): Prom
   try {
     const yt = await youtubePublicTrendEvidence(niche);
     youtubeText = yt.text;
-    for (const source of yt.sources) if (!unique.has(source.url)) unique.set(source.url, { title: source.title, url: source.url, date: source.publishedAt, query: 'Official YouTube Data API · last 14 days' });
+    for (const source of yt.sources) {
+      const prior = unique.get(source.url);
+      if (prior) prior.date = source.publishedAt;
+      else unique.set(source.url, { title: source.title, url: source.url, date: source.publishedAt, query: 'Official YouTube Data API · last 14 days' });
+    }
   } catch (e) {
     youtubeText = 'YouTube Data API enrichment unavailable: ' + (e instanceof Error ? e.message : 'request failed') + '. Use only public metrics visible in web-search evidence; do not infer private impressions.';
   }
