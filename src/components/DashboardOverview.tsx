@@ -80,8 +80,8 @@ export const DashboardOverview: React.FC<Props> = ({ accounts, posts, videos, ex
         <div className="relative flex flex-col lg:flex-row lg:items-end lg:justify-between gap-6">
           <div className="max-w-2xl">
             <div className="inline-flex items-center gap-2 rounded-full border border-indigo-300/20 bg-indigo-300/5 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-indigo-200"><Sparkles className="h-3.5 w-3.5" /> Creator command centre</div>
-            <h1 className="mt-4 font-display text-3xl sm:text-4xl font-extrabold leading-tight tracking-tight text-white">Make every post a smarter move.</h1>
-            <p className="mt-3 max-w-xl text-sm sm:text-base leading-relaxed text-slate-300">Find what is working in your niche, turn the strongest ideas into original videos, then publish and learn from the results—all from one studio.</p>
+            <h1 className="mt-4 font-display text-3xl sm:text-4xl font-extrabold leading-tight tracking-tight text-white">Your entire creator workflow, in one canvas.</h1>
+            <p className="mt-3 max-w-xl text-sm sm:text-base leading-relaxed text-slate-300">Move from a creative brief to directed scenes, a polished edit and a publishing plan. Keep your ideas, media, video tools and growth workflow connected in one workspace.</p>
           </div>
           <div className="flex flex-wrap gap-2 shrink-0">
             <button onClick={() => onNavigate('trends-hashtags')} className="inline-flex items-center gap-2 rounded-xl border border-slate-600 bg-slate-950/60 px-4 py-3 text-xs font-semibold text-slate-100 hover:border-indigo-300/50 hover:bg-slate-900"><TrendingUp className="h-4 w-4 text-indigo-300" />Research trends</button>
@@ -92,6 +92,45 @@ export const DashboardOverview: React.FC<Props> = ({ accounts, posts, videos, ex
           <div className="rounded-xl border border-white/5 bg-black/15 p-3"><p className="text-[10px] uppercase tracking-wider text-slate-500">Discover</p><p className="mt-1 text-xs font-semibold text-slate-200">Creators, trends & outliers</p></div>
           <div className="rounded-xl border border-white/5 bg-black/15 p-3"><p className="text-[10px] uppercase tracking-wider text-slate-500">Produce</p><p className="mt-1 text-xs font-semibold text-slate-200">Stories, shorts & brand ads</p></div>
           <div className="rounded-xl border border-white/5 bg-black/15 p-3"><p className="text-[10px] uppercase tracking-wider text-slate-500">Grow</p><p className="mt-1 text-xs font-semibold text-slate-200">Schedule, test & improve</p></div>
+        </div>
+        <div className="relative mt-3 overflow-hidden rounded-2xl border border-indigo-300/15 bg-slate-950/70 p-3 sm:p-4">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-3">
+            <div className="flex items-center gap-2"><span className="h-2 w-2 rounded-full bg-emerald-400 shadow-[0_0_14px_rgba(52,211,153,.7)]" /><span className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">OmniPulse creator canvas</span></div>
+            <span className="rounded-full border border-slate-700 bg-slate-900 px-2.5 py-1 text-[9px] font-semibold text-slate-400">Brief → Storyboard → Edit → Publish</span>
+          </div>
+          <div className="mt-3 grid grid-cols-1 gap-3 xl:grid-cols-[0.8fr_1.6fr_0.8fr]">
+            <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-3">
+              <div className="flex items-center gap-2 text-[10px] font-semibold text-indigo-200"><Sparkles className="h-3.5 w-3.5" />Creative brief</div>
+              <p className="mt-2 text-xs font-semibold text-white">Build a story worth watching.</p>
+              <p className="mt-1 text-[10px] leading-4 text-slate-500">Set your subject, audience, format, tone and visual direction.</p>
+              <button type="button" onClick={() => onNavigate('series')} className="mt-3 inline-flex items-center gap-1 text-[10px] font-semibold text-indigo-300 hover:text-white">Open story studio <ArrowRight className="h-3 w-3" /></button>
+            </div>
+            <div className="min-w-0 rounded-xl border border-slate-800 bg-slate-900/60 p-3">
+              <div className="flex items-center justify-between gap-2"><div className="flex items-center gap-2 text-[10px] font-semibold text-slate-200"><Clapperboard className="h-3.5 w-3.5 text-fuchsia-300" />Storyboard & shot plan</div><span className="text-[9px] text-slate-500">Scene-based workflow</span></div>
+              <div className="mt-3 grid grid-cols-3 gap-2">
+                {[
+                  { name: 'Opening hook', time: '00:00–00:05', shade: 'from-indigo-500/35 to-slate-900', tag: '01' },
+                  { name: 'Main reveal', time: '00:05–00:10', shade: 'from-fuchsia-500/30 to-slate-900', tag: '02' },
+                  { name: 'Final moment', time: '00:10–00:15', shade: 'from-emerald-500/30 to-slate-900', tag: '03' },
+                ].map((scene) => <div key={scene.tag} className={`relative min-w-0 overflow-hidden rounded-lg border border-white/10 bg-gradient-to-br ${scene.shade} p-2.5`}>
+                  <span className="text-[9px] font-mono text-white/60">{scene.tag}</span><p className="mt-5 text-[10px] font-semibold text-white">{scene.name}</p><p className="mt-1 text-[9px] tabular-nums text-slate-400">{scene.time}</p>
+                </div>)}
+              </div>
+              <div className="mt-3 space-y-1.5">
+                <div className="flex items-center gap-2"><span className="w-12 text-[9px] text-slate-500">Video</span><div className="flex flex-1 gap-1"><span className="h-2 flex-1 rounded-sm bg-indigo-400/70" /><span className="h-2 flex-1 rounded-sm bg-fuchsia-400/70" /><span className="h-2 flex-1 rounded-sm bg-emerald-400/70" /></div></div>
+                <div className="flex items-center gap-2"><span className="w-12 text-[9px] text-slate-500">Text</span><div className="flex flex-1 gap-1"><span className="h-2 w-1/3 rounded-sm bg-slate-500/70" /><span className="h-2 w-1/4 rounded-sm bg-slate-500/40" /></div></div>
+                <div className="flex items-center gap-2"><span className="w-12 text-[9px] text-slate-500">Audio</span><div className="h-2 flex-1 rounded-sm bg-gradient-to-r from-cyan-400/70 via-indigo-400/40 to-cyan-400/70" /></div>
+              </div>
+            </div>
+            <div className="flex flex-col justify-between rounded-xl border border-slate-800 bg-slate-900/70 p-3">
+              <div><div className="flex items-center gap-2 text-[10px] font-semibold text-emerald-200"><TrendingUp className="h-3.5 w-3.5" />Publishing & growth</div><p className="mt-2 text-xs font-semibold text-white">Make the edit work harder.</p><p className="mt-1 text-[10px] leading-4 text-slate-500">Prepare titles, captions, hashtags, schedules and performance experiments.</p></div>
+              <button type="button" onClick={() => onNavigate('trends-hashtags')} className="mt-3 inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-300 hover:text-white">Open growth studio <ArrowRight className="h-3 w-3" /></button>
+            </div>
+          </div>
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-slate-800 pt-3">
+            <p className="text-[9px] text-slate-500">An example of the connected production workflow—not a live project preview.</p>
+            <button type="button" onClick={() => onNavigate('creator-studio')} className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-400/30 bg-indigo-500/10 px-3 py-2 text-[10px] font-semibold text-indigo-200 hover:bg-indigo-500/20">Open timeline editor <ArrowRight className="h-3 w-3" /></button>
+          </div>
         </div>
       </section>
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
