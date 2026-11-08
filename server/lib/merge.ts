@@ -38,33 +38,6 @@ async function inspect(bin: string, file: string): Promise<ClipInfo> {
   };
 }
 
-/**
- * fluent-ffmpeg is loaded on demand, so a missing package never breaks the rest of the API.
- * Returns null when it is not installed; the plain ffmpeg command line below is then used instead.
- */
-async function loadFluent(bin: string): Promise<any | null> {
-  try {
-    // @ts-ignore fluent-ffmpeg ships no type declarations; it is used untyped here
-    const m: any = await import('fluent-ffmpeg');
-    const f = m.default || m;
-    f.setFfmpegPath(bin);
-    return f;
-  } catch { return null; }
-}
-
-/** Runs one fluent-ffmpeg command to completion with a time limit. */
-function fluentRun(cmd: any, outPath: string, timeoutMs: number): Promise<void> {
-  return new Promise<void>((resolve, reject) => {
-    const timer = setTimeout(() => { try { cmd.kill('SIGKILL'); } catch { /* ignore */ } reject(new Error('Joining the scenes took too long.')); }, timeoutMs);
-    cmd.on('error', (e: Error) => { clearTimeout(timer); reject(e); })
-      .on('end', () => { clearTimeout(timer); resolve(); })
-      .save(outPath);
-  });
-}
-
-/** Web-friendly output flags: the moov atom goes first so the file starts playing before it has fully downloaded. */
-const WEB_FLAGS = ['-movflags +faststart'];
-
 export interface MergeResult { file: string; cleanup: () => Promise<void>; cached?: boolean }
 
 /**
@@ -153,22 +126,21 @@ async function mergeClipsFresh(urls: string[]): Promise<MergeResult> {
 
     const same = info.every((c) => c.video && c.video === info[0].video && c.size === info[0].size && c.audio === info[0].audio);
 
-    // Keep the zero-audio fast path. When generated clips contain audio, re-encode
-    // the joined soundtrack so clip boundaries are softened and loudness is consistent.
-    const fluent = await loadFluent(bin);
-    if (same && info.every((c) => !c.audio)) {
+    // Compatible scene streams (including AAC audio) should never be decoded and re-encoded.
+    // Stream-copy preserves the original picture and sound while avoiding the expensive audio
+    // normalisation pass that previously timed out inside Vercel's 60-second function budget.
+    if (same) {
       const list = path.join(dir, 'list.txt');
-      await fs.writeFile(list, files.map((f) => `file '${f.replace(/'/g, "'\\''")}'`).join('\\n'));
-      let ok = false;
-      if (fluent) {
-        try { await fluentRun(fluent().input(list).inputOptions(['-f concat', '-safe 0']).outputOptions(['-c copy', ...WEB_FLAGS]), out, 45_000); ok = true; }
-        catch (e: any) { console.error('fluent concat failed, trying plain ffmpeg:', e?.message); }
-      } else {
-        const r = await run(bin, ['-y', '-f', 'concat', '-safe', '0', '-i', list, '-c', 'copy', '-movflags', '+faststart', out], 40_000);
-        ok = r.code === 0;
-      }
+      // The concat demuxer requires an actual newline between file entries.
+      const concatList = files.map((f) => "file '" + f.replace(/'/g, "'\\''") + "'").join('\n');
+      await fs.writeFile(list, concatList);
+      const joined = await run(bin, ['-y', '-f', 'concat', '-safe', '0', '-i', list, '-c', 'copy', '-movflags', '+faststart', out], 35_000);
       const st = await fs.stat(out).catch(() => null);
-      if (ok && st && st.size > 2000) return { file: out, cleanup };
+      if (joined.code === 0 && st && st.size > 2000) {
+        console.info('Scene merge used packet stream-copy', { sceneCount: files.length, audio: !!info[0].audio });
+        return { file: out, cleanup };
+      }
+      console.warn('Fast scene stream-copy could not be used; falling back to compatible re-encoding:', joined.err.slice(-900));
     }
 
     // Standardize video streams and audio layout. Short equal-power crossfades
@@ -188,7 +160,7 @@ async function mergeClipsFresh(urls: string[]): Promise<MergeResult> {
         const clipDuration = c.seconds.toFixed(2);
         const edgeFade = Math.min(0.04, c.seconds / 2).toFixed(3);
         const fadeOutAt = Math.max(0, c.seconds - Number(edgeFade)).toFixed(3);
-        parts.push(`[${i}:a]aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo,dynaudnorm=f=150:g=7:p=0.8,apad,atrim=duration=${clipDuration},afade=t=in:st=0:d=${edgeFade},afade=t=out:st=${fadeOutAt}:d=${edgeFade},asetpts=PTS-STARTPTS[a${i}]`);
+        parts.push(`[${i}:a]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,apad,atrim=duration=${clipDuration},afade=t=in:st=0:d=${edgeFade},afade=t=out:st=${fadeOutAt}:d=${edgeFade},asetpts=PTS-STARTPTS[a${i}]`);
       } else {
         parts.push(`anullsrc=r=44100:cl=stereo,atrim=duration=${c.seconds.toFixed(2)},aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo,asetpts=PTS-STARTPTS[a${i}]`);
       }
@@ -197,23 +169,20 @@ async function mergeClipsFresh(urls: string[]): Promise<MergeResult> {
     parts.push(`${videoLabels.join('')}concat=n=${files.length}:v=1:a=0[v]`);
     // Concatenate audio at the same scene boundaries as video. An acrossfade overlaps and shortens
     // every boundary, progressively shifting dialogue earlier than the matching picture.
-    parts.push(`${audioLabels.join('')}concat=n=${files.length}:v=0:a=1,loudnorm=I=-16:TP=-1.5:LRA=11,apad,atrim=duration=${totalDuration.toFixed(2)}[aout]`);
+    parts.push(`${audioLabels.join('')}concat=n=${files.length}:v=0:a=1,apad,atrim=duration=${totalDuration.toFixed(2)}[aout]`);
     const graph = parts.join(';');
-    const encodeOpts = ['-c:v libx264', '-preset superfast', '-crf 21', '-profile:v high', '-pix_fmt yuv420p', '-c:a aac', '-b:a 192k', '-ar 48000', ...WEB_FLAGS];
-    let r2ok = false;
-    if (fluent) {
-      try {
-        const cmd = fluent();
-        files.forEach((f) => cmd.input(f));
-        await fluentRun(cmd.complexFilter([graph], ['v', 'aout']).outputOptions(encodeOpts), out, 50_000);
-        r2ok = true;
-      } catch (e: any) { console.error('fluent audio crossfade failed:', e?.message); }
-    } else {
-      const args: string[] = ['-y'];
-      files.forEach((f) => args.push('-i', f));
-      args.push('-filter_complex', graph, '-map', '[v]', '-map', '[aout]', '-c:v', 'libx264', '-preset', 'superfast', '-crf', '21', '-profile:v', 'high', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '192k', '-ar', '48000', '-movflags', '+faststart', out);
-      r2ok = (await run(bin, args, 50_000)).code === 0;
-    }
+    const args: string[] = ['-y'];
+    files.forEach((f) => args.push('-i', f));
+    args.push(
+      '-filter_complex', graph, '-map', '[v]', '-map', '[aout]',
+      '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '23',
+      '-profile:v', 'high', '-pix_fmt', 'yuv420p',
+      '-c:a', 'aac', '-b:a', '160k', '-ar', '48000',
+      '-movflags', '+faststart', out,
+    );
+    const reencoded = await run(bin, args, 45_000);
+    const r2ok = reencoded.code === 0;
+    if (!r2ok) console.error('Lightweight scene re-encode failed:', reencoded.err.slice(-1200));
     const st2 = await fs.stat(out).catch(() => null);
     if (!r2ok || !st2 || st2.size < 2000) throw new Error('The scenes could not be joined.');
     return { file: out, cleanup };
