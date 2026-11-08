@@ -11,7 +11,7 @@
     "preview": "vite preview",
     "build:api:ts": "node scripts/build-api.mjs",
     "typecheck": "tsc --noEmit --pretty false",
-    "test:video": "node scripts/test-commercial-brand.mjs && node scripts/test-assemble.mjs && node scripts/test-render-smoke.mjs"
+    "test:video": "node scripts/test-commercial-brand.mjs && node scripts/test-assemble.mjs && node scripts/test-deapi-tuning.mjs && node scripts/test-render-smoke.mjs"
   },
   "dependencies": {
     "@neondatabase/serverless": "0.10.4",
