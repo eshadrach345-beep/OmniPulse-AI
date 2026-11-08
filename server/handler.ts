@@ -13,6 +13,7 @@ import { assembleParts, toNativeMultiShotPrompt, addDeapiCastNotes, buildCommerc
 import { refineScene, shownInstruction, proseToUnits, thoughtToVisual, type SpokenLine } from './lib/screenplay.js';
 import { renderComposition } from './lib/compositor.js';
 import { mergeClips, lastFrameJpeg } from './lib/merge.js';
+import { parseVideoProvider, shouldAttemptKlingMultiShot, shouldFallbackToDeapi, requiresKlingMultiShot } from './lib/video-provider-policy.js';
 import { PROVIDERS, PLATFORM_IDS, Platform, isPlatform, isConfigured, redirectUri, socialPkce, socialAuthorizeUrl, exchangeSocialCode, saveSocialConnection, listSocialAccounts, removeSocialConnection, publishToPlatform, socialMetrics } from './lib/social.js';
 import { zernioConfigured, zernioConnectUrl, zernioSyncAccounts, zernioListAccounts, zernioDisconnect, zernioPublish, zernioHealth, zernioDeleteCustomer } from './lib/zernio.js';
 
@@ -1318,19 +1319,19 @@ const tts: Handler = async ({ req, res, body }) => {
 // ---------------------------------------------------------------- video (fal.ai / deAPI queue)
 /** Sends one clip to the configured video provider (VIDEO_PROVIDER: fal, deapi or auto) and returns its queue addresses. */
 async function submitToProvider(prompt: string, reso: '480P' | '768P' | '1080P', seconds: 5 | 10, aspect: string, multiPrompt?: { prompt: string; duration: number }[]): Promise<{ statusUrl: string; responseUrl: string }> {
-  const provider = (process.env.VIDEO_PROVIDER || 'fal').trim().toLowerCase();
+  let provider: ReturnType<typeof parseVideoProvider>;
+  try { provider = parseVideoProvider(process.env.VIDEO_PROVIDER); }
+  catch (e: any) { throw new HttpError(500, e?.message || 'Invalid VIDEO_PROVIDER setting.', 'VIDEO_PROVIDER'); }
   const viaDeapi = async () => { const deapiPrompt = multiPrompt?.length ? `${prompt} ${toNativeMultiShotPrompt(multiPrompt)}` : prompt; const j = await deapiSubmit(deapiPrompt, reso, seconds, aspect); return { statusUrl: `deapi:${j.requestId}`, responseUrl: 'deapi' }; };
   const viaFal = async () => { const j = await falSubmit(prompt, reso, seconds, aspect); return { statusUrl: j.statusUrl, responseUrl: j.responseUrl }; };
   if (provider === 'deapi') return viaDeapi();
-  // Keep fal as the preferred engine, but automatically use the configured
-  // deAPI backup when fal is out of credit, rate-limited, or temporarily down.
-  if (lookupEnv('DEAPI_API_KEY')) {
-    try { return await viaFal(); } catch (e: any) {
-      console.error('fal failed, switching to configured deAPI backup:', e?.message);
-      return viaDeapi();
-    }
+  if (provider === 'fal') return viaFal();
+  // Automatic failover is opt-in: VIDEO_PROVIDER=auto. fal/deapi selections are strict.
+  try { return await viaFal(); } catch (e: any) {
+    if (!lookupEnv('DEAPI_API_KEY')) throw e;
+    console.error('VIDEO_PROVIDER=auto: fal failed; using configured deAPI backup:', e?.message);
+    return viaDeapi();
   }
-  return viaFal();
 }
 
 const videoRender: Handler = async ({ req, res, body }) => {
@@ -2101,7 +2102,9 @@ async function startPart(row: any, user: ReturnType<typeof toUser>, spec: { prom
   const source = await reserveSource(row, user, PART_SECONDS);
   await rateLimit(`render:${row.id}`, 300, 3600);
   const reso = PLANS[user.tier]?.resolution || '480P';
-  const provider = (process.env.VIDEO_PROVIDER || 'fal').trim().toLowerCase();
+  let provider: ReturnType<typeof parseVideoProvider>;
+  try { provider = parseVideoProvider(process.env.VIDEO_PROVIDER); }
+  catch (e: any) { throw new HttpError(500, e?.message || 'Invalid VIDEO_PROVIDER setting.', 'VIDEO_PROVIDER'); }
   const deapiCast = addDeapiCastNotes(spec.prompt, spec.multiPrompt, (spec.referenceImages || []).map((ref) => ({ name: ref.name, description: ref.description })));
   const deapiPrompt = deapiCast.prompt;
   const deapiMultiPrompt = deapiCast.multiPrompt;
@@ -2114,7 +2117,7 @@ async function startPart(row: any, user: ReturnType<typeof toUser>, spec: { prom
 
   // Short-drama clips use Kling's multi-shot director and reusable reference assets.
   // If Kling is unavailable or out of credit, fall back to the existing H3 Max path.
-  if (provider !== 'deapi' && spec.multiPrompt?.length && lookupEnv('FAL_KEY')) {
+  if (shouldAttemptKlingMultiShot(provider, !!lookupEnv('FAL_KEY'), spec.multiPrompt?.length || 0)) {
     const refs = (spec.referenceImages || []).filter((x) => /^https:\/\//i.test(x.url)).slice(0, 10);
     const imageGuide = refs.map((x, i) => `@Image${i + 1} is ${x.name}. Use it as the exact supplied identity, location, product or visual design reference; do not substitute or redesign it.`).join(' ');
     const videoGuide = spec.prevUrl ? '@Video1 is the immediately preceding scene clip. Continue its established action, actors, clothing, props and screen direction without resetting.' : '';
@@ -2127,8 +2130,13 @@ async function startPart(row: any, user: ReturnType<typeof toUser>, spec: { prom
       );
       job = { statusUrl: j.statusUrl, responseUrl: j.responseUrl };
     } catch (e: any) {
-      console.error('Kling 4.0 unavailable; falling back to H3 Max for this clip:', e?.message);
+      // A multi-shot storyboard is a production requirement, not a suggestion. Never silently
+      // replace it with a single-shot model: that changes the edit and wastes the creator's seconds.
+      console.error('Kling multi-shot render failed; preserving the requested shot plan:', e?.message);
+      throw e;
     }
+  } else if (requiresKlingMultiShot(provider, spec.multiPrompt?.length || 0)) {
+    throw new HttpError(424, 'This scene requires Kling multi-shot rendering. Configure FAL_KEY and select fal or auto; the scene was not downgraded to a single-shot model.', 'MULTISHOT_PROVIDER_REQUIRED');
   }
   if (!job && spec.kind === 'continue' && (spec.prevUrl || spec.startImageUrl)) {
     let frame: Buffer;
@@ -2156,7 +2164,7 @@ async function startPart(row: any, user: ReturnType<typeof toUser>, spec: { prom
         job = { statusUrl: j.statusUrl, responseUrl: j.responseUrl };
       } catch (e: any) {
         if (e instanceof RateLimited) throw e;
-        if (lookupEnv('DEAPI_API_KEY')) {
+        if (shouldFallbackToDeapi(provider) && lookupEnv('DEAPI_API_KEY')) {
           const j = await deapiAnimate(deapiPrompt, frame, reso, PART_SECONDS, spec.aspect);
           job = { statusUrl: `deapi:${j.requestId}`, responseUrl: 'deapi' };
         } else throw e;
