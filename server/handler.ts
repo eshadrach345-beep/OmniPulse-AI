@@ -2497,6 +2497,7 @@ async function stageRender(row: any, user: ReturnType<typeof toUser>, ep: any): 
               .map((c) => ({ name: str(c.name, 30), description: str(c.description, 220) }));
             const propDetails = (Array.isArray(ep.storyboard_json?.keyProps) ? ep.storyboard_json.keyProps : [])
               .map((prop: any) => ({ name: str(prop?.name, 60), description: str(prop?.description, 180) }));
+            await rateLimit(`scene-keyframe:${row.id}`, 40, 3600);
             const keyframePrompt = buildSceneKeyframePrompt({
               scenePrompt: String(scene.parts[k].prompt || visualForMatch),
               location: currentLocation,
