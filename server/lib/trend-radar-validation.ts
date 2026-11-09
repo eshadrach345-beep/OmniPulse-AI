@@ -60,7 +60,7 @@ function cleanHashtagItems(
 export function validateTrendRadarOutput(value: unknown, notes: string): AnyRecord {
   const data = asRecord(value);
   const refs = validSourceRefs(notes);
-  const validTopics = asList(data.trendingTopics).flatMap((value) => {
+  const validTopics = asList(data.trendingTopics).flatMap((value, topicIndex) => {
     const topic = asRecord(value);
     const title = cleanText(topic.title, 220);
     const whyNow = cleanText(topic.whyNow, 700);
@@ -70,7 +70,7 @@ export function validateTrendRadarOutput(value: unknown, notes: string): AnyReco
     if (!cited) return [];
     return [{
       ...topic,
-      id: cleanText(topic.id, 100) || 'trend-' + validTopics.length,
+      id: cleanText(topic.id, 100) || 'trend-' + (topicIndex + 1),
       title,
       whyNow,
       estimatedReachMultiplier: 'Not measured',
@@ -86,13 +86,21 @@ export function validateTrendRadarOutput(value: unknown, notes: string): AnyReco
       const video = asRecord(value);
       const videoUrl = safeUrlInNotes(video.url, notes);
       if (!videoUrl) return [];
+      const viewsValue = Number(video.views);
+      const viewsEvidence = Number.isSafeInteger(viewsValue) && viewsValue >= 0 && (
+        notes.includes('Public views: ' + viewsValue) ||
+        notes.includes(viewsValue + ' public views')
+      );
+      const velocityValue = Number(video.viewsPerHour);
+      const velocityEvidence = Number.isSafeInteger(velocityValue) && velocityValue >= 0 &&
+        notes.includes('Calculated public views per hour: ' + velocityValue);
       return [{
         ...video,
         title: cleanText(video.title, 220) || 'Recent video',
         url: videoUrl,
-        views: null,
-        viewsPerHour: null,
-        metricLabel: 'Not publicly available',
+        views: viewsEvidence ? viewsValue : null,
+        viewsPerHour: velocityEvidence ? velocityValue : null,
+        metricLabel: viewsEvidence ? 'Public views' : 'Not publicly available',
       }];
     }).slice(0, 3);
     return [{
