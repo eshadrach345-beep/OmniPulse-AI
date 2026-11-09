@@ -696,8 +696,11 @@ export async function geminiVisualReview(
     'You are a strict visual quality-control reviewer for a photorealistic live-action video shot.',
     'Compare the reference image(s), when supplied, with every sampled frame. Judge only visible evidence; do not invent defects.',
     `Intended shot: ${String(sceneDescription || '').slice(0, 1400)}`,
-    'Check: same character identity/face/hair/skin tone/wardrobe across frames; natural hands and finger count; object shape and material stability; background/location geometry; weather and lighting continuity; ghosting, duplicated limbs, melted or morphing objects.',
-    'Mark severity major only for obvious identity swaps, severely malformed hands, a key prop visibly changing shape/disappearing/reappearing, or a major background discontinuity. Minor issues should not force regeneration.',
+    'Prioritize the named lead characters and story-critical props. Compare only details that are clearly visible in the sampled frames; do not infer hidden clothing, faces, or objects.',
+    'Check whether the same named lead character keeps the same face, hair, skin tone, build and clearly visible wardrobe; check hands only when large and unobstructed; check story-critical prop shape; check major location geometry, weather and lighting continuity; note obvious ghosting, duplicated limbs or melted objects.',
+    'Background extras are not identity-locked. A changing number or arrangement of distant passengers, pedestrians, crowd members or other background extras is NOT by itself a major defect unless the scene explicitly requires a fixed count or the change visibly breaks the story. Do not count indistinct background people.',
+    'Wardrobe is a major defect only when a clearly visible named lead character changes a distinctive clothing item between comparable frames without an indicated costume change. Do not flag an item merely because it is cropped, occluded, out of frame or hard to distinguish.',
+    'Mark severity major only for a clearly visible, unmistakable lead-character identity swap; a severe and sustained anatomy defect; a story-critical prop visibly changing shape or disappearing/reappearing; or a major scene/location discontinuity. Minor or uncertain issues must not force regeneration.';
     'Return JSON only with this schema: {"passed":boolean,"severity":"none|minor|major","identityDrift":boolean,"handAnatomyIssue":boolean,"propConsistencyIssue":boolean,"issues":string[],"summary":string}.',
     'If the frames are too ambiguous to judge, set passed=true, severity="minor", and explain the uncertainty rather than inventing a failure.',
     'Images are supplied next in the exact order labelled below:',
