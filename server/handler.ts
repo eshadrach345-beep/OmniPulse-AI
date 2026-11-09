@@ -2608,7 +2608,7 @@ async function stageRender(row: any, user: ReturnType<typeof toUser>, ep: any): 
           const signedKeyframe = await presignUrl(keyframeToken, { pathname: String(p.keyframePathname), operation: 'get', access: 'private', validUntil: Date.now() + 10 * 60 * 1000 });
           cachedKeyframeUrl = signedKeyframe.presignedUrl;
         }
-        if (cachedKeyframeUrl) startImageUrl = resolveSceneOpeningFrameUrl(cachedKeyframeUrl, keyframeReference?.url);
+        if (cachedKeyframeUrl) startImageUrl = resolveSceneOpeningFrameUrl(cachedKeyframeUrl);
         else if (!p.keyframePathname) {
           // When FAL image editing is not configured, use the actual selected asset as
           // DeAPI's first frame rather than silently reverting to text-to-video.
