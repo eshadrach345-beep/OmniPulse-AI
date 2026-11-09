@@ -29,6 +29,11 @@ const defaults = D.buildDeapiVideoFields({ info: {
 assert.equal(defaults.guidance, '5.5', 'uses the model guidance default');
 assert.equal(defaults.steps, '14', 'uses the model steps default');
 
+assert.equal(D.resolveDeapiSeed(123456, 777, 999), 123456, 'a visual-QA retry seed overrides a fixed configured seed');
+assert.equal(D.resolveDeapiSeed(undefined, '777', 999), 777, 'configured seed remains the default for first attempts');
+assert.equal(D.resolveDeapiSeed(-1, 777, 999), 777, 'invalid per-attempt seeds fall back to configured seed');
+assert.equal(D.resolveDeapiSeed(undefined, 'invalid', 999), 999, 'invalid configured seeds fall back to the generated seed');
+
 const noOptional = D.buildDeapiVideoFields({ info: {
   features: { supports_negative_prompt: false, supports_guidance: false, supports_steps: false },
 } }, { guidance: 7.5, steps: 30, negative_prompt: 'do not send me' });
