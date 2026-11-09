@@ -573,6 +573,26 @@ export const VideoEditor: React.FC<Props> = ({ video, onSave }) => {
     patchCurrent({ textOverlays: (current.textOverlays || []).map((layer) => layer.id === id ? { ...layer, ...patch } : layer) });
   };
 
+  const trimCurrentStart = () => {
+    if (!current) return;
+    const step = 0.5;
+    if (mainLayer) {
+      if (mainLayer.duration <= step + 0.25) return;
+      patchMediaLayer(mainLayer.id, { sourceIn: mainLayer.sourceIn + step, duration: mainLayer.duration - step });
+    } else {
+      if (Number(current.duration) <= step + 0.25) return;
+      patchCurrent({ sourceIn: Math.max(0, Number(current.sourceIn || 0) + step), duration: Number(current.duration) - step });
+    }
+    setPreviewTime(0);
+  };
+  const trimCurrentEnd = () => {
+    if (!current || Number(current.duration) <= 0.75) return;
+    const nextDuration = Math.max(0.5, Number(current.duration) - 0.5);
+    if (mainLayer) patchMediaLayer(mainLayer.id, { duration: Math.min(mainLayer.duration, nextDuration) });
+    patchCurrent({ duration: nextDuration });
+    setPreviewTime(Math.min(previewTime, nextDuration));
+  };
+
   const splitCurrentScene = () => {
     if (!current) return;
     const splitAt = previewTime;
@@ -606,7 +626,7 @@ export const VideoEditor: React.FC<Props> = ({ video, onSave }) => {
   const previewTitle = current?.beat || 'Scene ' + (selected + 1);
 
   return (
-    <section id="omnipulse-timeline-editor" className="op-editor overflow-hidden rounded-[22px] border border-white/10 bg-[#0d0a13] text-slate-100 shadow-2xl shadow-black/40">
+    <section id="omnipulse-timeline-editor" className="op-editor overflow-hidden rounded-[18px] border border-white/10 bg-[#101114] text-slate-100 shadow-2xl shadow-black/40">
       <header className="op-editor-topbar flex flex-wrap items-center justify-between gap-3 border-b border-white/10 px-3 py-3 sm:px-5">
         <div className="flex min-w-0 items-center gap-3">
           <div className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-cyan-300/20 bg-cyan-300/10 text-cyan-200"><Clapperboard className="h-4 w-4" /></div>
@@ -623,7 +643,7 @@ export const VideoEditor: React.FC<Props> = ({ video, onSave }) => {
         </div>
       </header>
 
-      <div className="grid grid-cols-1 lg:grid-cols-[58px_230px_minmax(0,1fr)_300px] xl:grid-cols-[62px_250px_minmax(0,1fr)_310px]">
+      <div className="grid grid-cols-1 lg:grid-cols-[54px_218px_minmax(0,1fr)_286px] xl:grid-cols-[58px_232px_minmax(0,1fr)_294px]">
         <nav aria-label="Editing tools" className="order-2 flex gap-1 overflow-x-auto border-y border-white/10 bg-[#15101e] p-2 lg:order-1 lg:flex-col lg:overflow-visible lg:border-y-0 lg:border-r lg:p-2">
           {TOOL_ITEMS.map(({ id, label, icon: Icon }) => (
             <button key={id} type="button" onClick={() => setActiveTool(id)} aria-pressed={activeTool === id}
@@ -695,6 +715,8 @@ export const VideoEditor: React.FC<Props> = ({ video, onSave }) => {
 
           <div className="flex flex-wrap items-center justify-between gap-2 border-t border-white/10 bg-[#0e1828] px-3 py-2.5 sm:px-4">
             <div className="flex flex-wrap items-center gap-1.5">
+              <button type="button" onClick={trimCurrentStart} disabled={!current || Number(current.duration) <= 0.75} className="inline-flex items-center gap-1 rounded-lg border border-white/10 bg-white/[.04] px-2 py-2 text-[9px] font-bold text-slate-200 disabled:opacity-30">Trim start −0.5s</button>
+              <button type="button" onClick={trimCurrentEnd} disabled={!current || Number(current.duration) <= 0.75} className="inline-flex items-center gap-1 rounded-lg border border-white/10 bg-white/[.04] px-2 py-2 text-[9px] font-bold text-slate-200 disabled:opacity-30">Trim end −0.5s</button>
               <button type="button" onClick={splitCurrentScene} disabled={!current || previewTime < 0.5 || previewTime > Number(current.duration) - 0.5} className="inline-flex items-center gap-1.5 rounded-lg border border-cyan-300/20 bg-cyan-300/5 px-2.5 py-2 text-[10px] font-bold text-cyan-100 disabled:opacity-30"><Split className="h-3.5 w-3.5" />Split at playhead</button>
               <button type="button" onClick={() => move(selected - 1)} disabled={selected <= 0} className="rounded-lg border border-slate-700 p-2 text-slate-300 disabled:opacity-30"><ArrowUp className="h-3.5 w-3.5" /></button>
               <button type="button" onClick={() => move(selected + 1)} disabled={selected >= scenes.length - 1} className="rounded-lg border border-slate-700 p-2 text-slate-300 disabled:opacity-30"><ArrowDown className="h-3.5 w-3.5" /></button>
