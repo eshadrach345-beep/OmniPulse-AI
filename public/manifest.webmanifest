@@ -4,8 +4,8 @@
   "description": "AI creative studio for scripts, stories, videos and productivity.",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#111D31",
-  "theme_color": "#111D31",
+  "background_color": "#0b0911",
+  "theme_color": "#0b0911",
   "icons": [
     {
       "src": "/omnipulse-mark.svg",

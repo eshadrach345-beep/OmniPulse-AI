@@ -753,7 +753,7 @@ export async function geminiVisualReview(
   return null;
 }
 
-export async function geminiJson(prompt: string, opts: { grounded?: boolean } = {}): Promise<any> {
+export async function geminiJson(prompt: string, opts: { grounded?: boolean; timeoutMs?: number; deadlineMs?: number; maxTokens?: number; preferBackup?: boolean } = {}): Promise<any> {
   return (await geminiRaw(prompt, opts)).data;
 }
 
