@@ -1,4 +1,4 @@
-type VideoMediaLayer = { kind: 'video' | 'image' | 'audio'; sourceIn: number; duration: number; startAt: number; scale: number; opacity: number; x: number; y: number; volume: number; fadeIn?: number; fadeOut?: number };
+type VideoMediaLayer = { kind: 'video' | 'image' | 'audio'; sourceIn: number; duration: number; startAt: number; scale: number; opacity: number; x: number; y: number; volume: number; fadeIn?: number; fadeOut?: number; chromaKey?: boolean; chromaKeyColor?: string; chromaKeySimilarity?: number; chromaKeyBlend?: number };
 type VideoCaptionCue = { start: number; end: number; text: string };
 type VideoTextOverlay = {
   start: number; end: number; text: string; y: string; fontSize: number; color?: string;
@@ -113,7 +113,11 @@ export async function renderComposition(input: CompositionInput): Promise<void> 
       fadeIn > 0 ? `fade=t=in:st=0:d=${fadeIn}:alpha=1` : '',
       fadeOut > 0 ? `fade=t=out:st=${Math.max(0, clipDuration - fadeOut)}:d=${fadeOut}:alpha=1` : '',
     ].filter(Boolean).join(',');
-    filter.push(`[${index}:v]scale=${Math.round(width * scale / 100 / 2) * 2}:-2,format=rgba${visualFade ? ',' + visualFade : ''},colorchannelmixer=aa=${opacity},setpts=PTS-STARTPTS+${start}/TB[ov${index}]`);
+    const keyColor = /^#[0-9a-f]{6}$/i.test(String(layer.chromaKeyColor || '')) ? '0x' + String(layer.chromaKeyColor).slice(1) : '0x00FF00';
+    const similarity = Math.max(0.01, Math.min(0.8, Number(layer.chromaKeySimilarity) || 0.25));
+    const keyBlend = Math.max(0, Math.min(0.5, Number(layer.chromaKeyBlend) || 0.08));
+    const chromaFilter = layer.chromaKey === true ? `colorkey=${keyColor}:${similarity.toFixed(3)}:${keyBlend.toFixed(3)}` : '';
+    filter.push(`[${index}:v]scale=${Math.round(width * scale / 100 / 2) * 2}:-2,format=rgba${chromaFilter ? ',' + chromaFilter : ''}${visualFade ? ',' + visualFade : ''},colorchannelmixer=aa=${opacity},setpts=PTS-STARTPTS+${start}/TB[ov${index}]`);
     filter.push(`[${videoLabel}][ov${index}]overlay=x=(W-w)*${x}:y=(H-h)*${y}:enable='between(t,${start},${end})':eof_action=pass:shortest=0[${nextLabel}]`);
     videoLabel = nextLabel;
   }
