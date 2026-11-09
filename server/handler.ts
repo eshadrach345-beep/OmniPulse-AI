@@ -7,7 +7,7 @@ import {
 } from './lib/core.js';
 import { sql, ensureSchema } from './lib/db.js';
 import { PLANS, TIERS, Tier, Cycle, planId, tierFromPlanId, priceFor, BILLING_CURRENCY, TRIAL, TOPUPS, trialPrice } from './lib/plans.js';
-import { mail, flw, verifyFlwSignature, lookupEnv, geminiJson, geminiRaw, geminiFormat, webTrendResearch, aiWriterStatus, testAiWriters, falSubmit, falContinueSubmit, falReferenceVideoSubmit, falKlingReferenceSubmit, falGenerateCharacterReference, falGenerateLocationPlate, falEditLocationPlate, falStatus, falImageVideoSubmit, falGenerateBrandImages, deapiSubmit, deapiStatus, deapiAnimate, deapiVideoModels, RateLimited, synthesize } from './lib/services.js';
+import { mail, flw, verifyFlwSignature, lookupEnv, geminiJson, geminiRaw, geminiFormat, webTrendResearch, aiWriterStatus, testAiWriters, falSubmit, falContinueSubmit, falReferenceVideoSubmit, falKlingReferenceSubmit, falGenerateCharacterReference, falGenerateLocationPlate, falEditLocationPlate, falStatus, falImageVideoSubmit, falGenerateBrandImages, deapiSubmit, deapiStatus, deapiAnimate, deapiAudioSync, deapiVideoModels, RateLimited, synthesize } from './lib/services.js';
 import { trendsFormatPrompt, scriptPrompt, adConceptPrompt, abPrompt, competitorPrompt, outrankPrompt, parseStoryBrief, type SeriesContinuity, type StoryBriefInput, storyBeats, STORY_MOODS, CAMERA_PROFILES, GENRES, INTENSITIES, ENDINGS, PRESENTATIONS, CASTS, TROPES, styleBlock, STORY_LIMITS, planScenes, castMinimum, storyboardPrompt, outlinePrompt, chunkPrompt, adaptPrompt, PART_SECONDS, SCENES_PER_WRITER_CALL, MAX_WORDS_PER_CLIP } from './lib/prompts.js';
 import { assembleParts, toNativeMultiShotPrompt, addDeapiCastNotes, buildCommercialShotPrompts } from './lib/assemble.js';
 import { refineScene, shownInstruction, proseToUnits, thoughtToVisual, type SpokenLine } from './lib/screenplay.js';
@@ -611,6 +611,79 @@ const adImageRender: Handler = async ({ req, res, body }) => {
   const id = newId('job');
   await sql()`INSERT INTO video_jobs (id, user_id, status_url, response_url, seconds, source) VALUES (${id}, ${row.id}, ${job.statusUrl}, ${job.responseUrl}, ${seconds}, ${source})`;
   json(res, 200, { jobId: id });
+};
+
+/** Starts DeAPI's native audio-conditioned video workflow, optionally anchored by a private speaker image. */
+const videoAudioSync: Handler = async ({ req, res, body }) => {
+  const { row, user } = await requireAccess(req);
+  await rateLimit(`audio-sync:${row.id}`, 8, 3600);
+  if (!lookupEnv('DEAPI_API_KEY')) throw new HttpError(424, 'DeAPI is not configured for this workspace. Add DEAPI_API_KEY in Vercel and redeploy.', 'VIDEO_PROVIDER_UNAVAILABLE');
+  const audioAssetId = str(body.audioAssetId, 80);
+  const firstFrameAssetId = str(body.firstFrameAssetId, 80) || '';
+  const prompt = str(body.prompt, 2200).trim();
+  const requestedDuration = Number(body.durationSeconds);
+  if (!audioAssetId) throw new HttpError(400, 'Choose an audio file from your private Media Library.');
+  if (prompt.length < 12) throw new HttpError(400, 'Describe the on-camera performance and movement.');
+  if (!Number.isFinite(requestedDuration) || requestedDuration < 1 || requestedDuration > 11) {
+    throw new HttpError(400, 'Audio-sync clips must be between 1 and 11 seconds. Trim the source audio in the editor first.');
+  }
+  const model = str(body.model, 120);
+  if (!model) throw new HttpError(400, 'Choose an available DeAPI audio-sync model.');
+  const aspect = ['9:16', '16:9', '1:1'].includes(String(body.aspect)) ? String(body.aspect) : '9:16';
+  const audioRows = await sql()`SELECT pathname, original_name, content_type, size_bytes
+    FROM media_assets WHERE id=${audioAssetId} AND user_id=${row.id} LIMIT 1`;
+  const audioAsset = audioRows[0] as any;
+  if (!audioAsset) throw new HttpError(404, 'The selected audio file was not found in your private Media Library.', 'MEDIA_NOT_FOUND');
+  const audioType = String(audioAsset.content_type || '').toLowerCase();
+  if (!audioType.startsWith('audio/')) throw new HttpError(415, 'Choose an MP3, WAV, OGG or FLAC audio asset.');
+  if (Number(audioAsset.size_bytes || 0) <= 0 || Number(audioAsset.size_bytes || 0) > 20 * 1024 * 1024) {
+    throw new HttpError(413, 'Audio-sync accepts audio files up to 20 MB.');
+  }
+  let firstFrame: Buffer | undefined;
+  if (firstFrameAssetId) {
+    const frameRows = await sql()`SELECT pathname, original_name, content_type, size_bytes
+      FROM media_assets WHERE id=${firstFrameAssetId} AND user_id=${row.id} LIMIT 1`;
+    const frameAsset = frameRows[0] as any;
+    if (!frameAsset) throw new HttpError(404, 'The selected speaker image was not found in your private Media Library.', 'MEDIA_NOT_FOUND');
+    if (!String(frameAsset.content_type || '').toLowerCase().startsWith('image/')) throw new HttpError(415, 'The optional speaker reference must be an image.');
+    if (Number(frameAsset.size_bytes || 0) <= 0 || Number(frameAsset.size_bytes || 0) > 10 * 1024 * 1024) throw new HttpError(413, 'The speaker reference image must be 10 MB or smaller.');
+    const token = await issueSignedToken({ operations: ['get'] });
+    const signed = await presignUrl(token, { pathname: frameAsset.pathname, operation: 'get', access: 'private', validUntil: Date.now() + 10 * 60 * 1000 });
+    const fetched = await fetch(signed.presignedUrl, { signal: AbortSignal.timeout(20_000) });
+    if (!fetched.ok) throw new HttpError(424, 'Could not retrieve the speaker reference image from private storage.', 'MEDIA_FETCH_FAILED');
+    firstFrame = Buffer.from(await fetched.arrayBuffer());
+  }
+  const audioToken = await issueSignedToken({ operations: ['get'] });
+  const audioSigned = await presignUrl(audioToken, { pathname: audioAsset.pathname, operation: 'get', access: 'private', validUntil: Date.now() + 10 * 60 * 1000 });
+  const audioResponse = await fetch(audioSigned.presignedUrl, { signal: AbortSignal.timeout(20_000) });
+  if (!audioResponse.ok) throw new HttpError(424, 'Could not retrieve the selected audio from private storage.', 'MEDIA_FETCH_FAILED');
+  const audio = Buffer.from(await audioResponse.arrayBuffer());
+  const availableModels = await deapiVideoModels();
+  const chosenModel = availableModels.find((entry) => entry.slug === model);
+  if (!chosenModel || !chosenModel.supportsAudioToVideo) {
+    throw new HttpError(400, 'That model is not listed as supporting audio-to-video on your DeAPI account. Refresh the model list and choose an audio-sync model.', 'DEAPI_MODEL_MODE');
+  }
+
+  // Audio-to-video duration is charged against the same seconds allowance as other video jobs.
+  const planRows = (await sql()`SELECT COALESCE(sum(seconds), 0)::int AS secs FROM video_jobs
+    WHERE user_id=${row.id} AND source='plan' AND status <> 'failed' AND created_at >= date_trunc('month', now())`) as any[];
+  const planLeft = Math.max(0, user.secondsLimit - Number(planRows[0]?.secs || 0));
+  const bonus = await topupBalance(row.id);
+  const frameCount = Math.min(265, Math.max(25, Math.round(requestedDuration * 3) * 8 + 1));
+  const billedSeconds = Math.ceil(frameCount / 24);
+  let source = 'plan';
+  if (billedSeconds > planLeft) {
+    if (billedSeconds <= bonus) source = 'topup';
+    else throw new HttpError(403, planLeft + bonus > 0
+      ? `You have ${planLeft + bonus} video seconds left, but this audio-sync render needs ${billedSeconds}. Trim the audio or add video seconds.`
+      : 'You have used all your video seconds for this month. Add more seconds or upgrade your plan.', 'LIMIT');
+  }
+  await rateLimit(`render:${row.id}`, 80, 3600);
+  const job = await deapiAudioSync(prompt, audio, audioType, String(audioAsset.original_name || 'audio'), requestedDuration, aspect, model, firstFrame);
+  const id = newId('job');
+  await sql()`INSERT INTO video_jobs (id, user_id, status_url, response_url, seconds, source)
+    VALUES (${id}, ${row.id}, ${'deapi:' + job.requestId}, 'deapi', ${billedSeconds}, ${source})`;
+  json(res, 200, { jobId: id, frameCount: job.frameCount, duration: job.duration, model: chosenModel.slug });
 };
 
 const videoModelCatalogue: Handler = async ({ req, res }) => {
@@ -3261,7 +3334,7 @@ const routes: Record<string, Handler> = {
   'POST /video/director/plan': videoDirectorPlan, 'POST /video/director/match': videoDirectorMatch, 'POST /media/upload': mediaUpload, 'GET /media/list': mediaList, 'GET /media/url': mediaSignedUrl, 'POST /media/transcribe': mediaTranscribe,
   'POST /ai/generate-script': genScript, 'POST /ai/research-trends': researchTrends, 'POST /ai/youtube-growth-kit': youtubeGrowthKit, 'POST /ai/ad-concepts': adConcepts, 'POST /ad/brand-images': adBrandImages, 'POST /ad/render-image': adImageRender, 'POST /tts': tts,
   'POST /ai/ab-variations': abVariations, 'POST /ai/competitor-analysis': competitorAnalysis, 'POST /ai/outrank': outrank,
-  'POST /video/render': videoRender, 'GET /video/status': videoStatus, 'GET /video/models': videoModelCatalogue,
+  'POST /video/render': videoRender, 'POST /video/audio-sync': videoAudioSync, 'GET /video/status': videoStatus, 'GET /video/models': videoModelCatalogue,
   'GET /social/accounts': socialAccounts, 'POST /social/sync': socialSync, 'GET /video/download': videoDownload, 'GET /video/merge': videoMerge, 'POST /video/editor/render': videoEditorRender, 'POST /video/editor/assemble': videoEditorAssemble, 'GET /social/connect': socialConnect, 'GET /social/callback': socialCallback, 'GET /social/zernio-callback': socialZernioCallback,
   'POST /social/disconnect': socialDisconnect, 'GET /social/metrics': socialMetricsRoute, 'POST /social/publish': socialPublish,
   'POST /episodes/create': episodeCreate, 'POST /episodes/retry': episodeRetry, 'GET /episodes/status': episodeStatus, 'GET /episodes/clip': episodeClip, 'POST /episodes/pause': episodePause, 'POST /episodes/resume': episodeResume, 'POST /episodes/edit': episodeEdit, 'GET /episodes/video': episodeVideo, 'GET /projects': projectsList, 'GET /projects/get': projectGet, 'POST /projects/reference/clean-plate': projectCleanPlate,
