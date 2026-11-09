@@ -3068,7 +3068,7 @@ const videoEditorRender: Handler = async ({ req, res, body }) => {
     const aspect = ['9:16', '16:9', '1:1'].includes(requestedAspect) ? requestedAspect : '9:16';
     const [aw, ah] = aspect.split(':').map(Number);
     const ratio = aw / ah;
-    const width = ratio >= 1 ? 1280 : 720;
+    const width = ratio === 1 ? 1080 : ratio > 1 ? 1920 : 1080;
     const height = Math.round(width / ratio / 2) * 2;
     const output = path.join(workDir, 'omnipulse-scene.mp4');
     const captions = (Array.isArray(scene.captions) ? scene.captions : []).slice(0, 500)

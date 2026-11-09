@@ -24,8 +24,12 @@ const base = path.join(work, 'base.mp4');
 const overlay = path.join(work, 'brand-mark.ppm');
 const output = path.join(work, 'rendered.mp4');
 const compiledPath = path.resolve('scripts/.tmp-compositor-smoke.mjs');
+const compiledQaPath = path.resolve('scripts/.tmp-video-qa.mjs');
 try {
-  const source = await fs.readFile(new URL('../server/lib/compositor.ts', import.meta.url), 'utf8');
+  const qaSource = await fs.readFile(new URL('../server/lib/video-qa.ts', import.meta.url), 'utf8');
+  const compiledQa = ts.transpileModule(qaSource, { fileName: 'video-qa.ts', compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText;
+  await fs.writeFile(compiledQaPath, compiledQa);
+  const source = (await fs.readFile(new URL('../server/lib/compositor.ts', import.meta.url), 'utf8')).replace("from './video-qa.js'", "from './.tmp-video-qa.mjs'");
   const compiled = ts.transpileModule(source, {
     fileName: 'compositor.ts',
     compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
@@ -47,13 +51,15 @@ try {
       { start: 0.3, end: 2.8, text: 'Start free today', y: 'h*0.76', fontSize: 32, color: '#06122B', boxColor: '#2DE0B8', boxBorderWidth: 16, fadeIn: 0.25, fadeOut: 0.2 },
       { start: 0.3, end: 2.8, text: 'OmniPulseai.us.ci', y: 'h*0.88', fontSize: 28, color: '#2DE0B8' },
     ],
-    duration: 3, width: 720, height: 1280, output,
+    duration: 3, width: 1080, height: 1920, output,
   });
   const stat = await fs.stat(output);
   assert.ok(stat.size > 6000, 'compositor creates a non-empty MP4');
-  await run(ffmpeg, ['-hide_banner', '-i', output, '-f', 'null', '-']);
+  const outputInfo = await run(ffmpeg, ['-hide_banner', '-i', output, '-f', 'null', '-']);
+  assert.match(outputInfo, /1080x1920/, 'portrait master export should be 1080x1920');
   console.log('CPU-only video render smoke test passed (MP4 + logo image layer + title + animated CTA/text overlays + playback speed + clip fades + crop-to-fill + cinematic grade + chroma key).');
 } finally {
   await fs.rm(compiledPath, { force: true });
+  await fs.rm(compiledQaPath, { force: true });
   await fs.rm(work, { recursive: true, force: true });
 }
