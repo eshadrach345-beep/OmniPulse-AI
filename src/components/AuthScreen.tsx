@@ -86,9 +86,9 @@ export const AuthScreen: React.FC<{ onAuthed: (u: AppUser) => void; notice?: str
     <div className="min-h-full flex items-center justify-center p-4 bg-slate-950">
       <div className="w-full max-w-md">
         {onBack && <button onClick={onBack} className="text-xs text-slate-400 hover:text-slate-200 flex items-center gap-1 mb-4"><ArrowLeft className="w-3 h-3" /> Back to home</button>}
-        <div className="flex items-center justify-center gap-2 mb-6">
-          <div className="w-9 h-9 rounded-xl bg-indigo-600 flex items-center justify-center"><Zap className="w-5 h-5 text-white" /></div>
-          <span className="text-xl font-bold text-white">OmniPulse AI</span>
+        <div className="mb-6 flex items-center justify-center gap-2.5">
+          <img src="/omnipulse-mark.svg" alt="" className="h-10 w-10 rounded-xl shadow-lg shadow-violet-500/20" />
+          <span className="text-xl font-extrabold tracking-tight text-white">OmniPulse <span className="text-orange-200">AI</span></span>
         </div>
 
         <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 sm:p-8 shadow-2xl">
