@@ -180,6 +180,8 @@ export const TrendHashtagRadar: React.FC<TrendHashtagRadarProps> = ({
         bestPractices: results.bestPractices,
         researchSources: results.researchSources,
         researchGrounded: results.researchGrounded,
+        researchProvider: results.researchProvider,
+        researchedAt: results.researchedAt,
       };
 
       onSelectNiche(updatedNiche);
@@ -291,78 +293,31 @@ export const TrendHashtagRadar: React.FC<TrendHashtagRadarProps> = ({
         </div>
       </div>
 
-      {/* Sub Tab Navigation */}
-      <div className="flex flex-wrap items-center gap-1 p-1 bg-slate-900 border border-slate-800 rounded-lg w-fit">
-        <button
-          onClick={() => setActiveTab('topics')}
-          className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-md text-xs font-semibold transition-colors ${
-            activeTab === 'topics'
-              ? 'bg-indigo-600 text-white shadow-xs'
-              : 'text-slate-400 hover:text-slate-200'
-          }`}
-        >
-          <Flame className="w-3.5 h-3.5" />
-          <span>Trending Topics & Viral Hooks ({activeNiche.trendingTopics.length})</span>
+      {/* Icon-led radar navigation: each destination has a distinct visual identity. */}
+      <div className="grid w-full grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6">
+        <button type="button" aria-pressed={activeTab === 'topics'} onClick={() => setActiveTab('topics')} className={\`group flex min-w-0 items-center gap-2 rounded-xl border px-2.5 py-2.5 text-left transition-all \${activeTab === 'topics' ? 'border-orange-400/40 bg-orange-500/10 shadow-lg shadow-orange-950/20' : 'border-slate-800 bg-slate-900/70 hover:border-orange-400/30 hover:bg-slate-900'}\`}>
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-orange-400/20 bg-gradient-to-br from-orange-400/20 to-rose-500/10"><Flame className="h-5 w-5 text-orange-300" /></span>
+          <span className="min-w-0"><span className="block truncate text-xs font-bold text-white">Live Trends</span><span className="block text-[10px] text-slate-400">{activeNiche.trendingTopics.length} topics & hooks</span></span>
         </button>
-
-        <button
-          onClick={() => setActiveTab('creators')}
-          className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-md text-xs font-semibold transition-colors ${
-            activeTab === 'creators'
-              ? 'bg-indigo-600 text-white shadow-xs'
-              : 'text-slate-400 hover:text-slate-200'
-          }`}
-        >
-          <Trophy className="w-3.5 h-3.5 text-amber-400" />
-          <span>Trending Creators ({(activeNiche.trendingCreators || []).filter((creator) => (creator.recentVideos || []).some((video) => isFreshPublishedAt(video.publishedAt))).length})</span>
+        <button type="button" aria-pressed={activeTab === 'creators'} onClick={() => setActiveTab('creators')} className={\`group flex min-w-0 items-center gap-2 rounded-xl border px-2.5 py-2.5 text-left transition-all \${activeTab === 'creators' ? 'border-amber-400/40 bg-amber-500/10 shadow-lg shadow-amber-950/20' : 'border-slate-800 bg-slate-900/70 hover:border-amber-400/30 hover:bg-slate-900'}\`}>
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-amber-400/20 bg-gradient-to-br from-amber-400/20 to-yellow-500/10"><Trophy className="h-5 w-5 text-amber-300" /></span>
+          <span className="min-w-0"><span className="block truncate text-xs font-bold text-white">Creators</span><span className="block text-[10px] text-slate-400">Recent public examples</span></span>
         </button>
-
-        <button
-          onClick={() => setActiveTab('hashtags')}
-          className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-md text-xs font-semibold transition-colors ${
-            activeTab === 'hashtags'
-              ? 'bg-indigo-600 text-white shadow-xs'
-              : 'text-slate-400 hover:text-slate-200'
-          }`}
-        >
-          <Hash className="w-3.5 h-3.5" />
-          <span>Hashtags & Keyword Radar</span>
+        <button type="button" aria-pressed={activeTab === 'hashtags'} onClick={() => setActiveTab('hashtags')} className={\`group flex min-w-0 items-center gap-2 rounded-xl border px-2.5 py-2.5 text-left transition-all \${activeTab === 'hashtags' ? 'border-fuchsia-400/40 bg-fuchsia-500/10 shadow-lg shadow-fuchsia-950/20' : 'border-slate-800 bg-slate-900/70 hover:border-fuchsia-400/30 hover:bg-slate-900'}\`}>
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-fuchsia-400/20 bg-gradient-to-br from-fuchsia-400/25 to-violet-500/10 shadow-inner"><Hash className="h-6 w-6 text-fuchsia-200" /></span>
+          <span className="min-w-0"><span className="block truncate text-xs font-bold text-white">Hashtag Radar</span><span className="block text-[10px] text-slate-400">Verified tags & ideas</span></span>
         </button>
-
-        <button
-          onClick={() => setActiveTab('competitors')}
-          className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-md text-xs font-semibold transition-colors ${
-            activeTab === 'competitors'
-              ? 'bg-indigo-600 text-white shadow-xs'
-              : 'text-slate-400 hover:text-slate-200'
-          }`}
-        >
-          <Users className="w-3.5 h-3.5 text-rose-400" />
-          <span>Competitor Intel & Outranker</span>
+        <button type="button" aria-pressed={activeTab === 'competitors'} onClick={() => setActiveTab('competitors')} className={\`group flex min-w-0 items-center gap-2 rounded-xl border px-2.5 py-2.5 text-left transition-all \${activeTab === 'competitors' ? 'border-rose-400/40 bg-rose-500/10 shadow-lg shadow-rose-950/20' : 'border-slate-800 bg-slate-900/70 hover:border-rose-400/30 hover:bg-slate-900'}\`}>
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-rose-400/20 bg-gradient-to-br from-rose-400/20 to-pink-500/10"><Users className="h-5 w-5 text-rose-300" /></span>
+          <span className="min-w-0"><span className="block truncate text-xs font-bold text-white">Competitors</span><span className="block text-[10px] text-slate-400">Position & gaps</span></span>
         </button>
-
-        <button
-          onClick={() => setActiveTab('youtube-growth')}
-          className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-md text-xs font-semibold transition-colors ${
-            activeTab === 'youtube-growth'
-              ? 'bg-indigo-600 text-white shadow-xs'
-              : 'text-slate-400 hover:text-slate-200'
-          }`}
-        >
-          <Youtube className="w-3.5 h-3.5 text-red-300" />
-          <span>Social Growth Studio</span>
+        <button type="button" aria-pressed={activeTab === 'youtube-growth'} onClick={() => setActiveTab('youtube-growth')} className={\`group flex min-w-0 items-center gap-2 rounded-xl border px-2.5 py-2.5 text-left transition-all \${activeTab === 'youtube-growth' ? 'border-red-400/40 bg-red-500/10 shadow-lg shadow-red-950/20' : 'border-slate-800 bg-slate-900/70 hover:border-red-400/30 hover:bg-slate-900'}\`}>
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-red-400/20 bg-gradient-to-br from-red-400/20 to-rose-500/10"><Youtube className="h-5 w-5 text-red-300" /></span>
+          <span className="min-w-0"><span className="block truncate text-xs font-bold text-white">Growth Studio</span><span className="block text-[10px] text-slate-400">Titles, hooks & SEO</span></span>
         </button>
-
-        <button
-          onClick={() => setActiveTab('best-practices')}
-          className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-md text-xs font-semibold transition-colors ${
-            activeTab === 'best-practices'
-              ? 'bg-indigo-600 text-white shadow-xs'
-              : 'text-slate-400 hover:text-slate-200'
-          }`}
-        >
-          <Lightbulb className="w-3.5 h-3.5" />
-          <span>Media Playbook ({activeNiche.bestPractices.length})</span>
+        <button type="button" aria-pressed={activeTab === 'best-practices'} onClick={() => setActiveTab('best-practices')} className={\`group flex min-w-0 items-center gap-2 rounded-xl border px-2.5 py-2.5 text-left transition-all \${activeTab === 'best-practices' ? 'border-cyan-400/40 bg-cyan-500/10 shadow-lg shadow-cyan-950/20' : 'border-slate-800 bg-slate-900/70 hover:border-cyan-400/30 hover:bg-slate-900'}\`}>
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-cyan-400/20 bg-gradient-to-br from-cyan-400/20 to-sky-500/10"><Lightbulb className="h-5 w-5 text-cyan-200" /></span>
+          <span className="min-w-0"><span className="block truncate text-xs font-bold text-white">Playbook</span><span className="block text-[10px] text-slate-400">{activeNiche.bestPractices.length} practical moves</span></span>
         </button>
       </div>
 
@@ -397,7 +352,7 @@ export const TrendHashtagRadar: React.FC<TrendHashtagRadarProps> = ({
                   <h2 className="text-sm font-bold text-white sm:text-base">Live Web Research</h2>
                   <span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-emerald-300">Live sources</span>
                 </div>
-                <p className="mt-0.5 text-[11px] text-slate-400">Real pages and public videos dated within the last 14 days · {recentResearchSources.length} verified sources</p>
+                <p className="mt-0.5 text-[11px] text-slate-400">Real pages and public videos dated within the last 14 days · {recentResearchSources.length} verified sources{activeNiche.researchProvider ? ` · Search: ${activeNiche.researchProvider}` : ''}{activeNiche.researchedAt ? ` · Scanned ${new Date(activeNiche.researchedAt).toLocaleString()}` : ''}</p>
               </div>
             </div>
             <div className="flex items-center gap-2 text-[10px] text-slate-400">
@@ -634,151 +589,74 @@ export const TrendHashtagRadar: React.FC<TrendHashtagRadarProps> = ({
 
       {activeTab === 'hashtags' && hasFreshResearch && (
         <div className="space-y-6">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-900/60 p-4 rounded-xl border border-slate-800">
-            <div>
-              <h2 className="text-sm font-bold text-white">
-                Categorized Hashtag Radar & Spoken SEO Keywords
-              </h2>
-              <p className="text-xs text-slate-400">
-                Sorted by algorithmic velocity and search volume to maximize reach without trigger shadowbans.
-              </p>
+          <div className="flex flex-col gap-3 rounded-2xl border border-fuchsia-500/20 bg-gradient-to-r from-fuchsia-500/10 via-slate-900 to-violet-500/5 p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-3">
+              <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-fuchsia-400/25 bg-gradient-to-br from-fuchsia-400/25 to-violet-500/10 shadow-lg shadow-fuchsia-950/20"><Hash className="h-7 w-7 text-fuchsia-100" /></span>
+              <div>
+                <h2 className="text-sm font-bold text-white">Hashtag Radar & Spoken SEO</h2>
+                <p className="mt-1 max-w-2xl text-xs leading-5 text-slate-400">Source-confirmed tags are separated from AI suggestions. Volume and competition are never guessed; unavailable metrics are marked as not measured.</p>
+              </div>
             </div>
-
-            <button
-              onClick={() => copyAllHashtags(activeNiche.viralHashtags)}
-              className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-semibold shadow-sm transition-colors whitespace-nowrap"
-            >
-              {copiedBatch ? <Check className="w-4 h-4 text-emerald-300" /> : <Copy className="w-4 h-4" />}
-              <span>{copiedBatch ? 'Copied All to Clipboard!' : 'Copy Complete Hashtag Stack'}</span>
+            <button type="button" onClick={() => copyAllHashtags(activeNiche.viralHashtags)} className="flex shrink-0 items-center justify-center gap-2 rounded-xl border border-fuchsia-400/20 bg-fuchsia-500/15 px-4 py-2.5 text-xs font-semibold text-fuchsia-100 transition-colors hover:bg-fuchsia-500/25">
+              {copiedBatch ? <Check className="h-4 w-4 text-emerald-300" /> : <Copy className="h-4 w-4" />}
+              <span>{copiedBatch ? 'Copied hashtag stack' : 'Copy hashtag stack'}</span>
             </button>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-4 space-y-3">
-              <div className="flex items-center justify-between pb-2 border-b border-slate-800">
-                <div className="flex items-center gap-1.5">
-                  <Flame className="w-4 h-4 text-rose-400" />
-                  <span className="text-xs font-bold text-white">Viral Velocity Tags</span>
-                </div>
-                <span className="text-[10px] text-rose-400 font-mono">High Reach</span>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+            <section className="space-y-3 rounded-2xl border border-rose-500/20 bg-slate-900/75 p-4 shadow-lg shadow-black/10">
+              <div className="flex items-center gap-2 border-b border-slate-800 pb-3">
+                <span className="flex h-9 w-9 items-center justify-center rounded-xl border border-rose-400/20 bg-gradient-to-br from-rose-400/20 to-orange-500/10"><Flame className="h-5 w-5 text-rose-300" /></span>
+                <div className="min-w-0"><h3 className="text-xs font-bold text-white">Observed in Recent Sources</h3><p className="text-[10px] text-rose-300">Source-confirmed tags</p></div>
               </div>
-              <p className="text-[11px] text-slate-400">
-                Top trending tags with explosive discovery volume across recommendation feeds.
-              </p>
-
+              <p className="text-[11px] leading-5 text-slate-400">Only hashtags that appeared in dated research evidence belong here. This does not imply platform-wide virality.</p>
               <div className="space-y-2">
                 {activeNiche.viralHashtags.viral.map(item => (
-                  <div
-                    key={item.tag}
-                    onClick={() => copySingleTag(item.tag)}
-                    className="cursor-pointer group flex items-center justify-between p-2.5 rounded-lg bg-slate-950/80 border border-slate-850 hover:border-indigo-500 transition-all"
-                  >
-                    <div>
-                      <span className="text-xs font-semibold text-slate-100 group-hover:text-indigo-300">
-                        {item.tag}
-                      </span>
-                      <span className="text-[10px] text-slate-500 block">
-                        {item.volume} · {item.competition} Comp
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-xs font-mono font-bold text-emerald-400">
-                        {item.velocityScore}/100
-                      </span>
-                      {copiedTag === item.tag ? (
-                        <Check className="w-3.5 h-3.5 text-emerald-400" />
-                      ) : (
-                        <Copy className="w-3.5 h-3.5 text-slate-500 group-hover:text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity" />
-                      )}
-                    </div>
-                  </div>
+                  <button type="button" key={item.tag} onClick={() => copySingleTag(item.tag)} className="group flex w-full items-center gap-2 rounded-xl border border-slate-800 bg-slate-950/80 p-2.5 text-left transition-all hover:border-rose-400/40 hover:bg-rose-500/5">
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-rose-400/20 bg-gradient-to-br from-rose-400/20 to-pink-500/10"><Hash className="h-5 w-5 text-rose-200" /></span>
+                    <span className="min-w-0 flex-1"><span className="block truncate text-xs font-bold text-slate-100 group-hover:text-rose-200">{item.tag}</span><span className="block text-[10px] text-slate-500">{item.volume || 'Not measured'} · {item.competition === 'Unknown' ? 'Competition unknown' : item.competition + ' competition'}</span><span className="mt-1 inline-flex rounded-full border border-emerald-400/15 bg-emerald-400/5 px-1.5 py-0.5 text-[9px] font-semibold text-emerald-300">Verified in source</span></span>
+                    <span className="flex shrink-0 items-center gap-1 text-[10px] font-mono text-rose-200">Fit {item.velocityScore}/100 {copiedTag === item.tag ? <Check className="h-3.5 w-3.5 text-emerald-300" /> : <Copy className="h-3 w-3 text-slate-500 group-hover:text-slate-200" />}</span>
+                  </button>
                 ))}
+                {activeNiche.viralHashtags.viral.length === 0 && <p className="rounded-lg border border-dashed border-slate-800 p-3 text-[11px] text-slate-500">No exact hashtags were present in the recent sources. We won't label invented tags as viral.</p>}
               </div>
-            </div>
+            </section>
 
-            <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-4 space-y-3">
-              <div className="flex items-center justify-between pb-2 border-b border-slate-800">
-                <div className="flex items-center gap-1.5">
-                  <Target className="w-4 h-4 text-indigo-400" />
-                  <span className="text-xs font-bold text-white">Niche-Specific Tags</span>
-                </div>
-                <span className="text-[10px] text-emerald-400 font-mono">Low Comp · Easy Rank</span>
+            <section className="space-y-3 rounded-2xl border border-violet-500/20 bg-slate-900/75 p-4 shadow-lg shadow-black/10">
+              <div className="flex items-center gap-2 border-b border-slate-800 pb-3">
+                <span className="flex h-9 w-9 items-center justify-center rounded-xl border border-violet-400/20 bg-gradient-to-br from-violet-400/20 to-indigo-500/10"><Target className="h-5 w-5 text-violet-200" /></span>
+                <div className="min-w-0"><h3 className="text-xs font-bold text-white">Niche Hashtag Ideas</h3><p className="text-[10px] text-violet-300">AI suggestions from current topics</p></div>
               </div>
-              <p className="text-[11px] text-slate-400">
-                Targeted tags with lower saturation, allowing you to dominate the top 9 posts quickly.
-              </p>
-
+              <p className="text-[11px] leading-5 text-slate-400">Suggestions are built around the stories and topics found in this scan. They are not measured for reach or competition.</p>
               <div className="space-y-2">
                 {activeNiche.viralHashtags.nicheSpecific.map(item => (
-                  <div
-                    key={item.tag}
-                    onClick={() => copySingleTag(item.tag)}
-                    className="cursor-pointer group flex items-center justify-between p-2.5 rounded-lg bg-slate-950/80 border border-slate-850 hover:border-indigo-500 transition-all"
-                  >
-                    <div>
-                      <span className="text-xs font-semibold text-slate-100 group-hover:text-indigo-300">
-                        {item.tag}
-                      </span>
-                      <span className="text-[10px] text-slate-500 block">
-                        {item.volume} · {item.competition} Comp
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-xs font-mono font-bold text-indigo-300">
-                        {item.velocityScore}/100
-                      </span>
-                      {copiedTag === item.tag ? (
-                        <Check className="w-3.5 h-3.5 text-emerald-400" />
-                      ) : (
-                        <Copy className="w-3.5 h-3.5 text-slate-500 group-hover:text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity" />
-                      )}
-                    </div>
-                  </div>
+                  <button type="button" key={item.tag} onClick={() => copySingleTag(item.tag)} className="group flex w-full items-center gap-2 rounded-xl border border-slate-800 bg-slate-950/80 p-2.5 text-left transition-all hover:border-violet-400/40 hover:bg-violet-500/5">
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-violet-400/20 bg-gradient-to-br from-violet-400/20 to-indigo-500/10"><Hash className="h-5 w-5 text-violet-200" /></span>
+                    <span className="min-w-0 flex-1"><span className="block truncate text-xs font-bold text-slate-100 group-hover:text-violet-200">{item.tag}</span><span className="block text-[10px] text-slate-500">{item.volume || 'Not measured'} · {item.competition === 'Unknown' ? 'Competition unknown' : item.competition + ' competition'}</span><span className="mt-1 inline-flex rounded-full border border-violet-400/15 bg-violet-400/5 px-1.5 py-0.5 text-[9px] font-semibold text-violet-200">AI suggestion</span></span>
+                    <span className="flex shrink-0 items-center gap-1 text-[10px] font-mono text-violet-200">Fit {item.velocityScore}/100 {copiedTag === item.tag ? <Check className="h-3.5 w-3.5 text-emerald-300" /> : <Copy className="h-3 w-3 text-slate-500 group-hover:text-slate-200" />}</span>
+                  </button>
                 ))}
+                {activeNiche.viralHashtags.nicheSpecific.length === 0 && <p className="rounded-lg border border-dashed border-slate-800 p-3 text-[11px] text-slate-500">No niche-specific suggestions were returned from this scan.</p>}
               </div>
-            </div>
+            </section>
 
-            <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-4 space-y-3">
-              <div className="flex items-center justify-between pb-2 border-b border-slate-800">
-                <div className="flex items-center gap-1.5">
-                  <Layers className="w-4 h-4 text-cyan-400" />
-                  <span className="text-xs font-bold text-white">Evergreen Authority</span>
-                </div>
-                <span className="text-[10px] text-cyan-400 font-mono">Consistent Reach</span>
+            <section className="space-y-3 rounded-2xl border border-cyan-500/20 bg-slate-900/75 p-4 shadow-lg shadow-black/10">
+              <div className="flex items-center gap-2 border-b border-slate-800 pb-3">
+                <span className="flex h-9 w-9 items-center justify-center rounded-xl border border-cyan-400/20 bg-gradient-to-br from-cyan-400/20 to-sky-500/10"><Layers className="h-5 w-5 text-cyan-200" /></span>
+                <div className="min-w-0"><h3 className="text-xs font-bold text-white">Evergreen Hashtag Ideas</h3><p className="text-[10px] text-cyan-300">Long-term category suggestions</p></div>
               </div>
-              <p className="text-[11px] text-slate-400">
-                Reliable industry anchors that establish channel category indexing with platform bots.
-              </p>
-
+              <p className="text-[11px] leading-5 text-slate-400">Useful category labels for recurring content. These are not signals of a current breakout or trending hashtag.</p>
               <div className="space-y-2">
                 {activeNiche.viralHashtags.evergreen.map(item => (
-                  <div
-                    key={item.tag}
-                    onClick={() => copySingleTag(item.tag)}
-                    className="cursor-pointer group flex items-center justify-between p-2.5 rounded-lg bg-slate-950/80 border border-slate-850 hover:border-indigo-500 transition-all"
-                  >
-                    <div>
-                      <span className="text-xs font-semibold text-slate-100 group-hover:text-indigo-300">
-                        {item.tag}
-                      </span>
-                      <span className="text-[10px] text-slate-500 block">
-                        {item.volume} · {item.competition} Comp
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-xs font-mono font-bold text-slate-400">
-                        {item.velocityScore}/100
-                      </span>
-                      {copiedTag === item.tag ? (
-                        <Check className="w-3.5 h-3.5 text-emerald-400" />
-                      ) : (
-                        <Copy className="w-3.5 h-3.5 text-slate-500 group-hover:text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity" />
-                      )}
-                    </div>
-                  </div>
+                  <button type="button" key={item.tag} onClick={() => copySingleTag(item.tag)} className="group flex w-full items-center gap-2 rounded-xl border border-slate-800 bg-slate-950/80 p-2.5 text-left transition-all hover:border-cyan-400/40 hover:bg-cyan-500/5">
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-cyan-400/20 bg-gradient-to-br from-cyan-400/20 to-sky-500/10"><Hash className="h-5 w-5 text-cyan-100" /></span>
+                    <span className="min-w-0 flex-1"><span className="block truncate text-xs font-bold text-slate-100 group-hover:text-cyan-200">{item.tag}</span><span className="block text-[10px] text-slate-500">{item.volume || 'Not measured'} · {item.competition === 'Unknown' ? 'Competition unknown' : item.competition + ' competition'}</span><span className="mt-1 inline-flex rounded-full border border-cyan-400/15 bg-cyan-400/5 px-1.5 py-0.5 text-[9px] font-semibold text-cyan-200">AI suggestion</span></span>
+                    <span className="flex shrink-0 items-center gap-1 text-[10px] font-mono text-cyan-200">Fit {item.velocityScore}/100 {copiedTag === item.tag ? <Check className="h-3.5 w-3.5 text-emerald-300" /> : <Copy className="h-3 w-3 text-slate-500 group-hover:text-slate-200" />}</span>
+                  </button>
                 ))}
+                {activeNiche.viralHashtags.evergreen.length === 0 && <p className="rounded-lg border border-dashed border-slate-800 p-3 text-[11px] text-slate-500">No evergreen suggestions were returned from this scan.</p>}
               </div>
-            </div>
+            </section>
           </div>
 
           <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4 sm:p-5">
