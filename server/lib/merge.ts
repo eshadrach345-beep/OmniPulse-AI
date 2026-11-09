@@ -247,3 +247,49 @@ export async function lastFrameJpeg(url: string): Promise<Buffer> {
     throw new Error('No picture could be taken from the clip.');
   } finally { await fs.rm(dir, { recursive: true, force: true }).catch(() => undefined); }
 }
+
+
+export interface SampledVideoFrame { timestamp: number; bytes: Buffer; mimeType: 'image/jpeg' }
+
+/** Extracts evenly spaced, resized frames from a clip for automated visual QA. */
+export async function sampleVideoFrames(url: string, count = 4): Promise<SampledVideoFrame[]> {
+  const bin = await ffmpegBinary();
+  const fs = await import('node:fs/promises');
+  const os = await import('node:os');
+  const path = await import('node:path');
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'op-visual-qa-'));
+  try {
+    const response = await fetch(url, { signal: AbortSignal.timeout(25_000) });
+    if (!response.ok || !response.body) throw new Error(`Visual QA clip download failed (${response.status}).`);
+    const declared = Number(response.headers.get('content-length') || 0);
+    if (declared > 150 * 1024 * 1024) throw new Error('Visual QA clip exceeds the 150 MB inspection limit.');
+    const input = path.join(dir, 'clip.mp4');
+    const { Readable } = await import('node:stream');
+    const { pipeline } = await import('node:stream/promises');
+    const { createWriteStream } = await import('node:fs');
+    let total = 0;
+    const { Transform } = await import('node:stream');
+    const meter = new Transform({ transform(chunk: Buffer, _encoding, callback) {
+      total += chunk.length;
+      if (total > 150 * 1024 * 1024) callback(new Error('Visual QA clip exceeds the 150 MB inspection limit.'));
+      else callback(null, chunk);
+    } });
+    await pipeline((Readable as any).fromWeb(response.body as any), meter, createWriteStream(input));
+    const info = await inspect(bin, input);
+    const duration = Math.max(1, info.seconds || 5);
+    const sampleCount = Math.max(3, Math.min(4, Math.round(count) || 4));
+    const frames: SampledVideoFrame[] = [];
+    for (let i = 0; i < sampleCount; i++) {
+      const timestamp = Math.max(0.1, Math.min(duration - 0.08, duration * ((i + 0.5) / sampleCount)));
+      const output = path.join(dir, `frame-${i}.jpg`);
+      const result = await run(bin, ['-y', '-ss', timestamp.toFixed(3), '-i', input, '-frames:v', '1', '-vf', 'scale=512:-2', '-q:v', '5', output], 12_000);
+      if (result.code !== 0) throw new Error(`Could not sample visual QA frame ${i + 1}.`);
+      const bytes = await fs.readFile(output);
+      if (bytes.length) frames.push({ timestamp, bytes, mimeType: 'image/jpeg' });
+    }
+    if (frames.length < 3) throw new Error('Visual QA could not extract at least three frames.');
+    return frames;
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true }).catch(() => undefined);
+  }
+}

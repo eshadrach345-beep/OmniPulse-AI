@@ -69,7 +69,7 @@ try {
     compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext },
   }).outputText;
   await fs.writeFile(modulePath, compiled, 'utf8');
-  const { mergeClips } = await import(pathToFileURL(modulePath).href);
+  const { mergeClips, sampleVideoFrames } = await import(pathToFileURL(modulePath).href);
 
   server = createServer(async (req, res) => {
     const file = req.url === '/scene-a.mp4' ? clipA : req.url === '/scene-b.mp4' ? clipB : null;
@@ -84,6 +84,11 @@ try {
   });
   const address = server.address();
   const base = `http://127.0.0.1:${address.port}`;
+
+  const sampledFrames = await sampleVideoFrames(`${base}/scene-a.mp4`, 3);
+  assert.equal(sampledFrames.length, 3, 'Visual QA should sample three frames from each clip.');
+  assert.ok(sampledFrames.every((frame) => frame.bytes.length > 1000 && frame.mimeType === 'image/jpeg'), 'Sampled frames should be non-empty JPEG images.');
+  assert.ok(sampledFrames[0].timestamp < sampledFrames[1].timestamp && sampledFrames[1].timestamp < sampledFrames[2].timestamp, 'Sample timestamps should be ordered through the clip.');
 
   merged = await mergeClips([`${base}/scene-a.mp4`, `${base}/scene-b.mp4`]);
   const stat = await fs.stat(merged.file);

@@ -668,6 +668,88 @@ export async function geminiFormat(prompt: string): Promise<{ data: any; model: 
   try { return { data: extractJson(g.text), model: `${g.provider}:${g.model}` }; } catch { throw new HttpError(424, 'The research came back in an unexpected format. Please try again.', 'GEMINI'); }
 }
 
+export interface VisualReviewImage { name: string; bytes: Buffer; mimeType: string; timestamp?: number }
+export interface VisualReviewResult {
+  passed: boolean;
+  severity: 'none' | 'minor' | 'major';
+  identityDrift: boolean;
+  handAnatomyIssue: boolean;
+  propConsistencyIssue: boolean;
+  issues: string[];
+  summary: string;
+}
+
+/** Reviews sampled shot frames against the opening/reference still using Gemini vision. Returns null when vision is not configured. */
+export async function geminiVisualReview(
+  sceneDescription: string,
+  frames: VisualReviewImage[],
+  referenceImages: VisualReviewImage[] = [],
+): Promise<VisualReviewResult | null> {
+  const key = geminiKeyList().find((candidate) => keyBlockedMs(candidate) === 0);
+  if (!key || frames.length < 3) return null;
+  const models = [...new Set([...PREFERRED_MODELS(), ...(await discoverModels(key))])].slice(0, 4);
+  const images = [
+    ...referenceImages.slice(0, 2).map((image) => ({ ...image, label: `REFERENCE: ${image.name}` })),
+    ...frames.slice(0, 4).map((image, index) => ({ ...image, label: `SHOT FRAME ${index + 1} at ${Number(image.timestamp || 0).toFixed(2)} seconds` })),
+  ];
+  const prompt = [
+    'You are a strict visual quality-control reviewer for a photorealistic live-action video shot.',
+    'Compare the reference image(s), when supplied, with every sampled frame. Judge only visible evidence; do not invent defects.',
+    `Intended shot: ${String(sceneDescription || '').slice(0, 1400)}`,
+    'Check: same character identity/face/hair/skin tone/wardrobe across frames; natural hands and finger count; object shape and material stability; background/location geometry; weather and lighting continuity; ghosting, duplicated limbs, melted or morphing objects.',
+    'Mark severity major only for obvious identity swaps, severely malformed hands, a key prop visibly changing shape/disappearing/reappearing, or a major background discontinuity. Minor issues should not force regeneration.',
+    'Return JSON only with this schema: {"passed":boolean,"severity":"none|minor|major","identityDrift":boolean,"handAnatomyIssue":boolean,"propConsistencyIssue":boolean,"issues":string[],"summary":string}.',
+    'If the frames are too ambiguous to judge, set passed=true, severity="minor", and explain the uncertainty rather than inventing a failure.',
+    'Images are supplied next in the exact order labelled below:',
+    ...images.map((image) => image.label),
+  ].join('\n');
+  const parts: any[] = [{ text: prompt }];
+  for (const image of images) {
+    if (!image.bytes?.length || image.bytes.length > 6 * 1024 * 1024) continue;
+    parts.push({ inlineData: { mimeType: image.mimeType || 'image/jpeg', data: image.bytes.toString('base64') } });
+  }
+  if (parts.length < 4) return null;
+  for (const model of models) {
+    try {
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
+        body: JSON.stringify({
+          contents: [{ role: 'user', parts }],
+          generationConfig: { responseMimeType: 'application/json', maxOutputTokens: 1200, temperature: 0.1 },
+        }),
+        signal: AbortSignal.timeout(22_000),
+      });
+      const payload: any = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        const message = String(payload?.error?.message || `Gemini vision ${response.status}`);
+        if (response.status === 429) noteGeminiFailure(new GeminiFail(429, message), key);
+        console.warn('Visual review model unavailable:', model, response.status, message.slice(0, 180));
+        continue;
+      }
+      const raw = (payload?.candidates?.[0]?.content?.parts || []).map((part: any) => part.text || '').join('');
+      const parsed = extractJson(raw);
+      const severity = ['none', 'minor', 'major'].includes(String(parsed?.severity)) ? parsed.severity : 'minor';
+      const identityDrift = parsed?.identityDrift === true;
+      const handAnatomyIssue = parsed?.handAnatomyIssue === true;
+      const propConsistencyIssue = parsed?.propConsistencyIssue === true;
+      const issues = Array.isArray(parsed?.issues) ? parsed.issues.map((issue: any) => String(issue).slice(0, 220)).slice(0, 8) : [];
+      return {
+        passed: parsed?.passed === true && severity !== 'major' && !identityDrift && !handAnatomyIssue && !propConsistencyIssue,
+        severity,
+        identityDrift,
+        handAnatomyIssue,
+        propConsistencyIssue,
+        issues,
+        summary: String(parsed?.summary || issues[0] || 'Visual review completed.').slice(0, 400),
+      };
+    } catch (error: any) {
+      console.warn('Visual review request failed:', model, error?.message || error);
+    }
+  }
+  return null;
+}
+
 export async function geminiJson(prompt: string, opts: { grounded?: boolean } = {}): Promise<any> {
   return (await geminiRaw(prompt, opts)).data;
 }
