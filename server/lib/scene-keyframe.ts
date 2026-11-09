@@ -43,3 +43,11 @@ export function chooseSceneKeyframeReference<T extends { url: string; kind?: str
   return refs.find((ref) => ref.kind === 'character') || refs.find((ref) => ref.kind === 'prop')
     || refs.find((ref) => ref.kind === 'product') || refs.find((ref) => ref.kind === 'location') || refs[0];
 }
+
+/** Prefer a prepared scene still, but never lose an available source reference on image-edit failure. */
+export function resolveSceneOpeningFrameUrl(preparedKeyframeUrl?: string, sourceReferenceUrl?: string): string {
+  const prepared = String(preparedKeyframeUrl || '').trim();
+  if (/^https:\/\//i.test(prepared)) return prepared;
+  const fallback = String(sourceReferenceUrl || '').trim();
+  return /^https:\/\//i.test(fallback) ? fallback : '';
+}
