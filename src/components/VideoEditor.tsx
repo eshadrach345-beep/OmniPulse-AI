@@ -1,7 +1,8 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { GeneratedVideo, VideoScene, VideoMediaLayer, VideoMediaTrack } from '../types';
 import { api } from '../services/api';
-import { ArrowDown, ArrowUp, Clapperboard, Copy, Film, Layers3, Scissors, Undo2, Redo2, Plus, Trash2, Sparkles, Wand2, Loader2, Check, Image as ImageIcon, Music2, RefreshCw } from 'lucide-react';
+import { splitVideoScene } from '../services/editorTimeline';
+import { ArrowDown, ArrowUp, AudioLines, Check, Clapperboard, Copy, Download, Film, Image as ImageIcon, Layers3, Loader2, Music2, Play, Plus, Redo2, RefreshCw, Scissors, Settings2, ShieldCheck, Sparkles, Split, Trash2, Type, Undo2, Volume2, Wand2 } from 'lucide-react';
 
 interface DirectorEdit { scene: number; reason: string; visualDirection: string; overlayText: string; soundEffect: string; transition: string }
 interface DirectorPlan { summary: string; edits: DirectorEdit[] }
@@ -17,6 +18,15 @@ interface SceneRenderResult { asset: EditorMediaAsset; downloadUrl: string; dura
 interface FilmAssembleResult { asset: EditorMediaAsset; downloadUrl: string; sceneCount: number; transition?: string; transitionDuration?: number }
 interface DeapiAudioModel { slug: string; name: string; description: string; supportsAudioToVideo: boolean }
 interface AudioSyncResult { jobId: string; videoUrl: string; duration: number; frameCount: number }
+type EditorTool = 'media' | 'text' | 'audio' | 'captions' | 'ai';
+interface EditorCapabilities { aiDirectorAvailable: boolean; aiProviders: string[]; transcriptionAvailable: boolean; audioSyncModels: number }
+const TOOL_ITEMS: { id: EditorTool; label: string; icon: React.ElementType }[] = [
+  { id: 'media', label: 'Media', icon: ImageIcon },
+  { id: 'text', label: 'Text', icon: Type },
+  { id: 'audio', label: 'Audio', icon: AudioLines },
+  { id: 'captions', label: 'Captions', icon: Volume2 },
+  { id: 'ai', label: 'AI tools', icon: Sparkles },
+];
 const formatTime = (seconds: number) => {
   const value = Math.max(0, Number(seconds) || 0);
   return `${Math.floor(value / 60)}:${String(Math.floor(value % 60)).padStart(2, '0')}`;
@@ -66,16 +76,40 @@ export const VideoEditor: React.FC<Props> = ({ video, onSave }) => {
   const [audioSyncStatus, setAudioSyncStatus] = useState('');
   const [audioSyncError, setAudioSyncError] = useState('');
   const [audioSyncResult, setAudioSyncResult] = useState<AudioSyncResult | null>(null);
+  const [activeTool, setActiveTool] = useState<EditorTool>('media');
+  const [selectedLayerId, setSelectedLayerId] = useState<string | null>(null);
+  const [capabilities, setCapabilities] = useState<EditorCapabilities | null>(null);
+  const [capabilityError, setCapabilityError] = useState('');
+  const [timelineZoom, setTimelineZoom] = useState(26);
+  const [newText, setNewText] = useState('Your title');
+  const previewRef = useRef<HTMLVideoElement | null>(null);
+  const pendingPreviewSeek = useRef<number | null>(null);
 
   useEffect(() => { setScenes(video.scenes || []); setSelected(0); setUndoStack([]); setRedoStack([]); }, [video.id]);
   const totalSeconds = useMemo(() => scenes.reduce((sum, scene) => sum + Math.max(0, Number(scene.duration) || 0), 0), [scenes]);
   const current = scenes[selected];
+  const sceneStarts = useMemo(() => {
+    let cursor = 0;
+    return scenes.map((scene) => {
+      const start = cursor;
+      const duration = Math.max(0.5, Number(scene.duration) || 1);
+      cursor += duration;
+      return { start, duration };
+    });
+  }, [scenes]);
+  const timelineWidth = Math.max(760, totalSeconds * timelineZoom);
+  const selectedLayer = current?.mediaLayers?.find((layer) => layer.id === selectedLayerId);
+  const selectedTextOverlay = current?.textOverlays?.find((layer) => layer.id === selectedLayerId);
   const mainLayer = current?.mediaLayers?.find((layer) => layer.track === 'main');
   const overlayLayers = current?.mediaLayers?.filter((layer) => layer.track === 'overlay') || [];
   const audioLayers = current?.mediaLayers?.filter((layer) => layer.track === 'audio') || [];
   const activeCaption = current?.captions?.find((cue) => previewTime >= cue.start && previewTime <= cue.end);
 
-  useEffect(() => { setPreviewTime(0); }, [current?.id, mainLayer?.sourceIn]);
+  useEffect(() => {
+    const requested = pendingPreviewSeek.current;
+    pendingPreviewSeek.current = null;
+    setPreviewTime(requested == null ? 0 : requested);
+  }, [current?.id, mainLayer?.sourceIn]);
 
   useEffect(() => {
     let active = true;
@@ -84,6 +118,14 @@ export const VideoEditor: React.FC<Props> = ({ video, onSave }) => {
       .then((result) => { if (active) setMediaAssets(result.assets || []); })
       .catch((error) => { if (active) setMediaError(error instanceof Error ? error.message : 'Could not load your private media library.'); })
       .finally(() => { if (active) setMediaLoading(false); });
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    api.get<EditorCapabilities>('/video/editor/capabilities')
+      .then((result) => { if (active) setCapabilities(result); })
+      .catch((error) => { if (active) setCapabilityError(error instanceof Error ? error.message : 'AI capability status could not be loaded.'); });
     return () => { active = false; };
   }, []);
 
@@ -225,28 +267,35 @@ export const VideoEditor: React.FC<Props> = ({ video, onSave }) => {
   };
 
   const applyMediaMatches = () => {
-    if (!current || !mediaMatchPlan?.matches?.length) return;
+    if (!mediaMatchPlan?.matches?.length || !scenes.length) return;
     const stamp = Date.now();
-    const additions: VideoMediaLayer[] = mediaMatchPlan.matches.map((match, index) => ({
-      id: `director-${match.assetId}-${stamp}-${index}`,
-      assetId: match.assetId,
-      name: match.name,
-      contentType: match.contentType,
-      kind: match.kind,
-      track: match.track,
-      startAt: Math.max(0, match.startAt),
-      sourceIn: 0,
-      duration: Math.max(0.5, match.duration),
-      volume: 0.8,
-      fadeIn: 0,
-      fadeOut: 0,
-      opacity: 1,
-      scale: 55,
-      x: 50,
-      y: 50,
-    }));
-    patchCurrent({ mediaLayers: [...(current.mediaLayers || []), ...additions] });
+    const next = scenes.map((scene) => ({ ...scene, mediaLayers: [...(scene.mediaLayers || [])] }));
+    let placementCount = 0;
+    mediaMatchPlan.matches.forEach((match, matchIndex) => {
+      const globalStart = Math.max(0, Number(match.startAt) || 0);
+      const globalEnd = globalStart + Math.max(0.5, Number(match.duration) || 3);
+      sceneStarts.forEach((range, sceneIndex) => {
+        const overlapStart = Math.max(globalStart, range.start);
+        const overlapEnd = Math.min(globalEnd, range.start + range.duration);
+        if (overlapEnd <= overlapStart) return;
+        const layer: VideoMediaLayer = {
+          id: `director-${match.assetId}-${stamp}-${matchIndex}-${sceneIndex}`,
+          assetId: match.assetId, name: match.name, contentType: match.contentType,
+          kind: match.kind, track: match.track, startAt: overlapStart - range.start,
+          sourceIn: overlapStart - globalStart, duration: overlapEnd - overlapStart,
+          volume: 0.8, fadeIn: 0, fadeOut: 0, opacity: 1, scale: 55, x: 50, y: 50,
+        };
+        next[sceneIndex].mediaLayers!.push(layer);
+        placementCount += 1;
+      });
+    });
+    if (!placementCount) {
+      setMediaMatchError('The matched moments fall outside the current timeline. Transcribe the video you are editing or extend the timeline, then try again.');
+      return;
+    }
+    commit(next);
     setMediaMatchPlan(null);
+    setMediaMatchError(`Applied ${placementCount} supporting-media placement(s) across the timeline.`);
   };
 
   const renderCurrentScene = async () => {
@@ -354,9 +403,19 @@ export const VideoEditor: React.FC<Props> = ({ video, onSave }) => {
     const next = scenes.map((scene, index) => {
       const edit = directorPlan.edits.find((item) => item.scene === index + 1);
       if (!edit) return scene;
-      return { ...scene, visualCue: edit.visualDirection ? [scene.visualCue, edit.visualDirection].filter(Boolean).join('\n• ') : scene.visualCue, onScreenText: edit.overlayText || scene.onScreenText, soundEffectCue: edit.soundEffect || scene.soundEffectCue, beat: scene.beat || edit.reason };
+      const textOverlays = [...(scene.textOverlays || [])];
+      if (edit.overlayText?.trim()) textOverlays.push({
+        id: `ai-title-${scene.id}-${Date.now()}-${index}`,
+        start: 0, end: Math.min(5, Number(scene.duration) || 5),
+        text: edit.overlayText.trim().slice(0, 180), y: 'h*0.78',
+        fontSize: 44, color: '#ffffff', boxColor: '#101827', boxBorderWidth: 12,
+        fadeIn: 0.2, fadeOut: 0.2, weight: 'bold',
+      });
+      return { ...scene,
+        visualCue: edit.visualDirection ? [scene.visualCue, edit.visualDirection].filter(Boolean).join('\n• ') : scene.visualCue,
+        textOverlays, soundEffectCue: edit.soundEffect || scene.soundEffectCue, beat: scene.beat || edit.reason };
     });
-    commit(next); setDirectorPlan(null); setDirectorInstruction('');
+    commit(next); setDirectorPlan(null); setDirectorInstruction(''); setActiveTool('text');
   };
   const patchCurrent = (patch: Partial<VideoScene>) => {
     if (current) commit(scenes.map((scene, index) => index === selected ? { ...scene, ...patch } : scene));
@@ -408,6 +467,68 @@ export const VideoEditor: React.FC<Props> = ({ video, onSave }) => {
     onSave({ ...video, scenes: ordered, estimatedDuration: Math.round(ordered.reduce((sum, scene) => sum + (Number(scene.duration) || 0), 0)) });
     setSaved(true);
   };
+
+  const seekGlobalTime = (seconds: number) => {
+    const target = Math.max(0, Math.min(Math.max(0, totalSeconds - 0.01), Number(seconds) || 0));
+    let index = sceneStarts.findIndex((range) => target >= range.start && target < range.start + range.duration);
+    if (index < 0) index = Math.max(0, scenes.length - 1);
+    const local = Math.max(0, target - (sceneStarts[index]?.start || 0));
+    if (index !== selected) pendingPreviewSeek.current = local;
+    setSelected(index);
+    setPreviewTime(local);
+    setGlobalPlayhead(target);
+    if (index === selected && previewRef.current) {
+      const sourceIn = Math.max(0, Number(scenes[index]?.mediaLayers?.find((layer) => layer.track === 'main')?.sourceIn ?? scenes[index]?.sourceIn) || 0);
+      try { previewRef.current.currentTime = sourceIn + local; } catch { /* wait for media metadata */ }
+    }
+  };
+
+  const addTextOverlay = () => {
+    if (!current) return;
+    const start = Math.max(0, Math.min(previewTime, Math.max(0, Number(current.duration) - 0.5)));
+    const layer = {
+      id: `text-${current.id}-${Date.now()}`, start,
+      end: Math.min(Number(current.duration) || 5, Math.max(start + 2.5, 2.5)),
+      text: newText.trim() || 'Your title', y: 'h*0.78',
+      fontSize: 44, color: '#ffffff', boxColor: '#101827', boxBorderWidth: 12,
+      fadeIn: 0.15, fadeOut: 0.15, weight: 'bold' as const,
+    };
+    patchCurrent({ textOverlays: [...(current.textOverlays || []), layer] });
+    setSelectedLayerId(layer.id);
+  };
+
+  const patchTextOverlay = (id: string, patch: Partial<NonNullable<VideoScene['textOverlays']>[number]>) => {
+    if (!current) return;
+    patchCurrent({ textOverlays: (current.textOverlays || []).map((layer) => layer.id === id ? { ...layer, ...patch } : layer) });
+  };
+
+  const splitCurrentScene = () => {
+    if (!current) return;
+    const splitAt = previewTime;
+    const split = splitVideoScene(current, splitAt);
+    if (!split) {
+      setRenderError('Move the playhead away from the clip edges before splitting. Both resulting clips must be at least half a second.');
+      return;
+    }
+    const next = [...scenes];
+    next.splice(selected, 1, split.first, split.second);
+    commit(next);
+    setSelected(selected + 1);
+    pendingPreviewSeek.current = 0;
+    setPreviewTime(0);
+    setGlobalPlayhead((sceneStarts[selected]?.start || 0) + splitAt);
+    setSelectedLayerId(null);
+    setRenderError('');
+  };
+
+  const selectedTrackBlock = (sceneIndex: number, localTime: number, layerId?: string) => {
+    setSelectedLayerId(layerId || null);
+    seekGlobalTime((sceneStarts[sceneIndex]?.start || 0) + localTime);
+  };
+
+  const renderClipUrl = mainLayer?.kind === 'video' ? (mediaUrls[mainLayer.assetId] || current?.clipUrl || '') : (current?.clipUrl || '');
+  const previewSourceIn = Math.max(0, Number(mainLayer?.sourceIn ?? current?.sourceIn) || 0);
+  const selectedVisualOverlays = overlayLayers.filter((layer) => previewTime >= layer.startAt && previewTime <= layer.startAt + layer.duration);
 
   if (!scenes.length) return null;
   return (
