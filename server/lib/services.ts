@@ -564,13 +564,20 @@ async function youtubePublicTrendEvidence(niche: string): Promise<{ text: string
 // Independent multi-query search for niche intelligence; does not require Gemini.
 export async function webTrendResearch(niche: string, customQuery: string): Promise<{ text: string; sources: { title: string; url: string; domain: string; faviconUrl: string; imageUrl?: string; snippet: string; publishedAt?: string; sourceType: 'video' | 'article' | 'news' | 'website'; platform?: string }[]; provider: string }> {
   const focus = customQuery ? ' ' + customQuery : '';
+  // Search several independent angles so the radar discovers stories, conversations and formats,
+  // not just pages that happen to contain the word "trend". The 30-day window is for discovery;
+  // the formatter must distinguish genuinely accelerating signals from background context.
   const queries = [
-    '"' + niche + '" trends launches news published in the last 14 days' + focus,
-    '"' + niche + '" top YouTube creators and videos published in the last 14 days' + focus,
-    '"' + niche + '" TikTok videos and creators trending in the last 14 days' + focus,
-    '"' + niche + '" Instagram Reels published in the last 14 days' + focus,
-    '"' + niche + '" creator formats and audience conversations from the last 14 days' + focus,
-    '"' + niche + '" recent audience questions, hashtags and market updates published in the last 14 days' + focus,
+    '"' + niche + '" breaking news developments stories launches this month' + focus,
+    '"' + niche + '" latest trends viral topics emerging conversations this month' + focus,
+    '"' + niche + '" YouTube Shorts popular recent videos creators this month' + focus,
+    '"' + niche + '" TikTok viral videos sounds formats creators this month' + focus,
+    '"' + niche + '" Instagram Reels trending formats creators this month' + focus,
+    '"' + niche + '" Reddit discussions questions problems opinions this month' + focus,
+    '"' + niche + '" X Twitter discussions reactions news this month' + focus,
+    '"' + niche + '" product launches controversies events case studies this month' + focus,
+    '"' + niche + '" audience questions search interest community discussions this month' + focus,
+    '"' + niche + '" hashtags keywords creator formats content ideas this month' + focus,
   ];
   const unique = new Map<string, any>();
   const braveKey = (process.env.BRAVE_SEARCH_API_KEY || '').trim();
@@ -605,7 +612,7 @@ export async function webTrendResearch(niche: string, customQuery: string): Prom
       if (oldItem) oldItem.content = (oldItem.content + '\n' + x.content).slice(0, 10000);
       else unique.set(x.url, x);
     }
-    const items = [...unique.values()].filter((x) => isRecentTrendSource(x.date)).slice(0, 36);
+    const items = [...unique.values()].filter((x) => isRecentTrendSource(x.date)).slice(0, 50);
     if (items.length < 4) throw new HttpError(424, `Live search returned only ${items.length} date-verified sources published in the last 14 days. Older and undated pages were excluded; try a broader niche.`, 'TREND_FRESHNESS');
     searchText = items.map((x, i) => '[SOURCE ' + (i + 1) + '] ' + x.title + '\nURL: ' + x.url + '\nPublished/updated: ' + normalizeTrendPublishedAt(x.date) + '\nSearch query: ' + x.query + '\nExtracted evidence: ' + x.content).join('\n\n');
     provider = 'brave-llm-context';
@@ -651,7 +658,7 @@ export async function webTrendResearch(niche: string, customQuery: string): Prom
     const sourceType: 'video' | 'news' | 'article' = isYouTube && videoId ? 'video' : /news|bbc|cnn|reuters|guardian|forbes|techcrunch|wired|nytimes/i.test(domain) ? 'news' : 'article';
     return { title: x.title || x.url, url: x.url, domain, faviconUrl: String(x.faviconUrl || '').startsWith('http') ? String(x.faviconUrl) : 'https://www.google.com/s2/favicons?domain=' + encodeURIComponent(domain) + '&sz=64', imageUrl, snippet: String(x.content || '').slice(0, 360), publishedAt: normalizeTrendPublishedAt(x.date), sourceType, platform };
   });
-  const text = 'Search provider: ' + provider + '. Research date: ' + new Date().toISOString() + '. Strict freshness window: 14 days. Older and undated pages were excluded. Web sources: ' + sources.length + '.\n\n' + searchText + '\n\n' + youtubeText;
+  const text = 'Search provider: ' + provider + '. Research date: ' + new Date().toISOString() + '. Discovery window: 30 days. Prioritise signals with multiple independent sources and the newest evidence; distinguish current momentum from background context. Older and undated pages were excluded. Web sources: ' + sources.length + '.\n\n' + searchText + '\n\n' + youtubeText;
   return { text, sources, provider: provider + ((process.env.YOUTUBE_API_KEY || process.env.YOUTUBE_DATA_API_KEY) ? '+youtube-data-api' : '') };
 }
 export async function geminiSearch(researchPrompt: string): Promise<{ text: string; sources: { title: string; url: string }[]; model: string }> {

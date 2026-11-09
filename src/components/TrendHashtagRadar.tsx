@@ -62,7 +62,7 @@ import {
 } from 'lucide-react';
 
 /** YouTube exposes a stable public thumbnail URL for verified public video IDs. */
-const TREND_WINDOW_MS = 14 * 24 * 60 * 60 * 1000;
+const TREND_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
 const isFreshPublishedAt = (value?: string) => {
   const timestamp = Date.parse(value || '');
   if (!Number.isFinite(timestamp)) return false;
@@ -239,10 +239,10 @@ export const TrendHashtagRadar: React.FC<TrendHashtagRadarProps> = ({
                 AI Niche Trend & Viral Hashtag Radar
               </h1>
               <span className="text-xs text-slate-500">·</span>
-              <span className="text-xs text-emerald-400 font-mono">14-Day Source-Verified Feed</span>
+              <span className="text-xs text-emerald-400 font-mono">30-Day Multi-Source Research</span>
             </div>
             <p className="text-xs text-slate-400 max-w-2xl">
-              Researches niche trends, creators and public videos using sources dated within the last 14 days. Older and undated pages are excluded; public views are labelled by source and private impressions are never guessed.
+              Researches niche trends, creators and public videos using sources dated within the last 30 days. Older and undated pages are excluded; public views are labelled by source and private impressions are never guessed.
             </p>
           </div>
 
@@ -372,7 +372,7 @@ export const TrendHashtagRadar: React.FC<TrendHashtagRadarProps> = ({
       {activeTab === 'topics' && activeNiche.trendingTopics.length > 0 && !hasFreshResearch && (
         <div className="rounded-xl border border-amber-500/25 bg-amber-500/5 p-4">
           <p className="text-xs font-semibold text-amber-200">Saved trend research has expired</p>
-          <p className="mt-1 text-xs leading-5 text-slate-400">These older cards are hidden. Refresh the research to see topics supported by sources dated within the last 14 days.</p>
+          <p className="mt-1 text-xs leading-5 text-slate-400">These older cards are hidden. Refresh the research to see topics supported by sources dated within the last 30 days.</p>
           <button type="button" onClick={() => void handleRunAnalysis()} disabled={isAnalyzing} className="mt-3 rounded-lg bg-indigo-600 px-3 py-2 text-[11px] font-semibold text-white disabled:opacity-50">{isAnalyzing ? 'Refreshing…' : 'Refresh current trends'}</button>
         </div>
       )}
@@ -397,7 +397,7 @@ export const TrendHashtagRadar: React.FC<TrendHashtagRadarProps> = ({
                   <h2 className="text-sm font-bold text-white sm:text-base">Live Web Research</h2>
                   <span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-emerald-300">Live sources</span>
                 </div>
-                <p className="mt-0.5 text-[11px] text-slate-400">Real pages and public videos dated within the last 14 days · {recentResearchSources.length} verified sources</p>
+                <p className="mt-0.5 text-[11px] text-slate-400">Real pages and public videos dated within the last 30 days · {recentResearchSources.length} verified sources</p>
               </div>
             </div>
             <div className="flex items-center gap-2 text-[10px] text-slate-400">
@@ -454,7 +454,7 @@ export const TrendHashtagRadar: React.FC<TrendHashtagRadarProps> = ({
       {activeTab === 'creators' && !hasFreshResearch && (
         <div className="rounded-xl border border-amber-500/25 bg-amber-500/5 p-4">
           <p className="text-xs font-semibold text-amber-200">Creator research needs a refresh</p>
-          <p className="mt-1 text-xs leading-5 text-slate-400">Saved creator cards without at least four current supporting sources are hidden. Refresh research to see public creator examples dated within the last 14 days.</p>
+          <p className="mt-1 text-xs leading-5 text-slate-400">Saved creator cards without at least four current supporting sources are hidden. Refresh research to see public creator examples dated within the last 30 days.</p>
           <button type="button" onClick={() => void handleRunAnalysis()} disabled={isAnalyzing} className="mt-3 rounded-lg bg-indigo-600 px-3 py-2 text-[11px] font-semibold text-white disabled:opacity-50">{isAnalyzing ? 'Refreshing…' : 'Refresh creator research'}</button>
         </div>
       )}
@@ -467,7 +467,7 @@ export const TrendHashtagRadar: React.FC<TrendHashtagRadarProps> = ({
           </div>
           {creatorResults.length === 0 ? (
             <div className="bg-slate-900/60 border border-dashed border-slate-700 rounded-xl p-6 text-center text-sm text-slate-300">
-              {isAnalyzing ? 'Finding creators and their recent high-performing videos...' : 'No creator examples with a verified publish date in the last 14 days were found. Refresh the research or try a broader niche.'}
+              {isAnalyzing ? 'Finding creators and their recent high-performing videos...' : 'No creator examples with a verified publish date in the last 30 days were found. Refresh the research or try a broader niche.'}
             </div>
           ) : (
             <>
@@ -627,7 +627,7 @@ export const TrendHashtagRadar: React.FC<TrendHashtagRadarProps> = ({
       {activeTab === 'hashtags' && !hasFreshResearch && (
         <div className="rounded-xl border border-amber-500/25 bg-amber-500/5 p-4">
           <p className="text-xs font-semibold text-amber-200">Hashtag radar needs fresh evidence</p>
-          <p className="mt-1 text-xs leading-5 text-slate-400">Older saved velocity and volume estimates are hidden until they can be rebuilt from sources dated within the last 14 days.</p>
+          <p className="mt-1 text-xs leading-5 text-slate-400">Older saved velocity and volume estimates are hidden until they can be rebuilt from sources dated within the last 30 days.</p>
           <button type="button" onClick={() => void handleRunAnalysis()} disabled={isAnalyzing} className="mt-3 rounded-lg bg-indigo-600 px-3 py-2 text-[11px] font-semibold text-white disabled:opacity-50">{isAnalyzing ? 'Refreshing…' : 'Refresh current trend data'}</button>
         </div>
       )}
