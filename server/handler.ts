@@ -7,13 +7,13 @@ import {
 } from './lib/core.js';
 import { sql, ensureSchema } from './lib/db.js';
 import { PLANS, TIERS, Tier, Cycle, planId, tierFromPlanId, priceFor, BILLING_CURRENCY, TRIAL, TOPUPS, trialPrice } from './lib/plans.js';
-import { mail, flw, verifyFlwSignature, lookupEnv, geminiJson, geminiRaw, geminiFormat, webTrendResearch, aiWriterStatus, testAiWriters, falSubmit, falContinueSubmit, falReferenceVideoSubmit, falKlingReferenceSubmit, falGenerateSceneKeyframe, falGenerateCharacterReference, falGenerateLocationPlate, falEditLocationPlate, falStatus, falImageVideoSubmit, falGenerateBrandImages, deapiSubmit, deapiStatus, deapiAnimate, deapiAudioSync, deapiVideoModels, RateLimited, synthesize } from './lib/services.js';
+import { mail, flw, verifyFlwSignature, lookupEnv, geminiJson, geminiRaw, geminiFormat, webTrendResearch, aiWriterStatus, testAiWriters, falSubmit, falContinueSubmit, falReferenceVideoSubmit, falKlingReferenceSubmit, falGenerateSceneKeyframe, falGenerateCharacterReference, falGenerateLocationPlate, falEditLocationPlate, falStatus, falImageVideoSubmit, falGenerateBrandImages, deapiSubmit, deapiStatus, deapiAnimate, deapiAudioSync, deapiVideoModels, geminiVisualReview, RateLimited, synthesize } from './lib/services.js';
 import { trendsFormatPrompt, scriptPrompt, adConceptPrompt, abPrompt, competitorPrompt, outrankPrompt, parseStoryBrief, type SeriesContinuity, type StoryBriefInput, storyBeats, STORY_MOODS, CAMERA_PROFILES, GENRES, INTENSITIES, ENDINGS, PRESENTATIONS, CASTS, TROPES, styleBlock, STORY_LIMITS, planScenes, castMinimum, storyboardPrompt, outlinePrompt, chunkPrompt, adaptPrompt, PART_SECONDS, SCENES_PER_WRITER_CALL, MAX_WORDS_PER_CLIP } from './lib/prompts.js';
 import { assembleParts, toNativeMultiShotPrompt, addDeapiCastNotes, buildCommercialShotPrompts } from './lib/assemble.js';
 import { refineScene, shownInstruction, proseToUnits, thoughtToVisual, type SpokenLine } from './lib/screenplay.js';
 import { renderComposition } from './lib/compositor.js';
 import { buildSceneKeyframePrompt, chooseSceneKeyframeReference } from './lib/scene-keyframe.js';
-import { mergeClips, lastFrameJpeg } from './lib/merge.js';
+import { mergeClips, lastFrameJpeg, sampleVideoFrames } from './lib/merge.js';
 import { parseVideoProvider, shouldAttemptKlingMultiShot, shouldFallbackToDeapi, requiresKlingMultiShot } from './lib/video-provider-policy.js';
 import { PROVIDERS, PLATFORM_IDS, Platform, isPlatform, isConfigured, redirectUri, socialPkce, socialAuthorizeUrl, exchangeSocialCode, saveSocialConnection, listSocialAccounts, removeSocialConnection, publishToPlatform, socialMetrics } from './lib/social.js';
 import { zernioConfigured, zernioConnectUrl, zernioSyncAccounts, zernioListAccounts, zernioDisconnect, zernioPublish, zernioHealth, zernioDeleteCustomer } from './lib/zernio.js';
@@ -2025,7 +2025,7 @@ const CHECK_EVERY_MS = 20_000;
 const MAX_STARTS_PER_STEP = 4;
 
 /** One 10 second clip of a scene, as saved in episodes.render_jobs. */
-interface PartEntry { tries: number; jobId?: string; url?: string; error?: string; checkAt?: number; retryAt?: number; keyframeUrl?: string; keyframePathname?: string; keyframeGeneratedAt?: string; keyframeReference?: string; continuityWarning?: string }
+interface PartEntry { tries: number; jobId?: string; url?: string; error?: string; checkAt?: number; retryAt?: number; keyframeUrl?: string; keyframePathname?: string; keyframeGeneratedAt?: string; keyframeReference?: string; continuityWarning?: string; visualReviewedJobId?: string; visualReviewStatus?: 'passed' | 'rejected' | 'unavailable'; visualReview?: { passed: boolean; severity: string; issues: string[]; summary: string } }
 /** One scene: a 10 second scene has one clip, a 20 second scene has two that follow each other. */
 interface RenderEntry { index: number; parts: PartEntry[] }
 
@@ -2417,6 +2417,60 @@ async function stageRender(row: any, user: ReturnType<typeof toUser>, ep: any): 
     try {
       const st = await refreshJob(j);
       if (st.state === 'done' && st.videoUrl) {
+        // Review three sampled frames before accepting a generated shot. A clear identity,
+        // hand-anatomy or prop-continuity defect gets a bounded new-seed retry.
+        if (p.visualReviewedJobId !== p.jobId) {
+          try {
+            const sampled = await sampleVideoFrames(st.videoUrl, 3);
+            const reviewReferences: { name: string; bytes: Buffer; mimeType: string }[] = [];
+            let referenceUrl = /^https:\/\//i.test(String(p.keyframeUrl || '')) ? String(p.keyframeUrl) : '';
+            if (!referenceUrl && p.keyframePathname && process.env.BLOB_READ_WRITE_TOKEN) {
+              const referenceToken = await issueSignedToken({ operations: ['get'] });
+              const signedReference = await presignUrl(referenceToken, { pathname: String(p.keyframePathname), operation: 'get', access: 'private', validUntil: Date.now() + 10 * 60 * 1000 });
+              referenceUrl = signedReference.presignedUrl;
+            }
+            if (referenceUrl) {
+              const referenceResponse = await fetch(referenceUrl, { signal: AbortSignal.timeout(8_000) });
+              if (referenceResponse.ok) {
+                const referenceBytes = Buffer.from(await referenceResponse.arrayBuffer());
+                if (referenceBytes.length > 0 && referenceBytes.length <= 6 * 1024 * 1024) reviewReferences.push({ name: 'Saved scene opening keyframe', bytes: referenceBytes, mimeType: 'image/jpeg' });
+              }
+            }
+            const scene = scenes[en.index] || {};
+            const cast = Array.isArray(ep.storyboard_json?.characters) ? ep.storyboard_json.characters : [];
+            const sceneDescription = [
+              scene.visualPrompt || '',
+              scene.location ? `Location: ${scene.location}` : '',
+              (scene.lines || []).map((line: any) => `Character ${line.speaker}: ${line.text}`).join('; '),
+              cast.map((character: any) => `${character.name}: ${character.description || ''}`).join('; '),
+            ].filter(Boolean).join('\n').slice(0, 2200);
+            const review = await geminiVisualReview(sceneDescription, sampled, reviewReferences);
+            p.visualReviewedJobId = String(p.jobId || '');
+            if (review) {
+              p.visualReviewStatus = review.passed ? 'passed' : 'rejected';
+              p.visualReview = { passed: review.passed, severity: review.severity, issues: review.issues, summary: review.summary };
+              if (!review.passed && review.severity === 'major') {
+                const reason = review.summary || review.issues[0] || 'Major visual continuity defect detected.';
+                delete p.jobId;
+                delete p.url;
+                p.error = `Visual QA rejected this shot: ${reason}`.slice(0, 300);
+                p.retryAt = Date.now() + 10_000;
+                console.warn('Visual QA rejected generated scene; retrying with a new seed:', { episodeId: ep.id, scene: en.index + 1, part: k + 1, attempt: p.tries, reason });
+                if (p.tries >= MAX_PART_TRIES) p.retryAt = undefined;
+                await save();
+                continue;
+              }
+            } else {
+              p.visualReviewStatus = 'unavailable';
+              p.visualReview = { passed: true, severity: 'minor', issues: [], summary: 'Vision review unavailable; shot was not blocked.' };
+            }
+          } catch (error: any) {
+            p.visualReviewedJobId = String(p.jobId || '');
+            p.visualReviewStatus = 'unavailable';
+            p.visualReview = { passed: true, severity: 'minor', issues: [], summary: 'Visual inspection could not run; shot was not blocked.' };
+            console.warn('Visual QA unavailable for generated scene:', error?.message || error);
+          }
+        }
         p.url = st.videoUrl;
         delete p.error;
         // Archive immediately while the provider result URL is still valid; failure to archive
