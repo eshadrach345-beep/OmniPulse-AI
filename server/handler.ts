@@ -7,11 +7,12 @@ import {
 } from './lib/core.js';
 import { sql, ensureSchema } from './lib/db.js';
 import { PLANS, TIERS, Tier, Cycle, planId, tierFromPlanId, priceFor, BILLING_CURRENCY, TRIAL, TOPUPS, trialPrice } from './lib/plans.js';
-import { mail, flw, verifyFlwSignature, lookupEnv, geminiJson, geminiRaw, geminiFormat, webTrendResearch, aiWriterStatus, testAiWriters, falSubmit, falContinueSubmit, falReferenceVideoSubmit, falKlingReferenceSubmit, falGenerateCharacterReference, falGenerateLocationPlate, falEditLocationPlate, falStatus, falImageVideoSubmit, falGenerateBrandImages, deapiSubmit, deapiStatus, deapiAnimate, deapiAudioSync, deapiVideoModels, RateLimited, synthesize } from './lib/services.js';
+import { mail, flw, verifyFlwSignature, lookupEnv, geminiJson, geminiRaw, geminiFormat, webTrendResearch, aiWriterStatus, testAiWriters, falSubmit, falContinueSubmit, falReferenceVideoSubmit, falKlingReferenceSubmit, falGenerateSceneKeyframe, falGenerateCharacterReference, falGenerateLocationPlate, falEditLocationPlate, falStatus, falImageVideoSubmit, falGenerateBrandImages, deapiSubmit, deapiStatus, deapiAnimate, deapiAudioSync, deapiVideoModels, RateLimited, synthesize } from './lib/services.js';
 import { trendsFormatPrompt, scriptPrompt, adConceptPrompt, abPrompt, competitorPrompt, outrankPrompt, parseStoryBrief, type SeriesContinuity, type StoryBriefInput, storyBeats, STORY_MOODS, CAMERA_PROFILES, GENRES, INTENSITIES, ENDINGS, PRESENTATIONS, CASTS, TROPES, styleBlock, STORY_LIMITS, planScenes, castMinimum, storyboardPrompt, outlinePrompt, chunkPrompt, adaptPrompt, PART_SECONDS, SCENES_PER_WRITER_CALL, MAX_WORDS_PER_CLIP } from './lib/prompts.js';
 import { assembleParts, toNativeMultiShotPrompt, addDeapiCastNotes, buildCommercialShotPrompts } from './lib/assemble.js';
 import { refineScene, shownInstruction, proseToUnits, thoughtToVisual, type SpokenLine } from './lib/screenplay.js';
 import { renderComposition } from './lib/compositor.js';
+import { buildSceneKeyframePrompt, chooseSceneKeyframeReference } from './lib/scene-keyframe.js';
 import { mergeClips, lastFrameJpeg } from './lib/merge.js';
 import { parseVideoProvider, shouldAttemptKlingMultiShot, shouldFallbackToDeapi, requiresKlingMultiShot } from './lib/video-provider-policy.js';
 import { PROVIDERS, PLATFORM_IDS, Platform, isPlatform, isConfigured, redirectUri, socialPkce, socialAuthorizeUrl, exchangeSocialCode, saveSocialConnection, listSocialAccounts, removeSocialConnection, publishToPlatform, socialMetrics } from './lib/social.js';
@@ -2375,7 +2376,7 @@ async function stageRender(row: any, user: ReturnType<typeof toUser>, ep: any): 
   const projectRow = ((await sql()`SELECT reference_assets FROM projects WHERE id = ${ep.project_id}`) as any[])[0];
   const projectReferences = projectRow?.reference_assets || {};
   const savedBrandKit = ep.brief?.brandKit || projectReferences.brandKit || {};
-  const brandReferenceImages: { name: string; url: string }[] = [];
+  const brandReferenceImages: { name: string; url: string; kind?: string }[] = [];
   const brandReferenceIds = Array.isArray(savedBrandKit.referenceAssetIds) ? savedBrandKit.referenceAssetIds.slice(0, 4) : [];
   if (brandReferenceIds.length) {
     const mediaToken = await issueSignedToken({ operations: ['get'] });
@@ -2384,7 +2385,7 @@ async function stageRender(row: any, user: ReturnType<typeof toUser>, ep: any): 
       const asset = mediaRows[0] as any;
       if (!asset || !String(asset.content_type || '').toLowerCase().startsWith('image/')) continue;
       const signed = await presignUrl(mediaToken, { pathname: String(asset.pathname), operation: 'get', access: 'private', validUntil: Date.now() + 10 * 60 * 1000 });
-      brandReferenceImages.push({ name: 'Brand visual reference ' + (index + 1) + ': ' + str(asset.original_name, 70), url: signed.presignedUrl });
+      brandReferenceImages.push({ name: 'Brand visual reference ' + (index + 1) + ': ' + str(asset.original_name, 70), url: signed.presignedUrl, kind: 'product' });
     }
   }
   const openingReference = Number(projectReferences.openingFrameForPart) === Number(ep.part_number) && /^https:\/\//i.test(String(projectReferences.openingFrameUrl || ''))
@@ -2451,7 +2452,7 @@ async function stageRender(row: any, user: ReturnType<typeof toUser>, ep: any): 
     const deapiCommercialOpening = String(ep.brief?.format || '') === 'commercial'
       && (selectedEpisodeProvider === 'deapi' || selectedEpisodeProvider === 'auto')
       ? brandReferenceImages[0]?.url : undefined;
-    const startImageUrl = isEpisodeOpening ? (userOpeningFrameUrl || deapiCommercialOpening || openingReference) : undefined;
+    let startImageUrl = isEpisodeOpening ? (userOpeningFrameUrl || deapiCommercialOpening || openingReference) : undefined;
     let userEndingFrame: Buffer | undefined;
     const userEndingFrameId = str(savedBrandKit.endFrameAssetId, 80);
     if (isEpisodeOpening && userEndingFrameId && (selectedEpisodeProvider === 'deapi' || selectedEpisodeProvider === 'auto')) {
@@ -2476,8 +2477,8 @@ async function stageRender(row: any, user: ReturnType<typeof toUser>, ep: any): 
       const sceneText = [visualForMatch, ...(scene.lines || []).map((l: any) => l.speaker)].join(' ').toLowerCase();
       const cast: any[] = Array.isArray(ep.storyboard_json?.characters) ? ep.storyboard_json.characters : [];
       const relevant = cast.filter((c) => c.referenceImageUrl && /^https:\/\//i.test(c.referenceImageUrl) && (sceneText.includes(String(c.name || '').toLowerCase()) || (scene.lines || []).some((l: any) => String(l.speaker || '').toLowerCase() === String(c.name || '').toLowerCase())));
-       const characterRefs = (relevant.length ? relevant : cast.filter((c) => c.referenceImageUrl && /^https:\/\//i.test(c.referenceImageUrl)).slice(0, 2)).slice(0, projectReferences.locationPlateUrl ? 3 : 4).map((c) => ({ name: str(c.name, 30), url: String(c.referenceImageUrl), description: str(c.description, 220) }));
-       const locationRef = /^https:\/\//i.test(String(projectReferences.locationPlateUrl || '')) ? [{ name: 'the permanent location plate (room layout, furniture and props)', url: String(projectReferences.locationPlateUrl) }] : [];
+       const characterRefs = (relevant.length ? relevant : cast.filter((c) => c.referenceImageUrl && /^https:\/\//i.test(c.referenceImageUrl)).slice(0, 2)).slice(0, projectReferences.locationPlateUrl ? 3 : 4).map((c) => ({ name: str(c.name, 30), url: String(c.referenceImageUrl), description: str(c.description, 220), kind: 'character' }));
+       const locationRef = /^https:\/\//i.test(String(projectReferences.locationPlateUrl || '')) ? [{ name: 'the permanent location plate (room layout, furniture and props)', url: String(projectReferences.locationPlateUrl), kind: 'location' }] : [];
        // In a commercial, supplied product/brand references are more important than generated cast portraits.
        // Keep the location plate when present, then reserve the remaining provider slots for the user's actual assets.
        const isCommercial = String(ep.brief?.format || '') === 'commercial';
@@ -2485,6 +2486,59 @@ async function stageRender(row: any, user: ReturnType<typeof toUser>, ep: any): 
        const selected = isCommercial
          ? [...locationRef, ...brandReferenceImages.slice(0, Math.max(0, 4 - locationRef.length))].slice(0, 4)
          : [...locationRef, ...characterRefs, ...brandReferenceImages.slice(0, brandSlots)].slice(0, 4);
+      // DeAPI image-to-video accepts one opening image rather than a bundle of cast references.
+      // Build a scene-specific still from the strongest saved visual reference, then reuse it on retries.
+      if (selectedEpisodeProvider === 'deapi' && !previousUrl && !startImageUrl) {
+        let cachedKeyframeUrl = /^https:\/\//i.test(String(p.keyframeUrl || '')) ? String(p.keyframeUrl) : '';
+        if (!cachedKeyframeUrl && /^https:\/\//i.test(String(p.keyframePathname || '')) === false && lookupEnv('FAL_KEY')) {
+          const keyframeReference = chooseSceneKeyframeReference(selected);
+          if (keyframeReference) {
+            const characterDetails = (relevant.length ? relevant : cast.filter((c) => c.referenceImageUrl && /^https:\/\//i.test(c.referenceImageUrl)).slice(0, 2))
+              .map((c) => ({ name: str(c.name, 30), description: str(c.description, 220) }));
+            const propDetails = (Array.isArray(ep.storyboard_json?.keyProps) ? ep.storyboard_json.keyProps : [])
+              .map((prop: any) => ({ name: str(prop?.name, 60), description: str(prop?.description, 180) }));
+            const keyframePrompt = buildSceneKeyframePrompt({
+              scenePrompt: String(scene.parts[k].prompt || visualForMatch),
+              location: currentLocation,
+              aspect,
+              characters: characterDetails,
+              props: propDetails,
+              referenceKind: keyframeReference.kind === 'character' ? 'character'
+                : keyframeReference.kind === 'location' ? 'location'
+                : keyframeReference.kind === 'product' ? 'product' : 'prop',
+            });
+            const generatedUrl = await falGenerateSceneKeyframe(keyframeReference.url, keyframePrompt, aspect);
+            const imageResponse = await fetch(generatedUrl, { signal: AbortSignal.timeout(20_000) });
+            if (!imageResponse.ok) throw new HttpError(424, 'The generated scene keyframe could not be downloaded.', 'REFERENCE_IMAGE');
+            const imageBytes = Buffer.from(await imageResponse.arrayBuffer());
+            if (!imageBytes.length || imageBytes.length > 15 * 1024 * 1024) throw new HttpError(413, 'The generated scene keyframe is too large.', 'REFERENCE_IMAGE');
+            if (process.env.BLOB_READ_WRITE_TOKEN) {
+              const keyframeBlob = await put(`scene-keyframes/${row.id}/${ep.id}/scene-${en.index + 1}-part-${k + 1}.jpg`,
+                new Blob([new Uint8Array(imageBytes)], { type: 'image/jpeg' }), {
+                  access: 'private', token: process.env.BLOB_READ_WRITE_TOKEN, contentType: 'image/jpeg', addRandomSuffix: false,
+                });
+              p.keyframePathname = keyframeBlob.pathname;
+              const keyframeToken = await issueSignedToken({ operations: ['get'] });
+              const signedKeyframe = await presignUrl(keyframeToken, { pathname: keyframeBlob.pathname, operation: 'get', access: 'private', validUntil: Date.now() + 10 * 60 * 1000 });
+              cachedKeyframeUrl = signedKeyframe.presignedUrl;
+            } else {
+              cachedKeyframeUrl = generatedUrl;
+              p.keyframeUrl = generatedUrl;
+            }
+            p.keyframeGeneratedAt = new Date().toISOString();
+            p.keyframeReference = keyframeReference.name;
+            await save();
+          }
+        } else if (!cachedKeyframeUrl && p.keyframePathname && process.env.BLOB_READ_WRITE_TOKEN) {
+          const keyframeToken = await issueSignedToken({ operations: ['get'] });
+          const signedKeyframe = await presignUrl(keyframeToken, { pathname: String(p.keyframePathname), operation: 'get', access: 'private', validUntil: Date.now() + 10 * 60 * 1000 });
+          cachedKeyframeUrl = signedKeyframe.presignedUrl;
+        }
+        if (cachedKeyframeUrl) startImageUrl = cachedKeyframeUrl;
+        else if (!lookupEnv('FAL_KEY') || !selected.length) {
+          p.continuityWarning = 'No scene keyframe was created: add FAL_KEY and save a character or location reference to lock this DeAPI shot visually.';
+        }
+      }
       const spokenPartLines = Array.isArray(scene.parts[k]?.lines)
         ? scene.parts[k].lines.slice(0, 8).map((line: any) => ({ speaker: str(line?.speaker, 40), text: str(line?.text, 220) })).filter((line: any) => line.text)
         : [];
