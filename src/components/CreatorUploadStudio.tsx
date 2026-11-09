@@ -4,14 +4,14 @@ import { api, ApiError } from '../services/api';
 import { CloudUpload, Film, Image as ImageIcon, Music2, ShieldCheck, RefreshCw, Loader2, CheckCircle2, AlertCircle, HardDrive } from 'lucide-react';
 
 type MediaAsset = { id: string; name: string; contentType: string; size: number; createdAt: string };
-const ACCEPT = 'video/mp4,video/quicktime,video/webm,video/x-matroska,audio/mpeg,audio/mp4,audio/wav,audio/x-wav,image/jpeg,image/png,image/webp';
+const ACCEPT = 'video/mp4,video/quicktime,video/webm,video/x-matroska,audio/mpeg,audio/mp4,audio/wav,audio/x-wav,audio/ogg,audio/flac,audio/x-flac,image/jpeg,image/png,image/webp';
 const inferredMime = (file: File) => {
   const declared = file.type.toLowerCase();
   if (declared && declared !== 'application/octet-stream') return declared;
   const extension = file.name.toLowerCase().split('.').pop() || '';
   const byExtension: Record<string, string> = {
     mp4: 'video/mp4', mov: 'video/quicktime', webm: 'video/webm', mkv: 'video/x-matroska',
-    mp3: 'audio/mpeg', m4a: 'audio/mp4', wav: 'audio/wav',
+    mp3: 'audio/mpeg', m4a: 'audio/mp4', wav: 'audio/wav', ogg: 'audio/ogg', flac: 'audio/flac',
     jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp',
   };
   return byExtension[extension] || declared;
@@ -109,7 +109,7 @@ export const CreatorUploadStudio: React.FC<{ onEditVideo?: (asset: MediaAsset) =
         <div className="space-y-1">
           <p className="text-sm font-semibold text-white">Upload your original media</p>
           <p className="text-xs leading-relaxed text-slate-400">Choose one or several video clips, voice recordings, music files or images. Files upload directly to your private cloud library, not through your phone's local storage or the app server.</p>
-          <p className="text-[10px] text-slate-500">Supported: MP4, MOV, WebM, MKV, MP3, WAV, JPG, PNG and WebP. Per-file limits depend on your subscription.</p>
+          <p className="text-[10px] text-slate-500">Supported: MP4, MOV, WebM, MKV, MP3, WAV, OGG, FLAC, JPG, PNG and WebP. Per-file limits depend on your subscription.</p>
         </div>
         <button type="button" disabled={busy} onClick={() => input.current?.click()} className="inline-flex items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2.5 text-xs font-semibold text-white hover:bg-indigo-500 disabled:opacity-50">
           {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <CloudUpload className="h-4 w-4" />}

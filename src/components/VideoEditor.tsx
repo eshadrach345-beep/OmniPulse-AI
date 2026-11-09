@@ -15,6 +15,8 @@ interface DirectorMediaMatch {
 interface DirectorMediaPlan { summary: string; matches: DirectorMediaMatch[] }
 interface SceneRenderResult { asset: EditorMediaAsset; downloadUrl: string; duration: number; renderedLayers: number; captionsBurnedIn: boolean }
 interface FilmAssembleResult { asset: EditorMediaAsset; downloadUrl: string; sceneCount: number; transition?: string; transitionDuration?: number }
+interface DeapiAudioModel { slug: string; name: string; description: string; supportsAudioToVideo: boolean }
+interface AudioSyncResult { jobId: string; videoUrl: string; duration: number; frameCount: number }
 const formatTime = (seconds: number) => {
   const value = Math.max(0, Number(seconds) || 0);
   return `${Math.floor(value / 60)}:${String(Math.floor(value % 60)).padStart(2, '0')}`;
@@ -53,6 +55,17 @@ export const VideoEditor: React.FC<Props> = ({ video, onSave }) => {
   const [filmTransition, setFilmTransition] = useState<'cut' | 'fade' | 'wipeleft' | 'slideleft' | 'circleopen'>('cut');
   const [filmTransitionDuration, setFilmTransitionDuration] = useState(0.45);
   const [directorError, setDirectorError] = useState('');
+  const [audioSyncModels, setAudioSyncModels] = useState<DeapiAudioModel[]>([]);
+  const [audioSyncModel, setAudioSyncModel] = useState('');
+  const [audioSyncAudioId, setAudioSyncAudioId] = useState('');
+  const [audioSyncImageId, setAudioSyncImageId] = useState('');
+  const [audioSyncAudioUrl, setAudioSyncAudioUrl] = useState('');
+  const [audioSyncDuration, setAudioSyncDuration] = useState(0);
+  const [audioSyncPrompt, setAudioSyncPrompt] = useState('A natural, expressive on-camera performance with mouth movements precisely synchronized to the uploaded audio. The speaker maintains warm eye contact, natural blinks and subtle eyebrow and head movement between phrases. Keep the camera steady in a medium close-up and preserve the speaker identity from the optional reference image.');
+  const [audioSyncBusy, setAudioSyncBusy] = useState(false);
+  const [audioSyncStatus, setAudioSyncStatus] = useState('');
+  const [audioSyncError, setAudioSyncError] = useState('');
+  const [audioSyncResult, setAudioSyncResult] = useState<AudioSyncResult | null>(null);
 
   useEffect(() => { setScenes(video.scenes || []); setSelected(0); setUndoStack([]); setRedoStack([]); }, [video.id]);
   const totalSeconds = useMemo(() => scenes.reduce((sum, scene) => sum + Math.max(0, Number(scene.duration) || 0), 0), [scenes]);
@@ -73,6 +86,30 @@ export const VideoEditor: React.FC<Props> = ({ video, onSave }) => {
       .finally(() => { if (active) setMediaLoading(false); });
     return () => { active = false; };
   }, []);
+
+  useEffect(() => {
+    let active = true;
+    api.get<{ models: DeapiAudioModel[] }>('/video/models')
+      .then((result) => {
+        if (!active) return;
+        const compatible = (result.models || []).filter((model) => model.supportsAudioToVideo);
+        setAudioSyncModels(compatible);
+        setAudioSyncModel((currentModel) => compatible.some((model) => model.slug === currentModel) ? currentModel : compatible[0]?.slug || '');
+      })
+      .catch((error) => { if (active) setAudioSyncError(error instanceof Error ? error.message : 'Could not load DeAPI audio-sync models.'); });
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    setAudioSyncAudioUrl('');
+    setAudioSyncDuration(0);
+    if (!audioSyncAudioId) return;
+    api.get<{ url: string }>(`/media/url?id=${encodeURIComponent(audioSyncAudioId)}`)
+      .then((result) => { if (active) setAudioSyncAudioUrl(result.url); })
+      .catch((error) => { if (active) setAudioSyncError(error instanceof Error ? error.message : 'Could not open the selected audio file.'); });
+    return () => { active = false; };
+  }, [audioSyncAudioId]);
 
   useEffect(() => {
     let active = true;
@@ -257,6 +294,53 @@ export const VideoEditor: React.FC<Props> = ({ video, onSave }) => {
     onSave({ ...video, scenes: ordered, estimatedDuration: Math.round(ordered.reduce((sum, scene) => sum + (Number(scene.duration) || 0), 0)) });
     setSaved(true);
   };
+  const generateAudioSync = async () => {
+    if (!audioSyncAudioId) { setAudioSyncError('Choose an audio file from your private Media Library.'); return; }
+    if (!audioSyncModel) { setAudioSyncError('No compatible DeAPI audio-sync model is available on this account.'); return; }
+    if (audioSyncDuration < 1 || audioSyncDuration > 11) { setAudioSyncError('The selected audio must be between 1 and 11 seconds. Trim longer audio before generating.'); return; }
+    setAudioSyncBusy(true); setAudioSyncError(''); setAudioSyncStatus('Submitting audio and reference frames to DeAPI…'); setAudioSyncResult(null);
+    try {
+      const submitted = await api.post<{ jobId: string; frameCount: number; duration: number; model: string }>('/video/audio-sync', {
+        audioAssetId: audioSyncAudioId,
+        firstFrameAssetId: audioSyncImageId || undefined,
+        prompt: audioSyncPrompt,
+        model: audioSyncModel,
+        durationSeconds: audioSyncDuration,
+        aspect: video.aspectRatio,
+      });
+      setAudioSyncStatus('Generating a performance synchronized to your audio…');
+      for (let attempt = 0; attempt < 60; attempt++) {
+        await new Promise((resolve) => window.setTimeout(resolve, 2000));
+        const status = await api.get<{ state: string; videoUrl?: string; error?: string }>(`/video/status?id=${encodeURIComponent(submitted.jobId)}`);
+        if (status.state === 'done' && status.videoUrl) {
+          setAudioSyncResult({ jobId: submitted.jobId, videoUrl: status.videoUrl, duration: submitted.duration, frameCount: submitted.frameCount });
+          setAudioSyncStatus('Audio-synced clip is ready. Preview it, then apply it to the selected scene.');
+          return;
+        }
+        if (status.state === 'failed') throw new Error(status.error || 'DeAPI could not complete this audio-sync render.');
+        setAudioSyncStatus(`Audio-sync render ${status.state === 'queued' ? 'queued' : 'in progress'}…`);
+      }
+      throw new Error('This render is still processing. You can reopen the job later from your render history.');
+    } catch (error) {
+      setAudioSyncError(error instanceof Error ? error.message : 'Audio-to-video could not be completed.');
+      setAudioSyncStatus('');
+    } finally { setAudioSyncBusy(false); }
+  };
+
+  const applyAudioSyncResult = () => {
+    if (!current || !audioSyncResult) return;
+    const next = [...scenes];
+    next[selected] = {
+      ...current,
+      duration: audioSyncResult.duration,
+      clipJobId: audioSyncResult.jobId,
+      clipUrl: audioSyncResult.videoUrl,
+      mediaLayers: (current.mediaLayers || []).filter((layer) => layer.track !== 'main'),
+    };
+    commit(next);
+    setAudioSyncStatus('The audio-synced clip is now the main footage for this scene.');
+  };
+
   const requestDirectorPlan = async () => {
     setDirectorBusy(true); setDirectorError(''); setDirectorPlan(null);
     try {
@@ -444,6 +528,54 @@ export const VideoEditor: React.FC<Props> = ({ video, onSave }) => {
                 {layer.track === 'audio' && <div className="space-y-2"><label className="block text-[10px] text-slate-400">Audio volume {Math.round(layer.volume * 100)}%<input type="range" min="0" max="1.5" step="0.05" value={layer.volume} onChange={(event) => patchMediaLayer(layer.id, { volume: Number(event.target.value) })} className="w-full" /></label><div className="grid grid-cols-2 gap-2"><label className="block text-[10px] text-slate-400">Fade in {(layer.fadeIn || 0).toFixed(1)}s<input type="range" min="0" max="3" step="0.1" value={layer.fadeIn || 0} onChange={(event) => patchMediaLayer(layer.id, { fadeIn: Number(event.target.value) })} className="w-full" /></label><label className="block text-[10px] text-slate-400">Fade out {(layer.fadeOut || 0).toFixed(1)}s<input type="range" min="0" max="3" step="0.1" value={layer.fadeOut || 0} onChange={(event) => patchMediaLayer(layer.id, { fadeOut: Number(event.target.value) })} className="w-full" /></label></div></div>}
               </div>)}
             </div>}
+            <div className="mt-3 space-y-3 rounded-xl border border-cyan-500/25 bg-cyan-950/10 p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2"><Wand2 className="h-4 w-4 text-cyan-300" /><div><p className="text-xs font-semibold text-white">DeAPI Audio-to-Video · Lip Sync</p><p className="text-[10px] text-slate-500">Drive a character performance from real audio, optionally anchored by a speaker image.</p></div></div>
+                <span className="rounded-full border border-cyan-500/30 bg-cyan-500/10 px-2 py-1 text-[9px] font-semibold text-cyan-200">1–11 seconds</span>
+              </div>
+              {!audioSyncModels.length && <p className="text-[10px] text-amber-300">No compatible DeAPI audio-sync model is available on this account. The model list is loaded live from DeAPI; this tool will not silently use a model that lacks audio-sync support.</p>}
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <label className="space-y-1 text-[10px] text-slate-400">Audio source
+                  <select value={audioSyncAudioId} onChange={(event) => { setAudioSyncAudioId(event.target.value); setAudioSyncResult(null); }} className="w-full rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-2 text-xs text-white">
+                    <option value="">Choose MP3 / WAV / OGG / FLAC</option>
+                    {mediaAssets.filter((asset) => /^audio\/(mpeg|mp3|wav|x-wav|wave|ogg|flac|x-flac)$/i.test(asset.contentType)).map((asset) => <option key={asset.id} value={asset.id}>{asset.name}</option>)}
+                  </select>
+                </label>
+                <label className="space-y-1 text-[10px] text-slate-400">Optional speaker image
+                  <select value={audioSyncImageId} onChange={(event) => { setAudioSyncImageId(event.target.value); setAudioSyncResult(null); }} className="w-full rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-2 text-xs text-white">
+                    <option value="">Generate the speaker from text</option>
+                    {mediaAssets.filter((asset) => asset.contentType.startsWith('image/')).map((asset) => <option key={asset.id} value={asset.id}>{asset.name}</option>)}
+                  </select>
+                </label>
+              </div>
+              {audioSyncAudioUrl && <div className="space-y-1 rounded-lg border border-slate-800 bg-slate-950/80 p-2">
+                <audio controls preload="metadata" src={audioSyncAudioUrl} className="w-full" onLoadedMetadata={(event) => setAudioSyncDuration(Number.isFinite(event.currentTarget.duration) ? event.currentTarget.duration : 0)} />
+                <p className="text-[10px] text-slate-500">{audioSyncDuration > 0 ? `Detected audio length: ${audioSyncDuration.toFixed(2)}s` : 'Reading audio duration…'} · DeAPI accepts up to 20 MB and 11 seconds per audio-sync clip.</p>
+              </div>}
+              <label className="block space-y-1 text-[10px] text-slate-400">Compatible DeAPI model
+                <select value={audioSyncModel} onChange={(event) => setAudioSyncModel(event.target.value)} disabled={!audioSyncModels.length} className="w-full rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-2 text-xs text-white disabled:opacity-50">
+                  {audioSyncModels.map((model) => <option key={model.slug} value={model.slug}>{model.name}</option>)}
+                </select>
+              </label>
+              <label className="block space-y-1 text-[10px] text-slate-400">Performance direction
+                <textarea value={audioSyncPrompt} onChange={(event) => setAudioSyncPrompt(event.target.value)} rows={3} maxLength={2200} className="w-full resize-y rounded-lg border border-slate-700 bg-slate-950 px-2.5 py-2 text-xs text-white" placeholder="Describe expression, eye contact, micro-movements and camera direction…" />
+              </label>
+              <div className="flex flex-wrap items-center gap-2">
+                <button type="button" onClick={() => void generateAudioSync()} disabled={audioSyncBusy || !audioSyncAudioId || !audioSyncModel || audioSyncDuration < 1 || audioSyncDuration > 11} className="inline-flex items-center gap-1.5 rounded-lg bg-cyan-700 px-3 py-2 text-[10px] font-semibold text-white hover:bg-cyan-600 disabled:opacity-40">
+                  {audioSyncBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Wand2 className="h-3.5 w-3.5" />}{audioSyncBusy ? 'Generating…' : 'Generate lip-synced video'}
+                </button>
+                {audioSyncResult && <button type="button" onClick={applyAudioSyncResult} className="rounded-lg bg-indigo-600 px-3 py-2 text-[10px] font-semibold text-white hover:bg-indigo-500">Use as this scene’s main shot</button>}
+                {audioSyncResult && <a href={`/api/video/download?id=${encodeURIComponent(audioSyncResult.jobId)}&name=audio-synced-scene`} className="rounded-lg border border-slate-700 px-3 py-2 text-[10px] font-semibold text-slate-200">Download MP4</a>}
+              </div>
+              {audioSyncBusy && <p role="status" className="text-[10px] text-cyan-200">{audioSyncStatus}</p>}
+              {audioSyncError && <p role="alert" className="text-[10px] text-rose-300">{audioSyncError}</p>}
+              {audioSyncResult && <div className="space-y-2 rounded-lg border border-emerald-500/20 bg-slate-950 p-2">
+                <video src={audioSyncResult.videoUrl} controls playsInline preload="metadata" className="max-h-72 w-full rounded-lg bg-black" />
+                <p className="text-[10px] text-emerald-300">Ready · {audioSyncResult.duration.toFixed(1)} seconds · {audioSyncResult.frameCount} frames. The clip can replace the selected scene’s main footage.</p>
+              </div>}
+              {!!audioSyncStatus && !audioSyncBusy && !audioSyncError && !audioSyncResult && <p className="text-[10px] text-slate-400">{audioSyncStatus}</p>}
+              <p className="text-[10px] leading-relaxed text-slate-500">For best lip sync, use a clean single-speaker recording. The optional image anchors the speaker’s appearance; DeAPI aligns mouth and body motion to the audio waveform. Audio-sync generation uses video seconds and DeAPI credits.</p>
+            </div>
             <div className="border-t border-slate-800 pt-3 space-y-2">
               <div className="flex flex-wrap items-center justify-between gap-2"><p className="text-[11px] font-semibold text-slate-200">Timed transcription & captions</p><button type="button" onClick={() => void transcribeSelectedAsset()} disabled={!selectedAssetId || transcribing || !mediaAssets.find((asset) => asset.id === selectedAssetId)?.contentType.match(/^(audio|video)\//)} className="inline-flex items-center gap-1.5 rounded-lg border border-fuchsia-500/40 px-2.5 py-1.5 text-[10px] font-semibold text-fuchsia-200 disabled:opacity-40">{transcribing ? <RefreshCw className="h-3 w-3 animate-spin" /> : <Wand2 className="h-3 w-3" />}{transcribing ? 'Transcribing…' : 'Transcribe selected upload'}</button></div>
               <p className="text-[10px] text-slate-500">Uses Groq Whisper to create timestamped speech segments. The selected upload is sent to Groq for transcription; current file limit is 100 MB.</p>
