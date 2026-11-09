@@ -9,6 +9,7 @@ import { sql, ensureSchema } from './lib/db.js';
 import { PLANS, TIERS, Tier, Cycle, planId, tierFromPlanId, priceFor, BILLING_CURRENCY, TRIAL, TOPUPS, trialPrice } from './lib/plans.js';
 import { mail, flw, verifyFlwSignature, lookupEnv, geminiJson, geminiRaw, geminiFormat, webTrendResearch, aiWriterStatus, testAiWriters, falSubmit, falContinueSubmit, falReferenceVideoSubmit, falKlingReferenceSubmit, falGenerateSceneKeyframe, falGenerateCharacterReference, falGenerateLocationPlate, falEditLocationPlate, falStatus, falImageVideoSubmit, falGenerateBrandImages, deapiSubmit, deapiStatus, deapiAnimate, deapiAudioSync, deapiVideoModels, geminiVisualReview, RateLimited, synthesize } from './lib/services.js';
 import { trendsFormatPrompt, scriptPrompt, adConceptPrompt, abPrompt, competitorPrompt, outrankPrompt, parseStoryBrief, type SeriesContinuity, type StoryBriefInput, storyBeats, STORY_MOODS, CAMERA_PROFILES, GENRES, INTENSITIES, ENDINGS, PRESENTATIONS, CASTS, TROPES, styleBlock, STORY_LIMITS, planScenes, castMinimum, storyboardPrompt, outlinePrompt, chunkPrompt, adaptPrompt, PART_SECONDS, SCENES_PER_WRITER_CALL, MAX_WORDS_PER_CLIP } from './lib/prompts.js';
+import { validateTrendRadarOutput } from './lib/trend-radar-validation.js';
 import { assembleParts, toNativeMultiShotPrompt, addDeapiCastNotes, buildCommercialShotPrompts } from './lib/assemble.js';
 import { refineScene, shownInstruction, proseToUnits, thoughtToVisual, type SpokenLine } from './lib/screenplay.js';
 import { renderComposition } from './lib/compositor.js';
@@ -779,7 +780,9 @@ const researchTrends: Handler = async ({ req, res, body }) => {
     const notes = str(body.notes, 52000);
     if (notes.length < 50) throw new HttpError(400, 'No research notes to format.');
     const r = await geminiFormat(trendsFormatPrompt(niche, notes));
-    return json(res, 200, { success: true, ...r.data, model: r.model });
+    const validated = validateTrendRadarOutput(r.data, notes);
+    if (!validated.trendingTopics.length) throw new HttpError(424, 'The live research did not produce any trend topics with valid source citations. Refresh the scan or try a more specific niche.', 'TREND_EVIDENCE');
+    return json(res, 200, { success: true, ...validated, model: r.model });
   }
   const r = await webTrendResearch(niche, custom);
   json(res, 200, { success: true, notes: r.text, sources: r.sources, grounded: true, model: r.provider });
