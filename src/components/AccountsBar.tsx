@@ -45,7 +45,7 @@ export const AccountsBar: React.FC<AccountsBarProps> = ({ accounts, onToggleConn
           <span className="text-[9px] text-slate-400">connected</span>
         </div>
       </div>
-      <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-7">
+      <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-7">
         {accounts.map((account) => {
           const brand = BRAND[account.id];
           const unavailable = !account.connected && (account.publishable === false || account.configured === false);
