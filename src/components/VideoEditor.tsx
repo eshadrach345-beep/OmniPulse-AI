@@ -643,7 +643,7 @@ export const VideoEditor: React.FC<Props> = ({ video, onSave }) => {
         </div>
       </header>
 
-      <div className="grid grid-cols-1 lg:grid-cols-[54px_218px_minmax(0,1fr)_286px] xl:grid-cols-[58px_232px_minmax(0,1fr)_294px]">
+      <div className="op-editor-layout grid grid-cols-1 lg:grid-cols-[54px_218px_minmax(0,1fr)_286px] xl:grid-cols-[58px_232px_minmax(0,1fr)_294px]">
         <nav aria-label="Editing tools" className="order-2 flex gap-1 overflow-x-auto border-y border-white/10 bg-[#15101e] p-2 lg:order-1 lg:flex-col lg:overflow-visible lg:border-y-0 lg:border-r lg:p-2">
           {TOOL_ITEMS.map(({ id, label, icon: Icon }) => (
             <button key={id} type="button" onClick={() => setActiveTool(id)} aria-pressed={activeTool === id}
@@ -819,7 +819,7 @@ export const VideoEditor: React.FC<Props> = ({ video, onSave }) => {
         </aside>
       </div>
 
-      <div className="border-t border-white/10 bg-[#080e19] p-3 sm:p-4">
+      <div className="op-editor-timeline border-t border-white/10 bg-[#080e19] p-3 sm:p-4">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3"><div><h3 className="text-xs font-extrabold uppercase tracking-wider text-white">Multitrack timeline</h3><p className="mt-1 text-[9px] text-slate-500">Click any clip or layer to select it. Split with the playhead and adjust timing in the inspector.</p></div><div className="flex items-center gap-2"><span className="font-mono text-[10px] text-cyan-200">{formatTime(globalPlayhead)}</span><span className="text-[9px] text-slate-600">of</span><span className="font-mono text-[10px] text-slate-400">{formatTime(totalSeconds)}</span></div></div>
         <div className="overflow-x-auto rounded-xl border border-slate-800 bg-[#0c1421]">
           <div className="relative" style={{ width: timelineWidth, minWidth: '100%' }}>
@@ -866,7 +866,7 @@ export const VideoEditor: React.FC<Props> = ({ video, onSave }) => {
         <div className="mt-2 flex items-center gap-2"><span className="text-[9px] text-slate-600">PLAYHEAD</span><input aria-label="Timeline playhead" type="range" min="0" max={Math.max(0.5, totalSeconds)} step="0.05" value={Math.min(globalPlayhead, totalSeconds)} onChange={(event) => seekGlobalTime(Number(event.target.value))} className="w-full accent-cyan-300" /></div>
       </div>
 
-      <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-white/10 bg-[#101a2a] px-3 py-3 sm:px-5">
+      <footer className="op-editor-footer flex flex-wrap items-center justify-between gap-3 border-t border-white/10 bg-[#101a2a] px-3 py-3 sm:px-5">
         <div className="min-w-0 flex-1">{renderError && <p role="alert" className="text-[10px] text-rose-300">{renderError}</p>}{mediaError && <p role="alert" className="text-[10px] text-rose-300">{mediaError}</p>}{renderedScene && <p className="text-[10px] text-emerald-200">Export ready · {renderedScene.renderedLayers} visual/audio layers · {renderedScene.captionsBurnedIn ? 'captions included' : 'no captions'}</p>}{renderedScene && <a href={renderedScene.downloadUrl} target="_blank" rel="noreferrer" download className="mt-1 inline-flex items-center gap-1 text-[10px] font-bold text-cyan-200 hover:text-white"><Download className="h-3 w-3" />Download edited MP4</a>}</div>
         <div className="flex flex-wrap items-center gap-2"><button type="button" onClick={renderFullFilm} disabled={renderingFilm || scenes.length < 2 || scenes.length > 14 || scenes.some((scene) => (Number(scene.duration) || 0) > 90 || (!scene.mediaLayers?.some((layer) => layer.track === 'main') && !scene.clipJobId))} className="rounded-lg border border-slate-700 px-3 py-2 text-[10px] font-bold text-slate-200 disabled:opacity-30">{renderingFilm ? 'Assembling…' : 'Render full film'}</button><button type="button" onClick={renderCurrentScene} disabled={renderingScene || !current || (!mainLayer && !current.clipJobId)} className="rounded-lg bg-cyan-300 px-4 py-2.5 text-[10px] font-extrabold text-slate-950 disabled:opacity-30">{renderingScene ? 'Rendering…' : 'Export scene'}</button></div>
         {renderingFilm && <p role="status" className="w-full text-[10px] text-cyan-200">{filmProgress}</p>}{filmError && <p role="alert" className="w-full text-[10px] text-rose-300">{filmError}</p>}{finishedFilm && <div className="w-full text-[10px] text-emerald-200">Full film saved · <a href={finishedFilm.downloadUrl} download className="underline">Download MP4</a></div>}
