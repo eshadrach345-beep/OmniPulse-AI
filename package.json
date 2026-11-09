@@ -11,7 +11,7 @@
     "preview": "vite preview",
     "build:api:ts": "node scripts/build-api.mjs",
     "typecheck": "tsc --noEmit --pretty false",
-    "test:video": "node scripts/test-commercial-brand.mjs && node scripts/test-assemble.mjs && node scripts/test-merge-smoke.mjs && node scripts/test-deapi-tuning.mjs && node scripts/test-deapi-audio-sync.mjs && node scripts/test-trend-freshness.mjs && node scripts/test-render-smoke.mjs && node scripts/test-video-provider-policy.mjs && node scripts/test-video-qa.mjs"
+    "test:video": "node scripts/test-commercial-brand.mjs && node scripts/test-assemble.mjs && node scripts/test-merge-smoke.mjs && node scripts/test-deapi-tuning.mjs && node scripts/test-deapi-audio-sync.mjs && node scripts/test-trend-freshness.mjs && node scripts/test-render-smoke.mjs && node scripts/test-video-provider-policy.mjs && node scripts/test-video-qa.mjs && node scripts/test-scene-keyframe.mjs"
   },
   "dependencies": {
     "@neondatabase/serverless": "0.10.4",
