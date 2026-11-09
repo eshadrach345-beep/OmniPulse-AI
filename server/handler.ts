@@ -2451,7 +2451,8 @@ async function stageRender(row: any, user: ReturnType<typeof toUser>, ep: any): 
               (scene.lines || []).map((line: any) => `Character ${line.speaker}: ${line.text}`).join('; '),
               cast.map((character: any) => `${character.name}: ${character.description || ''}`).join('; '),
             ].filter(Boolean).join('\n').slice(0, 2200);
-            const review = await geminiVisualReview(sceneDescription, sampled, reviewReferences);
+            const reviewFrames = sampled.map((frame, index) => ({ ...frame, name: `Shot frame ${index + 1}` }));
+            const review = await geminiVisualReview(sceneDescription, reviewFrames, reviewReferences);
             p.visualReviewedJobId = String(p.jobId || '');
             if (review) {
               p.visualReviewStatus = review.passed ? 'passed' : review.severity === 'major' ? 'rejected' : 'warning';
