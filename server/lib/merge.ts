@@ -1,4 +1,5 @@
 // Joins scene clips into one MP4. Inputs are streamed to disk to avoid buffering an entire production in function memory.
+import { runVideoQualityChecks } from './video-qa.js';
 
 interface ClipInfo { video: string; audio: string; size: string; seconds: number }
 
@@ -244,6 +245,23 @@ async function mergeClipsFresh(urls: string[], options: Required<MergeOptions>):
     const st2 = await fs.stat(out).catch(() => null);
     if (!r2ok || !st2 || st2.size < 2000) throw new Error('The scenes could not be joined.');
     await masterAudioTrack(bin, out, dir);
+    // Run the delivery checks on the actual joined episode, not only on editor-composition exports.
+    // This catches silent tails and freezes introduced by a source clip or by the final assembly.
+    try {
+      const report = await runVideoQualityChecks(out, bin);
+      if (report.warnings.length) {
+        console.warn('Final film delivery QA reported warnings:', report);
+      } else {
+        console.info('Final film delivery QA passed:', {
+          hasAudio: report.hasAudio,
+          integratedLufs: report.integratedLufs,
+          truePeakDbfs: report.truePeakDbfs,
+        });
+      }
+    } catch (error: any) {
+      // Diagnostics are non-destructive: never discard an otherwise playable finished episode.
+      console.warn('Final film delivery QA was unavailable:', error?.message || error);
+    }
     return { file: out, cleanup };
   } catch (e) {
     await cleanup();
