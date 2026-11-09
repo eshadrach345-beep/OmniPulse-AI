@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import { HttpError } from './core.js';
-import { buildDeapiVideoFields } from './deapi-tuning.js';
+import { buildDeapiVideoFields, resolveDeapiSeed } from './deapi-tuning.js';
 import { deapiAudioMime, deapiAudioSyncFrames, supportsDeapiAudioSyncModel } from './deapi-audio-sync.js';
 import { isRecentTrendSource, normalizeTrendPublishedAt, TREND_FRESHNESS_DAYS } from './trend-freshness.js';
 
@@ -882,9 +882,7 @@ export async function deapiSubmit(prompt: string, resolution: string = '480P', s
     prompt, width, height, frames: c.frames, fps: c.fps, model: c.model,
     ...buildDeapiVideoFields({ info: modelInfo }, overrides),
   };
-  const requestedSeed = Number(seedOverride ?? overrides.seed ?? process.env.DEAPI_VIDEO_SEED);
-  body.seed = Number.isSafeInteger(requestedSeed) && requestedSeed >= 0 && requestedSeed <= 2_147_483_647
-    ? requestedSeed : c.seed;
+  body.seed = resolveDeapiSeed(seedOverride, overrides.seed ?? process.env.DEAPI_VIDEO_SEED, c.seed);
   let r: Response;
   try {
     r = await fetch(`${DEAPI_BASE}/videos/generations`, { method: 'POST', headers: deapiHeaders(), body: JSON.stringify(body), signal: AbortSignal.timeout(20_000) });
@@ -1001,9 +999,7 @@ export async function deapiAnimate(prompt: string, firstFrame: Buffer, resolutio
   const form = new FormData();
   form.set('model', c.model); form.set('prompt', prompt);
   form.set('width', String(width)); form.set('height', String(height));
-  const requestedSeed = Number(seedOverride ?? overrides.seed ?? process.env.DEAPI_VIDEO_SEED);
-  const seed = Number.isSafeInteger(requestedSeed) && requestedSeed >= 0 && requestedSeed <= 2_147_483_647
-    ? requestedSeed : c.seed;
+  const seed = resolveDeapiSeed(seedOverride, overrides.seed ?? process.env.DEAPI_VIDEO_SEED, c.seed);
   form.set('frames', String(c.frames)); form.set('fps', String(c.fps)); form.set('seed', String(seed));
   const imageMime = (bytes: Buffer) => {
     if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return { type: 'image/jpeg', ext: 'jpg' };
