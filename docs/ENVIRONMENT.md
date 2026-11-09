@@ -20,7 +20,7 @@ They are *not* needed in Google AI Studio. This app runs on Vercel, not in the A
 | `LLM_PRIMARY` | Optional. Set to `backup` to use the backup AI first and keep Gemini for live search only |
 | `VIDEO_PROVIDER` | Default provider for new productions: `fal` (default), `deapi`, or `auto` (FAL first, DeAPI if FAL fails). When both provider keys are present, the Creator Canvas also lets each production choose its own provider. |
 | `DEAPI_API_KEY` | Optional DeAPI video provider key. The Creator Canvas loads the account's available video models from DeAPI; selected model IDs are checked against that live catalogue. |
-| `DEAPI_VIDEO_MODEL` | Optional default DeAPI video model when no model is selected; defaults to `Ltx2_5_22B_Dist_INT8`. |
+| `DEAPI_VIDEO_MODEL` | Optional default DeAPI video model when no model is selected; defaults to `Ltx2_5_22B_Dist_INT8`. The editor also exposes native audio-to-video for models that advertise audio-sync support. |
 | `VOICE_PROVIDER` | Optional. `auto` (default: deAPI voices when `DEAPI_API_KEY` exists, else fal.ai), `deapi`, or `fal` |
 | `ZERNIO_API_KEY` | Social publishing through Zernio. OmniPulse creates one isolated Zernio profile per customer; the first two connected accounts are free across the OmniPulse Zernio team, not two per customer. |
 | `FAL_KEY` | Video rendering and voice-over (fal.ai) |
@@ -38,7 +38,7 @@ They are *not* needed in Google AI Studio. This app runs on Vercel, not in the A
 | Social network keys | See the "Social networks" section below |
 | `VITE_COMPANY_NAME`, `VITE_SUPPORT_EMAIL` | Shown on the landing page and legal pages (also set before the build) |
 
-The Creator Canvas can use FAL and DeAPI for separate productions when both keys are configured. `FAL` and `DeAPI` are strict choices; `Automatic` is shown only when both keys are present and is the only mode that can fail over. DeAPI models are loaded from the account's live model catalogue, and models that do not advertise image-to-video are blocked from image-based jobs.
+The Creator Canvas can use FAL and DeAPI for separate productions when both keys are configured. In the timeline editor, DeAPI audio-to-video is available only for models advertising audio-sync support; it accepts a 1–11 second MP3, WAV, OGG or FLAC source (up to 20 MB) and an optional JPG, PNG or WebP speaker reference image (up to 10 MB). The audio waveform determines the generated lip-sync timing. `FAL` and `DeAPI` are strict choices; `Automatic` is shown only when both keys are present and is the only mode that can fail over. DeAPI models are loaded from the account's live model catalogue, and models that do not advertise image-to-video are blocked from image-based jobs.
 
 Flutterwave webhook URL: `https://YOUR-DOMAIN/api/billing/webhook`
 
