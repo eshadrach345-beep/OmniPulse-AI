@@ -2356,7 +2356,7 @@ async function startPart(row: any, user: ReturnType<typeof toUser>, spec: { prom
         job = { statusUrl: j.statusUrl, responseUrl: j.responseUrl };
       } catch (e: any) {
         if (provider === 'auto' && lookupEnv('DEAPI_API_KEY')) {
-          const j = await deapiSubmit(deapiPrompt, reso, PART_SECONDS, spec.aspect, spec.videoModel);
+          const j = await deapiSubmit(deapiPrompt, reso, PART_SECONDS, spec.aspect, spec.videoModel, spec.seed);
           job = { statusUrl: `deapi:${j.requestId}`, responseUrl: 'deapi' };
         } else throw e;
       }
