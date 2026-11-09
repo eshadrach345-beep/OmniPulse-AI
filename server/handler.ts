@@ -2025,7 +2025,7 @@ const CHECK_EVERY_MS = 20_000;
 const MAX_STARTS_PER_STEP = 4;
 
 /** One 10 second clip of a scene, as saved in episodes.render_jobs. */
-interface PartEntry { tries: number; jobId?: string; url?: string; error?: string; checkAt?: number; retryAt?: number; keyframeUrl?: string; keyframePathname?: string; keyframeGeneratedAt?: string; keyframeReference?: string; continuityWarning?: string; visualReviewedJobId?: string; visualReviewStatus?: 'passed' | 'rejected' | 'unavailable'; visualReview?: { passed: boolean; severity: string; issues: string[]; summary: string } }
+interface PartEntry { tries: number; jobId?: string; url?: string; error?: string; checkAt?: number; retryAt?: number; keyframeUrl?: string; keyframePathname?: string; keyframeGeneratedAt?: string; keyframeReference?: string; continuityWarning?: string; visualReviewedJobId?: string; visualReviewStatus?: 'passed' | 'warning' | 'rejected' | 'unavailable'; visualReview?: { passed: boolean; severity: string; issues: string[]; summary: string } }
 /** One scene: a 10 second scene has one clip, a 20 second scene has two that follow each other. */
 interface RenderEntry { index: number; parts: PartEntry[] }
 
@@ -2454,7 +2454,7 @@ async function stageRender(row: any, user: ReturnType<typeof toUser>, ep: any): 
             const review = await geminiVisualReview(sceneDescription, sampled, reviewReferences);
             p.visualReviewedJobId = String(p.jobId || '');
             if (review) {
-              p.visualReviewStatus = review.passed ? 'passed' : 'rejected';
+              p.visualReviewStatus = review.passed ? 'passed' : review.severity === 'major' ? 'rejected' : 'warning';
               p.visualReview = { passed: review.passed, severity: review.severity, issues: review.issues, summary: review.summary };
               if (!review.passed && review.severity === 'major') {
                 const reason = review.summary || review.issues[0] || 'Major visual continuity defect detected.';
