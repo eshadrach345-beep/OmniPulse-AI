@@ -295,27 +295,27 @@ export const TrendHashtagRadar: React.FC<TrendHashtagRadarProps> = ({
 
       {/* Icon-led radar navigation: each destination has a distinct visual identity. */}
       <div className="grid w-full grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6">
-        <button type="button" aria-pressed={activeTab === 'topics'} onClick={() => setActiveTab('topics')} className={\`group flex min-w-0 items-center gap-2 rounded-xl border px-2.5 py-2.5 text-left transition-all \${activeTab === 'topics' ? 'border-orange-400/40 bg-orange-500/10 shadow-lg shadow-orange-950/20' : 'border-slate-800 bg-slate-900/70 hover:border-orange-400/30 hover:bg-slate-900'}\`}>
+        <button type="button" aria-pressed={activeTab === 'topics'} onClick={() => setActiveTab('topics')} className={`group flex min-w-0 items-center gap-2 rounded-xl border px-2.5 py-2.5 text-left transition-all ${activeTab === 'topics' ? 'border-orange-400/40 bg-orange-500/10 shadow-lg shadow-orange-950/20' : 'border-slate-800 bg-slate-900/70 hover:border-orange-400/30 hover:bg-slate-900'}`}>
           <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-orange-400/20 bg-gradient-to-br from-orange-400/20 to-rose-500/10"><Flame className="h-5 w-5 text-orange-300" /></span>
           <span className="min-w-0"><span className="block truncate text-xs font-bold text-white">Live Trends</span><span className="block text-[10px] text-slate-400">{activeNiche.trendingTopics.length} topics & hooks</span></span>
         </button>
-        <button type="button" aria-pressed={activeTab === 'creators'} onClick={() => setActiveTab('creators')} className={\`group flex min-w-0 items-center gap-2 rounded-xl border px-2.5 py-2.5 text-left transition-all \${activeTab === 'creators' ? 'border-amber-400/40 bg-amber-500/10 shadow-lg shadow-amber-950/20' : 'border-slate-800 bg-slate-900/70 hover:border-amber-400/30 hover:bg-slate-900'}\`}>
+        <button type="button" aria-pressed={activeTab === 'creators'} onClick={() => setActiveTab('creators')} className={`group flex min-w-0 items-center gap-2 rounded-xl border px-2.5 py-2.5 text-left transition-all ${activeTab === 'creators' ? 'border-amber-400/40 bg-amber-500/10 shadow-lg shadow-amber-950/20' : 'border-slate-800 bg-slate-900/70 hover:border-amber-400/30 hover:bg-slate-900'}`}>
           <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-amber-400/20 bg-gradient-to-br from-amber-400/20 to-yellow-500/10"><Trophy className="h-5 w-5 text-amber-300" /></span>
           <span className="min-w-0"><span className="block truncate text-xs font-bold text-white">Creators</span><span className="block text-[10px] text-slate-400">Recent public examples</span></span>
         </button>
-        <button type="button" aria-pressed={activeTab === 'hashtags'} onClick={() => setActiveTab('hashtags')} className={\`group flex min-w-0 items-center gap-2 rounded-xl border px-2.5 py-2.5 text-left transition-all \${activeTab === 'hashtags' ? 'border-fuchsia-400/40 bg-fuchsia-500/10 shadow-lg shadow-fuchsia-950/20' : 'border-slate-800 bg-slate-900/70 hover:border-fuchsia-400/30 hover:bg-slate-900'}\`}>
+        <button type="button" aria-pressed={activeTab === 'hashtags'} onClick={() => setActiveTab('hashtags')} className={`group flex min-w-0 items-center gap-2 rounded-xl border px-2.5 py-2.5 text-left transition-all ${activeTab === 'hashtags' ? 'border-fuchsia-400/40 bg-fuchsia-500/10 shadow-lg shadow-fuchsia-950/20' : 'border-slate-800 bg-slate-900/70 hover:border-fuchsia-400/30 hover:bg-slate-900'}`}>
           <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-fuchsia-400/20 bg-gradient-to-br from-fuchsia-400/25 to-violet-500/10 shadow-inner"><Hash className="h-6 w-6 text-fuchsia-200" /></span>
           <span className="min-w-0"><span className="block truncate text-xs font-bold text-white">Hashtag Radar</span><span className="block text-[10px] text-slate-400">Verified tags & ideas</span></span>
         </button>
-        <button type="button" aria-pressed={activeTab === 'competitors'} onClick={() => setActiveTab('competitors')} className={\`group flex min-w-0 items-center gap-2 rounded-xl border px-2.5 py-2.5 text-left transition-all \${activeTab === 'competitors' ? 'border-rose-400/40 bg-rose-500/10 shadow-lg shadow-rose-950/20' : 'border-slate-800 bg-slate-900/70 hover:border-rose-400/30 hover:bg-slate-900'}\`}>
+        <button type="button" aria-pressed={activeTab === 'competitors'} onClick={() => setActiveTab('competitors')} className={`group flex min-w-0 items-center gap-2 rounded-xl border px-2.5 py-2.5 text-left transition-all ${activeTab === 'competitors' ? 'border-rose-400/40 bg-rose-500/10 shadow-lg shadow-rose-950/20' : 'border-slate-800 bg-slate-900/70 hover:border-rose-400/30 hover:bg-slate-900'}`}>
           <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-rose-400/20 bg-gradient-to-br from-rose-400/20 to-pink-500/10"><Users className="h-5 w-5 text-rose-300" /></span>
           <span className="min-w-0"><span className="block truncate text-xs font-bold text-white">Competitors</span><span className="block text-[10px] text-slate-400">Position & gaps</span></span>
         </button>
-        <button type="button" aria-pressed={activeTab === 'youtube-growth'} onClick={() => setActiveTab('youtube-growth')} className={\`group flex min-w-0 items-center gap-2 rounded-xl border px-2.5 py-2.5 text-left transition-all \${activeTab === 'youtube-growth' ? 'border-red-400/40 bg-red-500/10 shadow-lg shadow-red-950/20' : 'border-slate-800 bg-slate-900/70 hover:border-red-400/30 hover:bg-slate-900'}\`}>
+        <button type="button" aria-pressed={activeTab === 'youtube-growth'} onClick={() => setActiveTab('youtube-growth')} className={`group flex min-w-0 items-center gap-2 rounded-xl border px-2.5 py-2.5 text-left transition-all ${activeTab === 'youtube-growth' ? 'border-red-400/40 bg-red-500/10 shadow-lg shadow-red-950/20' : 'border-slate-800 bg-slate-900/70 hover:border-red-400/30 hover:bg-slate-900'}`}>
           <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-red-400/20 bg-gradient-to-br from-red-400/20 to-rose-500/10"><Youtube className="h-5 w-5 text-red-300" /></span>
           <span className="min-w-0"><span className="block truncate text-xs font-bold text-white">Growth Studio</span><span className="block text-[10px] text-slate-400">Titles, hooks & SEO</span></span>
         </button>
-        <button type="button" aria-pressed={activeTab === 'best-practices'} onClick={() => setActiveTab('best-practices')} className={\`group flex min-w-0 items-center gap-2 rounded-xl border px-2.5 py-2.5 text-left transition-all \${activeTab === 'best-practices' ? 'border-cyan-400/40 bg-cyan-500/10 shadow-lg shadow-cyan-950/20' : 'border-slate-800 bg-slate-900/70 hover:border-cyan-400/30 hover:bg-slate-900'}\`}>
+        <button type="button" aria-pressed={activeTab === 'best-practices'} onClick={() => setActiveTab('best-practices')} className={`group flex min-w-0 items-center gap-2 rounded-xl border px-2.5 py-2.5 text-left transition-all ${activeTab === 'best-practices' ? 'border-cyan-400/40 bg-cyan-500/10 shadow-lg shadow-cyan-950/20' : 'border-slate-800 bg-slate-900/70 hover:border-cyan-400/30 hover:bg-slate-900'}`}>
           <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-cyan-400/20 bg-gradient-to-br from-cyan-400/20 to-sky-500/10"><Lightbulb className="h-5 w-5 text-cyan-200" /></span>
           <span className="min-w-0"><span className="block truncate text-xs font-bold text-white">Playbook</span><span className="block text-[10px] text-slate-400">{activeNiche.bestPractices.length} practical moves</span></span>
         </button>
@@ -548,9 +548,9 @@ export const TrendHashtagRadar: React.FC<TrendHashtagRadarProps> = ({
 
                 <div className="pt-3 border-t border-slate-800 flex flex-col gap-2">
                   <div className="flex items-center justify-between text-xs text-slate-400">
-                    <span>Reach Multiplier:</span>
-                    <span className="text-emerald-400 font-mono font-bold">
-                      {topic.estimatedReachMultiplier} Potential
+                    <span>Measured reach:</span>
+                    <span className="text-slate-300 font-mono font-bold">
+                      {topic.estimatedReachMultiplier || 'Not measured'}
                     </span>
                   </div>
 
@@ -664,7 +664,7 @@ export const TrendHashtagRadar: React.FC<TrendHashtagRadarProps> = ({
               Algorithmic Spoken SEO Keywords (Voice & Transcription Indexing)
             </h3>
             <p className="text-[11px] text-slate-400 mb-3">
-              TikTok and YouTube Shorts transcribe video speech. Pronouncing these keywords in your first 10 seconds boosts indexing in search results.
+              Use these phrases naturally when they genuinely fit the video. They are topic-relevance ideas, not a promise of ranking or indexing.
             </p>
 
             <div className="flex flex-wrap gap-2">
