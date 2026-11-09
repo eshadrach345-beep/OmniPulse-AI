@@ -1,5 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
-<defs><linearGradient id="g" x1="8" y1="12" x2="57" y2="54"><stop stop-color="#B69BFF"/><stop offset=".55" stop-color="#9C77FF"/><stop offset="1" stop-color="#FF9C69"/></linearGradient></defs>
-<rect x="2" y="2" width="60" height="60" rx="19" fill="#15101F"/>
-<path d="M14 34.5H22L26 23.5L32 42L38 29.5H50" stroke="url(#g)" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/><circle cx="50" cy="29.5" r="4" fill="#FFB082"/>
+<defs><linearGradient id="pulse-f" x1="8" y1="12" x2="57" y2="54" gradientUnits="userSpaceOnUse"><stop stop-color="#B69BFF"/><stop offset=".52" stop-color="#9C77FF"/><stop offset="1" stop-color="#FF9C69"/></linearGradient><linearGradient id="shine" x1="13" y1="7" x2="51" y2="59" gradientUnits="userSpaceOnUse"><stop stop-color="#FFF4E9"/><stop offset="1" stop-color="#BBA5FF"/></linearGradient></defs>
+<rect x="2" y="2" width="60" height="60" rx="19" fill="#15101F"/><rect x="2.75" y="2.75" width="58.5" height="58.5" rx="18.25" stroke="white" stroke-opacity=".12" stroke-width="1.5"/>
+<path d="M14 34.5C14 23.18 21.18 15 32.1 15C40.5 15 47.2 20.15 49.5 28.1" stroke="url(#shine)" stroke-width="4.2" stroke-linecap="round"/>
+<path d="M50 29.5H42.8L38.3 39.8L31.8 23.4L25.9 42.3L22.2 34.6H14" stroke="url(#pulse-f)" stroke-width="4.2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M50 29.5C50 40.2 42.6 49 31.8 49C25.6 49 20.1 46.4 16.8 42" stroke="url(#shine)" stroke-opacity=".8" stroke-width="3.1" stroke-linecap="round"/><circle cx="50" cy="29.5" r="3.1" fill="#FFB082"/>
 </svg>
