@@ -40,12 +40,16 @@ const work = await fs.mkdtemp(path.join(os.tmpdir(), 'op-merge-smoke-'));
 const clipA = path.join(work, 'scene-a.mp4');
 const clipB = path.join(work, 'scene-b.mp4');
 const modulePath = path.join(work, 'merge.mjs');
+const qaModulePath = path.join(work, 'video-qa.mjs');
 let merged = null;
 let mergedTransition = null;
 let server = null;
 const originalInfo = console.info;
+const originalWarn = console.warn;
 const infoLines = [];
+const warnLines = [];
 console.info = (...args) => { infoLines.push(args.join(' ')); originalInfo(...args); };
+console.warn = (...args) => { warnLines.push(args.join(' ')); originalWarn(...args); };
 
 try {
   // Create two short, matching H.264/AAC scene clips with distinct audio.
@@ -64,7 +68,10 @@ try {
   }
 
   // Compile the actual merge implementation so this test exercises production code.
-  const mergeSource = await fs.readFile(new URL('../server/lib/merge.ts', import.meta.url), 'utf8');
+  const qaSource = await fs.readFile(new URL('../server/lib/video-qa.ts', import.meta.url), 'utf8');
+  const compiledQa = ts.transpileModule(qaSource, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText;
+  await fs.writeFile(qaModulePath, compiledQa, 'utf8');
+  const mergeSource = (await fs.readFile(new URL('../server/lib/merge.ts', import.meta.url), 'utf8')).replace("from './video-qa.js'", "from './video-qa.mjs'");
   const compiled = ts.transpileModule(mergeSource, {
     compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext },
   }).outputText;
@@ -98,6 +105,10 @@ try {
   assert.ok(infoLines.some((line) => line.includes('Final film audio mastered')),
     'The final film should complete the audio-only mastering pass.');
   assert.ok(mergeSource.includes('loudnorm=I=-14:TP=-1.5:LRA=11'), 'The audio-only master should target -14 LUFS and -1.5 dBTP.');
+  assert.ok(
+    infoLines.some((line) => line.includes('Final film delivery QA passed')) || warnLines.some((line) => line.includes('Final film delivery QA reported warnings')),
+    'The finished assembled film should run freeze/silence/loudness/true-peak delivery checks.',
+  );
 
 
   const probe = await run(['-hide_banner', '-i', merged.file, '-f', 'null', '-']);
@@ -123,6 +134,7 @@ try {
   console.log('Scene assembly smoke tests passed (stream-copy cut + real H.264/AAC crossfade).');
 } finally {
   console.info = originalInfo;
+  console.warn = originalWarn;
   if (merged) await merged.cleanup().catch(() => undefined);
   if (mergedTransition) await mergedTransition.cleanup().catch(() => undefined);
   if (server) await new Promise((resolve) => server.close(resolve));
