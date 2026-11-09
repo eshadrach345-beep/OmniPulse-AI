@@ -560,6 +560,7 @@ function Workspace({ user: currentUser, initialDashboard, onLogout, onUserChange
         {/* Connected Social Accounts Bar with OAuth Login Trigger */}
         {activeTab === 'dashboard' && (
           <AccountsBar
+            compact
             accounts={accounts}
             onToggleConnect={handleToggleAccountConnect}
             onUpdateAccount={handleUpdateAccount}
@@ -571,20 +572,12 @@ function Workspace({ user: currentUser, initialDashboard, onLogout, onUserChange
 
         {/* Dedicated social connection workspace */}
         {activeTab === 'accounts' && (
-          <section className="space-y-5" aria-labelledby="accounts-heading">
-            <div className="relative overflow-hidden rounded-2xl border border-indigo-500/25 bg-gradient-to-br from-indigo-950/70 via-slate-900 to-slate-900 p-5 sm:p-7">
-              <div className="absolute -right-12 -top-16 h-56 w-56 rounded-full bg-indigo-500/10 blur-3xl pointer-events-none" />
-              <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-indigo-300">Your publishing hub</p>
-              <h1 id="accounts-heading" className="mt-2 text-2xl sm:text-3xl font-bold text-white">Connect your social accounts</h1>
-              <p className="mt-2 max-w-2xl text-sm sm:text-base leading-relaxed text-slate-300">Connect each channel once. Then create, schedule and publish content from OmniPulse without switching between platforms.</p>
-              <div className="mt-5 grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div className="rounded-xl border border-white/10 bg-slate-950/40 p-3"><span className="text-xs font-semibold text-indigo-200">01 · Choose a platform</span><p className="mt-1 text-xs text-slate-400">Select Connect on the network you want to add.</p></div>
-                <div className="rounded-xl border border-white/10 bg-slate-950/40 p-3"><span className="text-xs font-semibold text-indigo-200">02 · Approve access</span><p className="mt-1 text-xs text-slate-400">Sign in on the platform's official authorization page.</p></div>
-                <div className="rounded-xl border border-white/10 bg-slate-950/40 p-3"><span className="text-xs font-semibold text-indigo-200">03 · Start publishing</span><p className="mt-1 text-xs text-slate-400">Choose connected channels when you publish or schedule.</p></div>
-              </div>
+          <section className="space-y-3" aria-labelledby="accounts-heading">
+            <div className="flex flex-wrap items-end justify-between gap-3 rounded-2xl border border-slate-800 bg-slate-950/60 px-4 py-3">
+              <div><p className="text-[10px] font-extrabold uppercase tracking-[.2em] text-cyan-300">Publishing hub</p><h1 id="accounts-heading" className="mt-1 text-lg font-bold text-white">Social accounts</h1><p className="mt-1 text-xs text-slate-400">Connect channels once and use them across your workspace.</p></div>
+              <span className="text-[10px] text-slate-500">Secure OAuth · No passwords stored</span>
             </div>
-            <AccountsBar accounts={accounts} onToggleConnect={handleToggleAccountConnect} onUpdateAccount={handleUpdateAccount} onRequestConnect={handleRequestOAuth} />
-            <p className="text-xs leading-relaxed text-slate-500">Security note: OmniPulse does not ask for or store your social-media password. Authorization is handled by the platform. Available publishing options depend on each platform's permissions and account type.</p>
+            <AccountsBar compact accounts={accounts} onToggleConnect={handleToggleAccountConnect} onUpdateAccount={handleUpdateAccount} onRequestConnect={handleRequestOAuth} />
           </section>
         )}
 
