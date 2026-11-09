@@ -1,70 +1,36 @@
 // Prompt templates for Gemini (inputs are length-limited by the caller).
 /** Evidence-first research brief. Search evidence is gathered independently of the LLM provider. */
 export function trendsResearchPrompt(niche: string, customQuery: string): string {
-  return `You are a meticulous market-intelligence researcher for creators and small businesses.
-Niche: "${niche}"
-${customQuery ? `Focus keyword or question: "${customQuery}"` : ''}
-Prioritise the last 14 days for fast-moving trends and the last 90 days for context. Treat search snippets as leads, not proof.
-
-Analyse only the supplied evidence. Separate confirmed facts from reasoned recommendations. Cross-check important claims across at least two independent sources where possible. Prefer original platform posts, company announcements, reputable trade publications, government/statistical sources and named research reports over SEO listicles. State dates and geography. If evidence is weak, say so and omit the claim.
-
-Cover: (1) 4-6 concrete trends with what happened, timing, evidence strength, commercial relevance and a practical content angle; (2) 3-6 identifiable creators/brands only where identity, platform and activity are supported; (3) hashtags and search phrases found in evidence, distinguishing verified examples from suggestions; (4) platform-specific content formats and hooks labelled as recommendations, not algorithm facts; (5) customer pain points, opportunities, risks and what should be validated before spending money; (6) methodology and limitations.
-
-Never claim access to platform-internal analytics. Never invent statistics, follower counts, handles, URLs, search volume, engagement rates, growth rates, sales results or algorithm rules. Include [SOURCE n] beside factual claims.
-  `;
+  return 'You are an evidence-first trend and news analyst for creators. Niche: "' + niche + '". ' +
+    (customQuery ? 'Specific focus: "' + customQuery + '". ' : '') +
+    'Use only the supplied search evidence. Prioritise events published in the last 14 days and use older context only when clearly labelled. ' +
+    'Extract concrete news, launches, creator stories, public debates, audience questions and short-form content patterns. ' +
+    'Every factual statement must cite [SOURCE n]. Cross-check major claims where possible. Separate observed facts from creative suggestions. ' +
+    'Do not invent metrics, hashtags, creator identities, dates, platform analytics or algorithm rules. Omit weak claims.';
 }
-/** Step 2: turn the research notes into the JSON the app displays. */
+
+/** Convert web-search evidence into a compact, structured radar result. */
 export function trendsFormatPrompt(niche: string, notes: string): string {
-  return `Convert the research notes below into JSON for a creator-intelligence app. Niche: "${niche}".
-
-RESEARCH NOTES:
-"""
-${notes.slice(0, 28000)}
-"""
-
-Rules:
-- Use ONLY what is in the notes. Do not add facts, creators, statistics or URLs that are not there.
-- Only label a hashtag "viral" when dated source evidence supports current attention. If sources do not provide measured hashtag volume, competition or velocity, use "Not measured" for volume and "Unknown" for competition. velocityScore may only be a clearly understood editorial relevance score, never actual platform analytics or measured reach.
-- Never label a topic viral, breakout or rising without dated evidence of increasing attention; otherwise use Evergreen or clearly caveated Rising.
-- Do not invent creator handles. If an account cannot be verified from a direct source URL, omit it.
-- Return up to 50 distinct creators/accounts only when supported by the supplied evidence. Rank them by the strongest available evidence, prioritising official public video views and recency. Never imply this is a complete platform-wide ranking.
-- For every creator, include 1 to 3 recent high-performing video examples when direct video URLs are present in the evidence. Each example must include its exact title, exact URL, platform, publication date when supplied, exact thumbnail URL when supplied, and numeric public view count only when explicitly supplied. Preserve viewsPerHour only when it is explicitly calculated and supplied in the official YouTube evidence. This is public views divided by elapsed hours, not impressions. Do not infer private impressions.
-- For YouTube API evidence, public view counts, likes, comments, subscribers and thumbnails are source-backed. Label view counts as public views, never impressions. For TikTok/Instagram/other networks, use only metrics explicitly visible in the supplied evidence; otherwise leave the metric unavailable.
-- A creator's avatar/profile image URL may be included only when it appears verbatim in the evidence. Never manufacture image URLs.
-- estimatedReachMultiplier must be 'Not measured' unless the supplied evidence provides defensible comparative data.
-- "url" for a creator must be a URL that appears in the notes, otherwise "".
-- Each topic needs a "whyNow" sentence. "velocity" is a short qualitative phrase (e.g. "Rising quickly"), "volume" is "Large", "Medium" or "Small", and "estimatedReachMultiplier" is a qualitative phrase. Never invent percentages.
-- Only include hashtags that appear verbatim in the supplied source evidence. If sources do not show enough tags, return fewer rather than inventing them. Every tag must start with #.
-- 3 to 5 trendingTopics, up to 50 verified trendingCreators when evidence supports them (never pad the list), 3 to 5 hashtags in each group, using "Not measured" volume and "Unknown" competition whenever sources provide no measurement, 4 to 8 suggestedKeywords, 3 to 5 bestPractices.
-
-Return ONLY valid JSON in exactly this shape:
-{
-  "trendingTopics": [
-    { "id": "topic-1", "title": "<specific topic>", "whyNow": "<one sentence>", "velocity": "<phrase>",
-      "sentiment": "<Hot|Rising|Breakout|Evergreen>", "recommendedFormat": "<TikTok/Reels 9:16|YouTube 16:9|Carousels|Shorts>",
-      "viralHooks": ["<hook 1>", "<hook 2>", "<hook 3>"], "contentAngle": "<angle that makes a creator's take stand out>",
-      "estimatedReachMultiplier": "<phrase>", "falVideoPrompt": "<cinematic visual prompt for an AI video generator>" }
-  ],
-  "trendingCreators": [
-    { "rank": 1, "name": "<verified creator/channel name>", "handle": "<verified handle or channel name>", "platform": "<TikTok|Instagram|YouTube|X|LinkedIn|Facebook>",
-      "url": "<verified profile/channel URL>", "avatarUrl": "<exact image URL from evidence or empty>",
-      "rankingBasis": "<e.g. 82,400 public views on a video published 2026-10-12; otherwise explain evidence limits>",
-      "whyTrending": "<one sentence>", "contentStyle": "<specific format, hook, pacing and topic style>",
-      "takeaway": "<original idea users can adapt, not copy verbatim>", "exampleHook": "<new original hook>",
-      "recentVideos": [
-        { "title": "<exact sourced video title>", "url": "<exact video URL>", "thumbnailUrl": "<exact thumbnail URL or empty>",
-          "platform": "<platform>", "publishedAt": "<date or empty>", "views": null, "viewsPerHour": null, "metricLabel": "<Public views|Not publicly available>" }
-      ]
-    }
-  ],
-  "viralHashtags": {
-    "viral": [ { "tag": "#<tag>", "volume": "<Large|Medium|Small>", "competition": "<Low|Medium|High>", "velocityScore": <1-100>, "category": "viral" } ],
-    "nicheSpecific": [ { "tag": "#<tag>", "volume": "<Large|Medium|Small>", "competition": "<Low|Medium|High>", "velocityScore": <1-100>, "category": "niche" } ],
-    "evergreen": [ { "tag": "#<tag>", "volume": "<Large|Medium|Small>", "competition": "<Low|Medium|High>", "velocityScore": <1-100>, "category": "evergreen" } ]
-  },
-  "suggestedKeywords": ["<keyword>"],
-  "bestPractices": [ { "title": "<title>", "category": "<Follower Growth|Sales & Conversion|Retention & Watch Time|Algorithm Triggers>", "insight": "<why it works>", "actionableStep": "<one concrete step>" } ]
-}`;
+  return 'You are the research editor for OmniPulse AI. Create a useful current trend radar for the niche: "' + niche + '".\n\n' +
+    'SOURCE NOTES (treat these as the only factual evidence):\n' + notes.slice(0, 10500) + '\n\n' +
+    'QUALITY RULES:\n' +
+    '- This is a live intelligence feed, not a generic content-idea generator. A trend topic must describe a specific recent event, launch, story, public debate, creator format or audience conversation found in the dated notes.\n' +
+    '- Prioritise the last 14 days. Cite source numbers inside whyNow. If evidence is weak, return fewer topics; never pad with generic niche advice.\n' +
+    '- Distinguish a confirmed event from a suggested content angle. Create original hooks that respond to the event; do not present invented hooks as quotes from a real person.\n' +
+    '- Do not invent creators, handles, URLs, dates, views, followers, hashtag volumes, competition levels, reach multipliers or growth rates.\n' +
+    '- Creator records require a real name and direct account/channel URL in the notes. Include at most 8 creators and one or two exact recent video links only when directly supplied.\n' +
+    '- Hashtags: viral[] may contain only exact hashtags observed in a dated source. For nicheSpecific[] and evergreen[], you may suggest relevant tags derived from the sourced topics, but mark evidenceStatus as "suggested". Mark directly observed tags as "verified". Never describe suggestions as currently viral.\n' +
+    '- For hashtags, volume must be "Not measured" and competition must be "Unknown" unless the notes contain an explicit, dated, comparable metric. velocityScore is an editorial topic-fit score only, not platform reach, usage volume or measured velocity.\n' +
+    '- estimatedReachMultiplier must be "Not measured" unless the notes provide real comparative data. Do not imply a post will get a particular reach.\n' +
+    '- Platform tactics are recommendations, not claims about secret algorithms. Do not claim that hashtags prevent shadowbans or guarantee reach.\n\n' +
+    'Return ONLY valid JSON in this shape. Use 3-5 specific topics, up to 8 verified creators, 0-4 observed viral tags, 2-5 niche suggestions, 2-5 evergreen suggestions, 4-8 keywords and 3-5 practical best practices. Empty arrays are allowed when evidence is absent:\n' +
+    '{\n' +
+    '  "trendingTopics": [{"id":"topic-1","title":"Specific sourced event or trend","whyNow":"What happened, when, and [SOURCE n]","velocity":"Observed attention pattern or Not measured","sentiment":"Hot|Rising|Breakout|Evergreen","recommendedFormat":"TikTok/Reels 9:16|YouTube 16:9|Carousels|Shorts","viralHooks":["original hook 1","original hook 2"],"contentAngle":"A differentiated angle grounded in the story","estimatedReachMultiplier":"Not measured","falVideoPrompt":"A visual video-generation prompt based on this sourced topic"}],\n' +
+    '  "trendingCreators": [{"rank":1,"name":"Verified creator/channel","handle":"Verified handle or channel name","platform":"TikTok|Instagram|YouTube|X|LinkedIn|Facebook","url":"Exact direct profile URL from notes","avatarUrl":"","rankingBasis":"Only sourced public evidence; otherwise explain limits","whyTrending":"Specific source-backed reason","contentStyle":"Observed content style","takeaway":"Original lesson","exampleHook":"An original hook","recentVideos":[{"title":"Exact sourced title","url":"Exact sourced URL","thumbnailUrl":"","platform":"YouTube","publishedAt":"","views":null,"viewsPerHour":null,"metricLabel":"Public views|Not publicly available"}]}],\n' +
+    '  "viralHashtags":{"viral":[{"tag":"#observedtag","volume":"Not measured","competition":"Unknown","velocityScore":70,"category":"viral","evidenceStatus":"verified"}],"nicheSpecific":[{"tag":"#suggestedtag","volume":"Not measured","competition":"Unknown","velocityScore":75,"category":"niche","evidenceStatus":"suggested"}],"evergreen":[{"tag":"#evergreentag","volume":"Not measured","competition":"Unknown","velocityScore":60,"category":"evergreen","evidenceStatus":"suggested"}]},\n' +
+    '  "suggestedKeywords":["keyword"],\n' +
+    '  "bestPractices":[{"title":"Specific practice","category":"Follower Growth|Sales & Conversion|Retention & Watch Time|Algorithm Triggers","insight":"Evidence or reasoning, clearly labelled","actionableStep":"One concrete action"}]\n' +
+    '}\n';
 }
 
 export function scriptPrompt(a: {
