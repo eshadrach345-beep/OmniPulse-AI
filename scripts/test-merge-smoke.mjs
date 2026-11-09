@@ -95,11 +95,12 @@ try {
   assert.ok(stat.size > 2_000, 'Merged MP4 should not be empty.');
   assert.ok(infoLines.some((line) => line.includes('Scene merge used packet stream-copy')),
     'Matching clips with AAC audio should take the packet stream-copy fast path.');
-  const loudnessProbe = await run(['-hide_banner', '-i', merged.file, '-af', 'ebur128=peak=true', '-f', 'null', '-']);
-  const integratedValues = [...loudnessProbe.stderr.matchAll(/\\bI:\\s*(-?\\d+(?:\\.\\d+)?)\\s*LUFS/g)].map((match) => Number(match[1]));
-  assert.ok(integratedValues.length, 'FFmpeg should report integrated loudness for the final film.');
-  assert.ok(integratedValues.at(-1) >= -15.5 && integratedValues.at(-1) <= -12.5,
-    `Final film audio should be mastered near -14 LUFS, got ${integratedValues.at(-1)} LUFS.`);
+  const loudnessProbe = await run(['-hide_banner', '-i', merged.file, '-af', 'loudnorm=I=-14:TP=-1.5:LRA=11:print_format=summary', '-f', 'null', '-']);
+  const integratedMatch = loudnessProbe.stderr.match(/Output Integrated:\\s*(-?\\d+(?:\\.\\d+)?)\\s*LUFS/i);
+  assert.ok(integratedMatch, 'FFmpeg loudnorm should report the measured output integrated loudness.');
+  const integratedLufs = Number(integratedMatch[1]);
+  assert.ok(integratedLufs >= -15.5 && integratedLufs <= -12.5,
+    `Final film audio should be mastered near -14 LUFS, got ${integratedLufs} LUFS.`);
 
 
   const probe = await run(['-hide_banner', '-i', merged.file, '-f', 'null', '-']);
