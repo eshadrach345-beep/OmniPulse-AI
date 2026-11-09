@@ -1,9 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { ArrowRight, ArrowUpRight, AudioLines, CalendarClock, Check, ChevronDown, Clapperboard, Film, Layers3, Play, Scissors, ShieldCheck, Sparkles, TrendingUp, WandSparkles, Zap } from 'lucide-react';
+import { ArrowRight, ArrowUpRight, AudioLines, CalendarClock, Check, ChevronDown, Clapperboard, Film, Layers3, Play, Scissors, Sparkles, TrendingUp, WandSparkles, Zap } from 'lucide-react';
 import { Auth, PlanInfo } from '../services/authService';
 import { COMPANY, SUPPORT_EMAIL, LegalLinks } from './Legal';
 import { formatMoney, annualSavingPct } from '../services/money';
-import { GENRE_OPTIONS, PRESENTATION_OPTIONS } from '../data/storyOptions';
 import { SHOWCASE } from '../data/showcase';
 
 const FEATURES = [
