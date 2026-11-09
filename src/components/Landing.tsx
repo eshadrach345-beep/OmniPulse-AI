@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { ArrowDownRight, ArrowUpRight, AudioLines, CalendarDays, Check, ChevronDown, Clapperboard, Film, Layers3, LineChart, Mic2, Play, RadioTower, Sparkles, Wand2, Zap } from 'lucide-react';
+import { ArrowDownRight, ArrowUpRight, AudioLines, CalendarDays, Check, ChevronDown, Clapperboard, Film, Layers3, LineChart, Mic2, Play, RadioTower, Sparkles, Wand2 } from 'lucide-react';
 import { Auth, PlanInfo } from '../services/authService';
 import { COMPANY, SUPPORT_EMAIL, LegalLinks } from './Legal';
 import { formatMoney, annualSavingPct } from '../services/money';
