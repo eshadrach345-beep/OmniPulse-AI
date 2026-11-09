@@ -19,7 +19,7 @@ export function trendsFormatPrompt(niche: string, notes: string): string {
 
 RESEARCH NOTES:
 """
-${notes.slice(0, 28000)}
+${notes.slice(0, 9000)}
 """
 
 Rules:
@@ -27,7 +27,7 @@ Rules:
 - Only label a hashtag "viral" when dated source evidence supports current attention. If sources do not provide measured hashtag volume, competition or velocity, use "Not measured" for volume and "Unknown" for competition. velocityScore may only be a clearly understood editorial relevance score, never actual platform analytics or measured reach.
 - Never label a topic viral, breakout or rising without dated evidence of increasing attention; otherwise use Evergreen or clearly caveated Rising.
 - Do not invent creator handles. If an account cannot be verified from a direct source URL, omit it.
-- Return up to 50 distinct creators/accounts only when supported by the supplied evidence. Rank them by the strongest available evidence, prioritising official public video views and recency. Never imply this is a complete platform-wide ranking.
+- Return up to 12 distinct creators/accounts only when supported by the supplied evidence. Rank them by the strongest available evidence, prioritising official public video views and recency. Never imply this is a complete platform-wide ranking.
 - For every creator, include 1 to 3 recent high-performing video examples when direct video URLs are present in the evidence. Each example must include its exact title, exact URL, platform, publication date when supplied, exact thumbnail URL when supplied, and numeric public view count only when explicitly supplied. Preserve viewsPerHour only when it is explicitly calculated and supplied in the official YouTube evidence. This is public views divided by elapsed hours, not impressions. Do not infer private impressions.
 - For YouTube API evidence, public view counts, likes, comments, subscribers and thumbnails are source-backed. Label view counts as public views, never impressions. For TikTok/Instagram/other networks, use only metrics explicitly visible in the supplied evidence; otherwise leave the metric unavailable.
 - A creator's avatar/profile image URL may be included only when it appears verbatim in the evidence. Never manufacture image URLs.
@@ -35,7 +35,7 @@ Rules:
 - "url" for a creator must be a URL that appears in the notes, otherwise "".
 - Each topic needs a "whyNow" sentence. "velocity" is a short qualitative phrase (e.g. "Rising quickly"), "volume" is "Large", "Medium" or "Small", and "estimatedReachMultiplier" is a qualitative phrase. Never invent percentages.
 - Only include hashtags that appear verbatim in the supplied source evidence. If sources do not show enough tags, return fewer rather than inventing them. Every tag must start with #.
-- 3 to 5 trendingTopics, up to 50 verified trendingCreators when evidence supports them (never pad the list), 3 to 5 hashtags in each group, using "Not measured" volume and "Unknown" competition whenever sources provide no measurement, 4 to 8 suggestedKeywords, 3 to 5 bestPractices.
+- 4 to 6 trendingTopics, up to 12 verified trendingCreators when evidence supports them (never pad the list), 3 to 5 hashtags in each group, using "Not measured" volume and "Unknown" competition whenever sources provide no measurement, 4 to 8 suggestedKeywords, 3 to 5 bestPractices.
 
 Return ONLY valid JSON in exactly this shape:
 {

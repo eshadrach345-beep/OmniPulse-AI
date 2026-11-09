@@ -640,7 +640,7 @@ export const TrendHashtagRadar: React.FC<TrendHashtagRadarProps> = ({
                 Categorized Hashtag Radar & Spoken SEO Keywords
               </h2>
               <p className="text-xs text-slate-400">
-                Sorted by algorithmic velocity and search volume to maximize reach without trigger shadowbans.
+                Research-backed hashtag examples and niche tags. Search volume, competition and reach are marked as unmeasured when no reliable platform data is available.
               </p>
             </div>
 
@@ -660,10 +660,10 @@ export const TrendHashtagRadar: React.FC<TrendHashtagRadarProps> = ({
                   <Flame className="w-4 h-4 text-rose-400" />
                   <span className="text-xs font-bold text-white">Viral Velocity Tags</span>
                 </div>
-                <span className="text-[10px] text-rose-400 font-mono">High Reach</span>
+                <span className="text-[10px] text-rose-300 font-mono">Recent signals</span>
               </div>
               <p className="text-[11px] text-slate-400">
-                Top trending tags with explosive discovery volume across recommendation feeds.
+                Tags explicitly found in dated research sources. A relevance score is editorial guidance, not measured hashtag velocity.
               </p>
 
               <div className="space-y-2">
@@ -674,7 +674,8 @@ export const TrendHashtagRadar: React.FC<TrendHashtagRadarProps> = ({
                     className="cursor-pointer group flex items-center justify-between p-2.5 rounded-lg bg-slate-950/80 border border-slate-850 hover:border-indigo-500 transition-all"
                   >
                     <div>
-                      <span className="text-xs font-semibold text-slate-100 group-hover:text-indigo-300">
+                      <span className="inline-flex items-center gap-2 text-xs font-semibold text-slate-100 group-hover:text-indigo-300">
+                        <span className="grid h-6 w-6 place-items-center rounded-md border border-indigo-400/20 bg-indigo-500/10 text-indigo-300 shadow-sm"><Hash className="h-3.5 w-3.5" /></span>
                         {item.tag}
                       </span>
                       <span className="text-[10px] text-slate-500 block">
@@ -702,10 +703,10 @@ export const TrendHashtagRadar: React.FC<TrendHashtagRadarProps> = ({
                   <Target className="w-4 h-4 text-indigo-400" />
                   <span className="text-xs font-bold text-white">Niche-Specific Tags</span>
                 </div>
-                <span className="text-[10px] text-emerald-400 font-mono">Low Comp · Easy Rank</span>
+                <span className="text-[10px] text-emerald-300 font-mono">Niche relevance</span>
               </div>
               <p className="text-[11px] text-slate-400">
-                Targeted tags with lower saturation, allowing you to dominate the top 9 posts quickly.
+                Niche-focused tags found in the source material. Competition is not assumed when platforms do not publish comparable data.
               </p>
 
               <div className="space-y-2">
@@ -716,7 +717,8 @@ export const TrendHashtagRadar: React.FC<TrendHashtagRadarProps> = ({
                     className="cursor-pointer group flex items-center justify-between p-2.5 rounded-lg bg-slate-950/80 border border-slate-850 hover:border-indigo-500 transition-all"
                   >
                     <div>
-                      <span className="text-xs font-semibold text-slate-100 group-hover:text-indigo-300">
+                      <span className="inline-flex items-center gap-2 text-xs font-semibold text-slate-100 group-hover:text-indigo-300">
+                        <span className="grid h-6 w-6 place-items-center rounded-md border border-indigo-400/20 bg-indigo-500/10 text-indigo-300 shadow-sm"><Hash className="h-3.5 w-3.5" /></span>
                         {item.tag}
                       </span>
                       <span className="text-[10px] text-slate-500 block">
@@ -744,10 +746,10 @@ export const TrendHashtagRadar: React.FC<TrendHashtagRadarProps> = ({
                   <Layers className="w-4 h-4 text-cyan-400" />
                   <span className="text-xs font-bold text-white">Evergreen Authority</span>
                 </div>
-                <span className="text-[10px] text-cyan-400 font-mono">Consistent Reach</span>
+                <span className="text-[10px] text-cyan-300 font-mono">Long-term context</span>
               </div>
               <p className="text-[11px] text-slate-400">
-                Reliable industry anchors that establish channel category indexing with platform bots.
+                Broad category tags for context. Their inclusion does not imply guaranteed ranking or reach.
               </p>
 
               <div className="space-y-2">
@@ -758,7 +760,8 @@ export const TrendHashtagRadar: React.FC<TrendHashtagRadarProps> = ({
                     className="cursor-pointer group flex items-center justify-between p-2.5 rounded-lg bg-slate-950/80 border border-slate-850 hover:border-indigo-500 transition-all"
                   >
                     <div>
-                      <span className="text-xs font-semibold text-slate-100 group-hover:text-indigo-300">
+                      <span className="inline-flex items-center gap-2 text-xs font-semibold text-slate-100 group-hover:text-indigo-300">
+                        <span className="grid h-6 w-6 place-items-center rounded-md border border-indigo-400/20 bg-indigo-500/10 text-indigo-300 shadow-sm"><Hash className="h-3.5 w-3.5" /></span>
                         {item.tag}
                       </span>
                       <span className="text-[10px] text-slate-500 block">
