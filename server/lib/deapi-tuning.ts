@@ -43,3 +43,12 @@ export function buildDeapiVideoFields(modelInfo: DeapiVideoModelInfo | null | un
   }
   return fields;
 }
+
+/** A per-attempt seed takes precedence over a configured fixed seed so QA retries can explore a new result. */
+export function resolveDeapiSeed(seedOverride: unknown, configuredSeed: unknown, fallbackSeed: number): number {
+  const valid = (value: unknown): number | null => {
+    const n = typeof value === 'number' ? value : (typeof value === 'string' && value.trim() ? Number(value) : NaN);
+    return Number.isSafeInteger(n) && n >= 0 && n <= 2_147_483_647 ? n : null;
+  };
+  return valid(seedOverride) ?? valid(configuredSeed) ?? fallbackSeed;
+}
