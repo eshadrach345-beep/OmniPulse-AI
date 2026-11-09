@@ -200,6 +200,11 @@ export interface VideoMediaLayer {
   scale: number;
   x: number;
   y: number;
+  /** Optional chroma-key cleanup for green-screen image/video overlays. */
+  chromaKey?: boolean;
+  chromaKeyColor?: string;
+  chromaKeySimilarity?: number;
+  chromaKeyBlend?: number;
 }
 
 export interface VideoCaptionCue {
@@ -230,6 +235,15 @@ export interface VideoScene {
   beat?: string;
   sceneNumber: number;
   duration: number; // seconds
+  /** Base footage playback rate; 1 is real time, 0.5 is half-speed, 2 is double-speed. */
+  playbackSpeed?: number;
+  /** Main scene fade in/out in seconds; applied to picture and source audio. */
+  clipFadeIn?: number;
+  clipFadeOut?: number;
+  /** How the source frame fits into the output canvas. */
+  fitMode?: 'contain' | 'cover';
+  /** Restrained color-grading preset applied during export. */
+  colorGrade?: 'none' | 'cinematic' | 'warm' | 'cool' | 'monochrome' | 'vintage' | 'vivid';
   visualCue: string;
   narration: string;
   onScreenText: string;

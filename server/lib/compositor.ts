@@ -1,4 +1,4 @@
-type VideoMediaLayer = { kind: 'video' | 'image' | 'audio'; sourceIn: number; duration: number; startAt: number; scale: number; opacity: number; x: number; y: number; volume: number; fadeIn?: number; fadeOut?: number };
+type VideoMediaLayer = { kind: 'video' | 'image' | 'audio'; sourceIn: number; duration: number; startAt: number; scale: number; opacity: number; x: number; y: number; volume: number; fadeIn?: number; fadeOut?: number; chromaKey?: boolean; chromaKeyColor?: string; chromaKeySimilarity?: number; chromaKeyBlend?: number };
 type VideoCaptionCue = { start: number; end: number; text: string };
 type VideoTextOverlay = {
   start: number; end: number; text: string; y: string; fontSize: number; color?: string;
@@ -10,6 +10,12 @@ export interface CompositionInput {
   base: string;
   baseIsImage?: boolean;
   baseSourceIn?: number;
+  /** Base video speed multiplier; images remain static. */
+  playbackSpeed?: number;
+  clipFadeIn?: number;
+  clipFadeOut?: number;
+  fitMode?: 'contain' | 'cover';
+  colorGrade?: 'none' | 'cinematic' | 'warm' | 'cool' | 'monochrome' | 'vintage' | 'vivid';
   overlays: Array<{ layer: VideoMediaLayer; file: string }>;
   audio: Array<{ layer: VideoMediaLayer; file: string }>;
   captions: VideoCaptionCue[];
@@ -55,10 +61,36 @@ export async function renderComposition(input: CompositionInput): Promise<void> 
   const duration = Math.max(1, Math.min(90, input.duration));
   const width = Math.max(480, Math.min(1920, Math.round(input.width / 2) * 2));
   const height = Math.max(480, Math.min(1920, Math.round(input.height / 2) * 2));
+  const playbackSpeed = input.baseIsImage ? 1 : Math.max(0.5, Math.min(2, Number(input.playbackSpeed) || 1));
+  const clipFadeIn = Math.max(0, Math.min(duration / 2, Number(input.clipFadeIn) || 0));
+  const clipFadeOut = Math.max(0, Math.min(duration / 2, Number(input.clipFadeOut) || 0));
+  const videoFade = [
+    clipFadeIn > 0 ? `fade=t=in:st=0:d=${clipFadeIn}` : '',
+    clipFadeOut > 0 ? `fade=t=out:st=${Math.max(0, duration - clipFadeOut)}:d=${clipFadeOut}` : '',
+  ].filter(Boolean).join(',');
+  const audioFade = [
+    clipFadeIn > 0 ? `afade=t=in:st=0:d=${clipFadeIn}` : '',
+    clipFadeOut > 0 ? `afade=t=out:st=${Math.max(0, duration - clipFadeOut)}:d=${clipFadeOut}` : '',
+  ].filter(Boolean).join(',');
+  const sourceDuration = duration * playbackSpeed;
+  const fitMode = input.fitMode === 'cover' ? 'cover' : 'contain';
+  const frameFit = fitMode === 'cover'
+    ? `scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height}`
+    : `scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2`;
+  const colorGrades: Record<string, string> = {
+    cinematic: 'eq=contrast=1.12:saturation=0.92:brightness=-0.02',
+    warm: 'colorbalance=rs=0.10:gs=0.02:bs=-0.08',
+    cool: 'colorbalance=rs=-0.08:gs=0.01:bs=0.10',
+    monochrome: 'hue=s=0',
+    vintage: 'eq=contrast=0.92:saturation=0.72:brightness=0.02,colorbalance=rs=0.06:gs=0.01:bs=-0.05',
+    vivid: 'eq=contrast=1.08:saturation=1.25',
+  };
+  const grade = colorGrades[String(input.colorGrade || 'none')] || '';
   const args = ['-hide_banner', '-y'];
   if (input.baseIsImage) args.push('-loop', '1', '-t', String(duration), '-i', input.base);
-  else args.push('-ss', String(Math.max(0, input.baseSourceIn || 0)), '-t', String(duration), '-i', input.base);
-  const filter: string[] = [`[0:v]tpad=stop_mode=clone:stop_duration=${duration},trim=duration=${duration},setpts=PTS-STARTPTS,scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30,format=yuv420p[v0]`];
+  else args.push('-ss', String(Math.max(0, input.baseSourceIn || 0)), '-t', String(sourceDuration), '-i', input.base);
+  const baseFilters = [`[0:v]setpts=(PTS-STARTPTS)/${playbackSpeed},tpad=stop_mode=clone:stop_duration=${duration},trim=duration=${duration},${frameFit},setsar=1,fps=30`, grade, videoFade, 'format=yuv420p[v0]'].filter(Boolean);
+  const filter: string[] = [baseFilters.join(',')];
   let videoLabel = 'v0';
   let nextInput = 1;
 
@@ -81,7 +113,11 @@ export async function renderComposition(input: CompositionInput): Promise<void> 
       fadeIn > 0 ? `fade=t=in:st=0:d=${fadeIn}:alpha=1` : '',
       fadeOut > 0 ? `fade=t=out:st=${Math.max(0, clipDuration - fadeOut)}:d=${fadeOut}:alpha=1` : '',
     ].filter(Boolean).join(',');
-    filter.push(`[${index}:v]scale=${Math.round(width * scale / 100 / 2) * 2}:-2,format=rgba${visualFade ? ',' + visualFade : ''},colorchannelmixer=aa=${opacity},setpts=PTS-STARTPTS+${start}/TB[ov${index}]`);
+    const keyColor = /^#[0-9a-f]{6}$/i.test(String(layer.chromaKeyColor || '')) ? '0x' + String(layer.chromaKeyColor).slice(1) : '0x00FF00';
+    const similarity = Math.max(0.01, Math.min(0.8, Number(layer.chromaKeySimilarity) || 0.25));
+    const keyBlend = Math.max(0, Math.min(0.5, Number(layer.chromaKeyBlend) || 0.08));
+    const chromaFilter = layer.chromaKey === true ? `colorkey=${keyColor}:${similarity.toFixed(3)}:${keyBlend.toFixed(3)}` : '';
+    filter.push(`[${index}:v]scale=${Math.round(width * scale / 100 / 2) * 2}:-2,format=rgba${chromaFilter ? ',' + chromaFilter : ''}${visualFade ? ',' + visualFade : ''},colorchannelmixer=aa=${opacity},setpts=PTS-STARTPTS+${start}/TB[ov${index}]`);
     filter.push(`[${videoLabel}][ov${index}]overlay=x=(W-w)*${x}:y=(H-h)*${y}:enable='between(t,${start},${end})':eof_action=pass:shortest=0[${nextLabel}]`);
     videoLabel = nextLabel;
   }
@@ -148,7 +184,10 @@ export async function renderComposition(input: CompositionInput): Promise<void> 
   });
   const hasBaseAudio = /Audio:\s/.test(probe);
   const audioLabels: string[] = [];
-  if (hasBaseAudio) { filter.push(`[0:a]atrim=duration=${duration},apad=pad_dur=${duration},atrim=duration=${duration},asetpts=PTS-STARTPTS,aresample=48000,loudnorm=I=-16:TP=-1.5:LRA=11[abase]`); audioLabels.push('[abase]'); }
+  if (hasBaseAudio) {
+    filter.push(`[0:a]atempo=${playbackSpeed},atrim=duration=${duration},apad=pad_dur=${duration},atrim=duration=${duration},asetpts=PTS-STARTPTS${audioFade ? ',' + audioFade : ''},aresample=48000,loudnorm=I=-16:TP=-1.5:LRA=11,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo[abase]`);
+    audioLabels.push('[abase]');
+  }
   for (const { index, layer } of audioInputs) {
     const label = `a${index}`;
     const startMs = Math.round(Math.max(0, Math.min(duration, layer.startAt || 0)) * 1000);
@@ -160,8 +199,14 @@ export async function renderComposition(input: CompositionInput): Promise<void> 
     filter.push(`[${index}:a]atrim=duration=${audioDuration},asetpts=PTS-STARTPTS${envelope ? `,${envelope}` : ''},adelay=${startMs}|${startMs},volume=${volume}[${label}]`);
     audioLabels.push(`[${label}]`);
   }
-  if (audioLabels.length > 1) filter.push(`${audioLabels.join('')}amix=inputs=${audioLabels.length}:duration=longest:dropout_transition=0,alimiter=limit=0.95,loudnorm=I=-16:TP=-1.5:LRA=11[aout]`);
-  else if (audioLabels.length === 1) filter.push(`${audioLabels[0]}loudnorm=I=-16:TP=-1.5:LRA=11,aresample=48000[aout]`);
+  if (audioLabels.length > 1) {
+    filter.push(`${audioLabels.join('')}amix=inputs=${audioLabels.length}:duration=longest:dropout_transition=0,alimiter=limit=0.95,loudnorm=I=-16:TP=-1.5:LRA=11,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo[aout]`);
+  } else if (audioLabels.length === 1 && audioLabels[0] === '[abase]') {
+    // The base source has already been speed-adjusted, faded and loudness-normalized above.
+    filter.push('[abase]anull[aout]');
+  } else if (audioLabels.length === 1) {
+    filter.push(`${audioLabels[0]}loudnorm=I=-16:TP=-1.5:LRA=11,aresample=48000,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo[aout]`);
+  }
 
   args.push('-filter_complex', filter.join(';'), '-map', `[${videoLabel}]`);
   if (audioLabels.length) args.push('-map', '[aout]');

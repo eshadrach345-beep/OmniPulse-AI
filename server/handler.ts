@@ -7,7 +7,7 @@ import {
 } from './lib/core.js';
 import { sql, ensureSchema } from './lib/db.js';
 import { PLANS, TIERS, Tier, Cycle, planId, tierFromPlanId, priceFor, BILLING_CURRENCY, TRIAL, TOPUPS, trialPrice } from './lib/plans.js';
-import { mail, flw, verifyFlwSignature, lookupEnv, geminiJson, geminiRaw, geminiFormat, webTrendResearch, aiWriterStatus, testAiWriters, falSubmit, falContinueSubmit, falReferenceVideoSubmit, falKlingReferenceSubmit, falGenerateCharacterReference, falGenerateLocationPlate, falEditLocationPlate, falStatus, falImageVideoSubmit, falGenerateBrandImages, deapiSubmit, deapiStatus, deapiAnimate, RateLimited, synthesize } from './lib/services.js';
+import { mail, flw, verifyFlwSignature, lookupEnv, geminiJson, geminiRaw, geminiFormat, webTrendResearch, aiWriterStatus, testAiWriters, falSubmit, falContinueSubmit, falReferenceVideoSubmit, falKlingReferenceSubmit, falGenerateCharacterReference, falGenerateLocationPlate, falEditLocationPlate, falStatus, falImageVideoSubmit, falGenerateBrandImages, deapiSubmit, deapiStatus, deapiAnimate, deapiVideoModels, RateLimited, synthesize } from './lib/services.js';
 import { trendsFormatPrompt, scriptPrompt, adConceptPrompt, abPrompt, competitorPrompt, outrankPrompt, parseStoryBrief, type SeriesContinuity, type StoryBriefInput, storyBeats, STORY_MOODS, CAMERA_PROFILES, GENRES, INTENSITIES, ENDINGS, PRESENTATIONS, CASTS, TROPES, styleBlock, STORY_LIMITS, planScenes, castMinimum, storyboardPrompt, outlinePrompt, chunkPrompt, adaptPrompt, PART_SECONDS, SCENES_PER_WRITER_CALL, MAX_WORDS_PER_CLIP } from './lib/prompts.js';
 import { assembleParts, toNativeMultiShotPrompt, addDeapiCastNotes, buildCommercialShotPrompts } from './lib/assemble.js';
 import { refineScene, shownInstruction, proseToUnits, thoughtToVisual, type SpokenLine } from './lib/screenplay.js';
@@ -611,6 +611,90 @@ const adImageRender: Handler = async ({ req, res, body }) => {
   const id = newId('job');
   await sql()`INSERT INTO video_jobs (id, user_id, status_url, response_url, seconds, source) VALUES (${id}, ${row.id}, ${job.statusUrl}, ${job.responseUrl}, ${seconds}, ${source})`;
   json(res, 200, { jobId: id });
+};
+
+const videoModelCatalogue: Handler = async ({ req, res }) => {
+  const { row } = await requireAccess(req);
+  await rateLimit(`video-models:${row.id}`, 30, 3600);
+  let provider: ReturnType<typeof parseVideoProvider>;
+  try { provider = parseVideoProvider(process.env.VIDEO_PROVIDER); }
+  catch (e: any) { throw new HttpError(500, e?.message || 'Invalid VIDEO_PROVIDER setting.', 'VIDEO_PROVIDER'); }
+  const falEnabled = !!lookupEnv('FAL_KEY');
+  const deapiEnabled = !!lookupEnv('DEAPI_API_KEY');
+  const models = deapiEnabled ? await deapiVideoModels() : [];
+  const availableProviders = [falEnabled ? 'fal' : null, deapiEnabled ? 'deapi' : null, falEnabled && deapiEnabled ? 'auto' : null].filter(Boolean);
+  json(res, 200, { provider, models, falEnabled, deapiEnabled, availableProviders });
+};
+
+const youtubeGrowthKit: Handler = async ({ req, res, body }) => {
+  const { row } = await requireAccess(req);
+  await rateLimit(`youtube-growth:${row.id}`, 30, 3600);
+  const niche = str(body.niche || 'general audience', 100);
+  const keyword = str(body.keyword, 160);
+  const title = str(body.title, 180);
+  const description = str(body.description, 4000);
+  const platforms = ['youtube', 'tiktok', 'instagram', 'facebook', 'linkedin', 'x', 'pinterest'];
+  const platform = platforms.includes(String(body.platform).toLowerCase()) ? String(body.platform).toLowerCase() : 'youtube';
+  if (!keyword && !title && description.length < 30) throw new HttpError(400, 'Enter a target topic, title or a short description of the content.');
+  const goal = ['discoverability', 'clicks', 'subscribers', 'shorts', 'reach', 'engagement', 'leads', 'community'].includes(String(body.goal)) ? String(body.goal) : 'discoverability';
+  const platformGuides: Record<string, string> = {
+    youtube: 'Use search-friendly titles and descriptions, video tags, Shorts derivatives, thumbnail concepts, chapters and channel-community prompts.',
+    tiktok: 'Prioritise a 1-2 second opening hook, native vertical video concepts, concise captions, relevant searchable phrases, a small relevant hashtag set and comment prompts.',
+    instagram: 'Prepare Reels hooks, concise captions, searchable profile/content phrases, relevant hashtags, carousel alternatives, Story follow-ups and save/share prompts.',
+    facebook: 'Prepare Reels and feed variants, conversational captions, community discussion prompts, shareable framing and clear page-level calls to action.',
+    linkedin: 'Use professional but human language, practical insight-led hooks, short paragraphs, credible examples, conversation prompts and relevant industry terms.',
+    x: 'Write concise post options and multi-post thread outlines, with a clear point, useful context and a natural reply prompt; avoid engagement bait.',
+    pinterest: 'Write searchable pin titles and descriptions, evergreen keyword phrases, board suggestions, vertical creative concepts and useful destination-page alignment.',
+  };
+  const prompt = `You are a practical social growth and content strategist. Build a creator-ready organic content package for one platform.
+Platform: ${platform.toUpperCase()}
+Platform-specific direction: ${platformGuides[platform]}
+Niche: ${niche}
+Primary topic / search phrase: ${keyword || 'Infer from the supplied title and description'}
+Current title / draft: ${title || '(not supplied)'}
+Content description / notes: ${description || '(not supplied)'}
+Primary goal: ${goal}
+
+Return one valid JSON object only, with these exact keys:
+{
+  "titleOptions": ["5 distinct platform-appropriate titles, openers or post headlines; no deceptive clickbait"],
+  "openingHooks": ["5 strong first-line or first-2-second hooks tailored to the selected platform"],
+  "description": "One ready-to-paste platform-appropriate caption or description with a useful call to action",
+  "tags": ["12-20 relevant keyword/tag phrases, without #, only where the selected platform supports useful tagging"],
+  "hashtags": ["3-5 relevant hashtags, each beginning with #; don't force hashtags where they are not useful"],
+  "keywordIdeas": ["10-12 natural search phrases, related searches or audience questions; no volume or difficulty scores"],
+  "shortsIdeas": ["5 short-form or platform-native content angles derived from this exact topic"],
+  "shortsTitles": ["5 concise alternative short-form titles or opening text options"],
+  "thumbnailConcepts": ["3 cover, thumbnail or opening-frame concepts appropriate to the selected platform"],
+  "chapterIdeas": ["5 ordered content beats or carousel/thread section headings; no invented timestamps"],
+  "communityPosts": ["3 ready-to-edit audience engagement posts, comments or discussion prompts appropriate to the selected platform"],
+  "channelGrowthPlan": ["7 practical repeatable publishing, community, discovery and learning actions tailored to this platform"],
+  "optimizationChecklist": ["5 concrete quality and publishing checks for this platform"]
+}
+Rules: do not invent search volumes, keyword difficulty, rankings, trends, views, impressions, click-through rates, engagement rates, posting-time analytics, audience demographics or private channel analytics. Do not claim content will go viral or guarantee reach. Recommendations are creative hypotheses, not measured facts. Avoid unrelated high-volume terms, hashtag stuffing and engagement bait. Distinguish platform features from suggestions; if a feature is unavailable or unknown, do not claim it exists. Use only the brief and general platform writing practices; be conservative when context is missing.`;
+  const data = await geminiJson(prompt);
+  const strings = (value: any, max: number, limit = 500) => Array.isArray(value)
+    ? value.slice(0, max).map((item: any) => str(item, limit)).filter(Boolean) : [];
+  const result = {
+    platform,
+    titleOptions: strings(data?.titleOptions, 5, 140),
+    openingHooks: strings(data?.openingHooks, 5, 220),
+    description: str(data?.description, 5000),
+    tags: strings(data?.tags, 25, 50),
+    hashtags: strings(data?.hashtags, 8, 40),
+    keywordIdeas: strings(data?.keywordIdeas, 15, 140),
+    shortsIdeas: strings(data?.shortsIdeas, 6, 260),
+    shortsTitles: strings(data?.shortsTitles, 6, 140),
+    thumbnailConcepts: strings(data?.thumbnailConcepts, 4, 360),
+    chapterIdeas: strings(data?.chapterIdeas, 8, 140),
+    communityPosts: strings(data?.communityPosts, 4, 700),
+    channelGrowthPlan: strings(data?.channelGrowthPlan, 10, 320),
+    optimizationChecklist: strings(data?.optimizationChecklist, 8, 260),
+  };
+  if (result.titleOptions.length < 3 || !result.description || result.tags.length < 5) {
+    throw new HttpError(424, 'The YouTube growth strategist returned an incomplete package. Please try again.', 'AI_PROVIDER_UNAVAILABLE');
+  }
+  json(res, 200, { success: true, ...result });
 };
 
 const researchTrends: Handler = async ({ req, res, body }) => {
@@ -1318,11 +1402,11 @@ const tts: Handler = async ({ req, res, body }) => {
 
 // ---------------------------------------------------------------- video (fal.ai / deAPI queue)
 /** Sends one clip to the configured video provider (VIDEO_PROVIDER: fal, deapi or auto) and returns its queue addresses. */
-async function submitToProvider(prompt: string, reso: '480P' | '768P' | '1080P', seconds: 5 | 10, aspect: string, multiPrompt?: { prompt: string; duration: number }[]): Promise<{ statusUrl: string; responseUrl: string }> {
+async function submitToProvider(prompt: string, reso: '480P' | '768P' | '1080P', seconds: 5 | 10, aspect: string, multiPrompt?: { prompt: string; duration: number }[], videoModel?: string, videoProvider?: string): Promise<{ statusUrl: string; responseUrl: string }> {
   let provider: ReturnType<typeof parseVideoProvider>;
-  try { provider = parseVideoProvider(process.env.VIDEO_PROVIDER); }
+  try { provider = parseVideoProvider(videoProvider || process.env.VIDEO_PROVIDER); }
   catch (e: any) { throw new HttpError(500, e?.message || 'Invalid VIDEO_PROVIDER setting.', 'VIDEO_PROVIDER'); }
-  const viaDeapi = async () => { const deapiPrompt = multiPrompt?.length ? `${prompt} ${toNativeMultiShotPrompt(multiPrompt)}` : prompt; const j = await deapiSubmit(deapiPrompt, reso, seconds, aspect); return { statusUrl: `deapi:${j.requestId}`, responseUrl: 'deapi' }; };
+  const viaDeapi = async () => { const deapiPrompt = multiPrompt?.length ? `${prompt} ${toNativeMultiShotPrompt(multiPrompt)}` : prompt; const j = await deapiSubmit(deapiPrompt, reso, seconds, aspect, videoModel); return { statusUrl: `deapi:${j.requestId}`, responseUrl: 'deapi' }; };
   const viaFal = async () => { const j = await falSubmit(prompt, reso, seconds, aspect); return { statusUrl: j.statusUrl, responseUrl: j.responseUrl }; };
   if (provider === 'deapi') return viaDeapi();
   if (provider === 'fal') return viaFal();
@@ -1964,10 +2048,20 @@ const episodeCreate: Handler = async ({ req, res, body }) => {
     cta: str(kit.cta, 60), url: str(kit.url, 140),
     logoAssetId: str(kit.logoAssetId, 80) || undefined,
     referenceAssetIds: Array.isArray(kit.referenceAssetIds) ? [...new Set(kit.referenceAssetIds.map((id: any) => str(id, 80)).filter(Boolean))].slice(0, 4) : [],
+    startFrameAssetId: str(kit.startFrameAssetId, 80) || undefined,
+    endFrameAssetId: str(kit.endFrameAssetId, 80) || undefined,
   };
-  const hasBrandKit = !!(brandKit.brandName || brandKit.tagline || brandKit.cta || brandKit.url || brandKit.logoAssetId || brandKit.referenceAssetIds.length);
+  let videoProvider: ReturnType<typeof parseVideoProvider>;
+  try { videoProvider = parseVideoProvider(str(body.videoProvider, 20) || process.env.VIDEO_PROVIDER); }
+  catch (e: any) { throw new HttpError(400, e?.message || 'Choose a supported video provider.', 'VIDEO_PROVIDER'); }
+  if (videoProvider === 'fal' && !lookupEnv('FAL_KEY')) throw new HttpError(424, 'FAL is not configured on this account. Choose DeAPI or add FAL_KEY in Vercel.', 'VIDEO_PROVIDER_UNAVAILABLE');
+  if (videoProvider === 'deapi' && !lookupEnv('DEAPI_API_KEY')) throw new HttpError(424, 'DeAPI is not configured on this account. Choose FAL or add DEAPI_API_KEY in Vercel.', 'VIDEO_PROVIDER_UNAVAILABLE');
+  if (videoProvider === 'auto' && !lookupEnv('FAL_KEY') && !lookupEnv('DEAPI_API_KEY')) throw new HttpError(424, 'No video provider is configured. Add FAL_KEY or DEAPI_API_KEY in Vercel.', 'VIDEO_PROVIDER_UNAVAILABLE');
+  const videoModel = (videoProvider === 'deapi' || videoProvider === 'auto') ? str(body.videoModel, 120) : '';
+  if (videoProvider === 'auto' && !lookupEnv('DEAPI_API_KEY') && videoModel) throw new HttpError(400, 'A DeAPI model cannot be selected because DeAPI is not configured as a fallback.', 'VIDEO_PROVIDER_UNAVAILABLE');
+  const hasBrandKit = !!(brandKit.brandName || brandKit.tagline || brandKit.cta || brandKit.url || brandKit.logoAssetId || brandKit.referenceAssetIds.length || brandKit.startFrameAssetId || brandKit.endFrameAssetId);
   if (hasBrandKit) {
-    const assetIds = [...new Set([brandKit.logoAssetId, ...brandKit.referenceAssetIds].filter(Boolean))] as string[];
+    const assetIds = [...new Set([brandKit.logoAssetId, ...brandKit.referenceAssetIds, brandKit.startFrameAssetId, brandKit.endFrameAssetId].filter(Boolean))] as string[];
     for (const assetId of assetIds) {
       const owned = (await sql()`SELECT content_type FROM media_assets WHERE id = ${assetId} AND user_id = ${row.id} LIMIT 1`) as any[];
       if (!owned[0]) throw new HttpError(404, 'A Brand Library image is missing or does not belong to this account.', 'BRAND_ASSET_NOT_FOUND');
@@ -1982,6 +2076,8 @@ const episodeCreate: Handler = async ({ req, res, body }) => {
     brandKit.url ? 'Destination website: ' + brandKit.url + '.' : '',
     brandKit.logoAssetId ? 'A real logo is saved separately. Do not generate, redraw or spell a logo in video frames; leave the closing frame clean for the exact uploaded logo to be overlaid in the editor.' : '',
     brandKit.referenceAssetIds.length ? 'Product and visual references are saved in the Brand Library. Do not invent additional objects or people.' : '',
+    brandKit.startFrameAssetId ? 'A user-supplied opening frame is attached. Start the first shot from its composition and preserve the subject identity and visual style.' : '',
+    brandKit.endFrameAssetId ? 'A user-supplied ending frame is attached. When using a DeAPI model that supports last_frame_image, guide the shot to end on this exact composition.' : '',
   ].filter(Boolean).join(' ') : '';
   const promptIdea = [fallbackIdea, brandNotes].filter(Boolean).join('\n\n').slice(0, 1800);
   const input = parseStoryInput({ ...body, idea: promptIdea.length >= 10 ? promptIdea : promptIdea + ' (the story)' });
@@ -2006,7 +2102,7 @@ const episodeCreate: Handler = async ({ req, res, body }) => {
   }
 
   const episodeId = newId('ep');
-  const settings = { format: input.format, look: input.look, aspect: input.aspect, niche: input.niche, brief: input.brief, variationSeed: input.variationSeed, mode, script, direction, brandKit: hasBrandKit ? brandKit : null, reviewFirst: body.reviewFirst === true, characterReferences: body.characterReferences === true, approved: false };
+  const settings = { format: input.format, look: input.look, aspect: input.aspect, niche: input.niche, brief: input.brief, variationSeed: input.variationSeed, mode, script, direction, brandKit: hasBrandKit ? brandKit : null, videoProvider, videoModel: videoModel || undefined, reviewFirst: body.reviewFirst === true, characterReferences: body.characterReferences === true, approved: false };
   try {
     await sql()`INSERT INTO episodes (id, project_id, part_number, prompt_input, status, brief) VALUES (${episodeId}, ${projectId}, ${partNumber}, ${input.idea}, 'PROCESSING', ${jsonb(settings)}::jsonb)`;
   } catch (e: any) {
@@ -2098,12 +2194,12 @@ async function reserveSource(row: any, user: ReturnType<typeof toUser>, seconds:
  * Starts one 10 second clip. The second half of a 20 second scene starts from the last picture of the first half (image-to-video),
  * so the scene carries on without a jump; if that is not possible it falls back to a normal clip with a "continue" prompt.
  */
-async function startPart(row: any, user: ReturnType<typeof toUser>, spec: { prompt: string; aspect: string; kind: 'text' | 'continue'; prevUrl?: string; startImageUrl?: string; referenceImages?: { name: string; url: string; description?: string }[]; multiPrompt?: { prompt: string; duration: number }[]; commercial?: boolean }) {
+async function startPart(row: any, user: ReturnType<typeof toUser>, spec: { prompt: string; aspect: string; kind: 'text' | 'continue'; prevUrl?: string; startImageUrl?: string; lastFrame?: Buffer; referenceImages?: { name: string; url: string; description?: string }[]; multiPrompt?: { prompt: string; duration: number }[]; commercial?: boolean; videoModel?: string; videoProvider?: string }) {
   const source = await reserveSource(row, user, PART_SECONDS);
   await rateLimit(`render:${row.id}`, 300, 3600);
   const reso = PLANS[user.tier]?.resolution || '480P';
   let provider: ReturnType<typeof parseVideoProvider>;
-  try { provider = parseVideoProvider(process.env.VIDEO_PROVIDER); }
+  try { provider = parseVideoProvider(spec.videoProvider || process.env.VIDEO_PROVIDER); }
   catch (e: any) { throw new HttpError(500, e?.message || 'Invalid VIDEO_PROVIDER setting.', 'VIDEO_PROVIDER'); }
   const deapiCast = addDeapiCastNotes(spec.prompt, spec.multiPrompt, (spec.referenceImages || []).map((ref) => ({ name: ref.name, description: ref.description })));
   const deapiPrompt = deapiCast.prompt;
@@ -2152,7 +2248,7 @@ async function startPart(row: any, user: ReturnType<typeof toUser>, spec: { prom
       frame = bytes;
     }
     if (provider === 'deapi') {
-      const j = await deapiAnimate(deapiAnimationPrompt, frame, reso, PART_SECONDS, spec.aspect);
+      const j = await deapiAnimate(deapiAnimationPrompt, frame, reso, PART_SECONDS, spec.aspect, spec.videoModel, spec.lastFrame);
       job = { statusUrl: `deapi:${j.requestId}`, responseUrl: 'deapi' };
     } else {
       try {
@@ -2165,7 +2261,7 @@ async function startPart(row: any, user: ReturnType<typeof toUser>, spec: { prom
       } catch (e: any) {
         if (e instanceof RateLimited) throw e;
         if (shouldFallbackToDeapi(provider) && lookupEnv('DEAPI_API_KEY')) {
-          const j = await deapiAnimate(deapiPrompt, frame, reso, PART_SECONDS, spec.aspect);
+          const j = await deapiAnimate(deapiPrompt, frame, reso, PART_SECONDS, spec.aspect, spec.videoModel, spec.lastFrame);
           job = { statusUrl: `deapi:${j.requestId}`, responseUrl: 'deapi' };
         } else throw e;
       }
@@ -2180,11 +2276,11 @@ async function startPart(row: any, user: ReturnType<typeof toUser>, spec: { prom
         job = { statusUrl: j.statusUrl, responseUrl: j.responseUrl };
       } catch (e: any) {
         if (provider === 'auto' && lookupEnv('DEAPI_API_KEY')) {
-          const j = await deapiSubmit(deapiPrompt, reso, PART_SECONDS, spec.aspect);
+          const j = await deapiSubmit(deapiPrompt, reso, PART_SECONDS, spec.aspect, spec.videoModel);
           job = { statusUrl: `deapi:${j.requestId}`, responseUrl: 'deapi' };
         } else throw e;
       }
-    } else job = await submitToProvider(deapiPrompt, reso, PART_SECONDS, spec.aspect, deapiMultiPrompt);
+    } else job = await submitToProvider(deapiPrompt, reso, PART_SECONDS, spec.aspect, deapiMultiPrompt, spec.videoModel, spec.videoProvider);
   }
   const id = newId('job');
   await sql()`INSERT INTO video_jobs (id, user_id, status_url, response_url, seconds, source) VALUES (${id}, ${row.id}, ${job.statusUrl}, ${job.responseUrl}, ${PART_SECONDS}, ${source})`;
@@ -2268,10 +2364,34 @@ async function stageRender(row: any, user: ReturnType<typeof toUser>, ep: any): 
     const isEpisodeOpening = en.index === 0 && k === 0;
     // DeAPI/LTX can accept only one image reference. For a commercial, use the user's first
     // product/brand visual as the opening frame rather than silently discarding every brand image.
+    const userOpeningFrameId = str(savedBrandKit.startFrameAssetId, 80);
+    let userOpeningFrameUrl: string | undefined;
+    if (isEpisodeOpening && userOpeningFrameId) {
+      const frameRows = await sql()`SELECT pathname, content_type FROM media_assets WHERE id = ${userOpeningFrameId} AND user_id = ${row.id} LIMIT 1`;
+      const frameAsset = frameRows[0] as any;
+      if (!frameAsset || !String(frameAsset.content_type || '').toLowerCase().startsWith('image/')) throw new HttpError(404, 'The saved opening frame is missing from your private library.', 'REFERENCE_IMAGE');
+      const frameToken = await issueSignedToken({ operations: ['get'] });
+      const signedFrame = await presignUrl(frameToken, { pathname: String(frameAsset.pathname), operation: 'get', access: 'private', validUntil: Date.now() + 10 * 60 * 1000 });
+      userOpeningFrameUrl = signedFrame.presignedUrl;
+    }
+    const selectedEpisodeProvider = parseVideoProvider(str(ep.brief?.videoProvider, 20) || process.env.VIDEO_PROVIDER);
     const deapiCommercialOpening = String(ep.brief?.format || '') === 'commercial'
-      && (process.env.VIDEO_PROVIDER || 'fal').trim().toLowerCase() === 'deapi'
+      && (selectedEpisodeProvider === 'deapi' || selectedEpisodeProvider === 'auto')
       ? brandReferenceImages[0]?.url : undefined;
-    const startImageUrl = isEpisodeOpening ? (deapiCommercialOpening || openingReference) : undefined;
+    const startImageUrl = isEpisodeOpening ? (userOpeningFrameUrl || deapiCommercialOpening || openingReference) : undefined;
+    let userEndingFrame: Buffer | undefined;
+    const userEndingFrameId = str(savedBrandKit.endFrameAssetId, 80);
+    if (isEpisodeOpening && userEndingFrameId && (selectedEpisodeProvider === 'deapi' || selectedEpisodeProvider === 'auto')) {
+      const frameRows = await sql()`SELECT pathname, content_type FROM media_assets WHERE id = ${userEndingFrameId} AND user_id = ${row.id} LIMIT 1`;
+      const frameAsset = frameRows[0] as any;
+      if (!frameAsset || !String(frameAsset.content_type || '').toLowerCase().startsWith('image/')) throw new HttpError(404, 'The saved ending frame is missing from your private library.', 'REFERENCE_IMAGE');
+      const frameToken = await issueSignedToken({ operations: ['get'] });
+      const signedFrame = await presignUrl(frameToken, { pathname: String(frameAsset.pathname), operation: 'get', access: 'private', validUntil: Date.now() + 10 * 60 * 1000 });
+      const frameResponse = await fetch(signedFrame.presignedUrl, { signal: AbortSignal.timeout(15_000) });
+      if (!frameResponse.ok) throw new HttpError(424, 'The saved ending frame could not be loaded.', 'REFERENCE_IMAGE');
+      userEndingFrame = Buffer.from(await frameResponse.arrayBuffer());
+      if (userEndingFrame.length > 15 * 1024 * 1024) throw new HttpError(413, 'The saved ending frame is too large.', 'REFERENCE_IMAGE');
+    }
     const carriesVisualReference = scenes[en.index].continuesPrevious === true || scenes[en.index].referencePrevious === true;
     const previousUrl = k > 0 ? en.parts[k - 1]?.url : (carriesVisualReference ? previousSceneLastUrl : (isEpisodeOpening && !startImageUrl ? previousEpisodeAnchorUrl : undefined));
     if (k > 0 && !previousUrl) continue; // the second half starts from the first half's last picture
@@ -2313,7 +2433,7 @@ async function stageRender(row: any, user: ReturnType<typeof toUser>, ep: any): 
       const continuityPrompt = previousUrl || startImageUrl
         ? `${scene.parts[k].prompt} Continue from the supplied reference frame. Preserve the exact visible character identities, faces, hair, wardrobe, carried props and screen direction. The intended current scene location is ${currentLocation || 'the location described in this scene'}. If it differs from the reference frame, make a clear motivated transition into this current location and replace the old background; do not carry the previous set into the new scene. Keep only the named people required by this scene.`
         : scene.parts[k].prompt;
-      const { jobId } = await startPart(row, user, { prompt: continuityPrompt, aspect, kind: previousUrl || startImageUrl ? 'continue' : 'text', prevUrl: previousUrl, startImageUrl, referenceImages: selected, multiPrompt: commercialMultiPrompt || scene.parts[k].multiPrompt, commercial: isCommercial });
+      const { jobId } = await startPart(row, user, { prompt: continuityPrompt, aspect, kind: previousUrl || startImageUrl ? 'continue' : 'text', prevUrl: previousUrl, startImageUrl, referenceImages: selected, multiPrompt: commercialMultiPrompt || scene.parts[k].multiPrompt, commercial: isCommercial, videoModel: str(ep.brief?.videoModel, 120) || undefined, videoProvider: str(ep.brief?.videoProvider, 20) || undefined, lastFrame: userEndingFrame });
       p.jobId = jobId; p.tries += 1; p.checkAt = Date.now() + FIRST_CHECK_MS; delete p.error; started++;
     } catch (e: any) {
       if (e instanceof RateLimited) {
@@ -2886,7 +3006,7 @@ const videoEditorRender: Handler = async ({ req, res, body }) => {
       }))
       .filter((cue: any) => cue.text && cue.end > cue.start);
     try {
-      await renderComposition({ base: basePath, baseIsImage, baseSourceIn, overlays: overlayFiles, audio: audioFiles, captions, title: str(scene.onScreenText, 180), titlePosition: scene.overlayPosition === 'top' || scene.overlayPosition === 'bottom' ? scene.overlayPosition : 'center', duration, width, height, output });
+      await renderComposition({ base: basePath, baseIsImage, baseSourceIn, playbackSpeed: clampNumber(scene.playbackSpeed, 1, 0.5, 2), clipFadeIn: clampNumber(scene.clipFadeIn, 0, 0, Math.min(3, duration / 2)), clipFadeOut: clampNumber(scene.clipFadeOut, 0, 0, Math.min(3, duration / 2)), fitMode: scene.fitMode === 'cover' ? 'cover' : 'contain', colorGrade: ['cinematic', 'warm', 'cool', 'monochrome', 'vintage', 'vivid'].includes(String(scene.colorGrade)) ? scene.colorGrade : 'none', overlays: overlayFiles, audio: audioFiles, captions, title: str(scene.onScreenText, 180), titlePosition: scene.overlayPosition === 'top' || scene.overlayPosition === 'bottom' ? scene.overlayPosition : 'center', duration, width, height, output });
     } catch (error: any) {
       console.error('editor scene render failed', error?.message);
       if (error?.message === 'FFMPEG_NOT_AVAILABLE') throw new HttpError(424, 'The server video compositor is not installed yet.', 'FFMPEG_NOT_AVAILABLE');
@@ -2915,6 +3035,8 @@ const videoEditorAssemble: Handler = async ({ req, res, body }) => {
   if (!process.env.BLOB_READ_WRITE_TOKEN) throw new HttpError(503, 'Private media storage is not configured.', 'STORAGE_UNAVAILABLE');
   const ids = Array.isArray(body.assetIds) ? [...new Set(body.assetIds.map((id: any) => str(id, 80)).filter(Boolean))].slice(0, 14) : [];
   if (ids.length < 2) throw new HttpError(400, 'Render at least two scenes before assembling the full film.');
+  const transition = ['cut', 'fade', 'wipeleft', 'slideleft', 'circleopen'].includes(String(body.transition)) ? String(body.transition) : 'cut';
+  const transitionDuration = Number.isFinite(Number(body.transitionDuration)) ? Math.max(0.2, Math.min(1, Number(body.transitionDuration))) : 0.45;
   const urls: string[] = [];
   let totalInputBytes = 0;
   for (const id of ids) {
@@ -2928,7 +3050,7 @@ const videoEditorAssemble: Handler = async ({ req, res, body }) => {
     urls.push(signed.presignedUrl);
   }
   let merged: { file: string; cleanup: () => Promise<void> };
-  try { merged = await mergeClips(urls); }
+  try { merged = await mergeClips(urls, { transition: transition as any, transitionDuration }); }
   catch (error: any) {
     console.error('editor film assembly failed', error?.message);
     if (error?.message === 'NO_FFMPEG') throw new HttpError(424, 'The server video compositor is not installed.', 'FFMPEG_NOT_AVAILABLE');
@@ -2946,7 +3068,7 @@ const videoEditorAssemble: Handler = async ({ req, res, body }) => {
       VALUES (${id}, ${row.id}, ${blob.pathname}, ${blob.url}, ${name}, 'video/mp4', ${stat.size})`;
     const token = await issueSignedToken({ operations: ['get'] });
     const signed = await presignUrl(token, { pathname: blob.pathname, operation: 'get', access: 'private', validUntil: Date.now() + 60 * 60 * 1000 });
-    json(res, 200, { asset: { id, name, contentType: 'video/mp4', size: stat.size }, downloadUrl: signed.presignedUrl, sceneCount: ids.length });
+    json(res, 200, { asset: { id, name, contentType: 'video/mp4', size: stat.size }, downloadUrl: signed.presignedUrl, sceneCount: ids.length, transition, transitionDuration: transition === 'cut' ? 0 : transitionDuration });
   } finally { await merged.cleanup().catch(() => undefined); }
 };
 
@@ -3137,9 +3259,9 @@ const routes: Record<string, Handler> = {
   'GET /account/export': exportData, 'POST /account/delete': deleteAccount,
   'GET /dashboard': getDashboard, 'PUT /dashboard': putDashboard,
   'POST /video/director/plan': videoDirectorPlan, 'POST /video/director/match': videoDirectorMatch, 'POST /media/upload': mediaUpload, 'GET /media/list': mediaList, 'GET /media/url': mediaSignedUrl, 'POST /media/transcribe': mediaTranscribe,
-  'POST /ai/generate-script': genScript, 'POST /ai/research-trends': researchTrends, 'POST /ai/ad-concepts': adConcepts, 'POST /ad/brand-images': adBrandImages, 'POST /ad/render-image': adImageRender, 'POST /tts': tts,
+  'POST /ai/generate-script': genScript, 'POST /ai/research-trends': researchTrends, 'POST /ai/youtube-growth-kit': youtubeGrowthKit, 'POST /ai/ad-concepts': adConcepts, 'POST /ad/brand-images': adBrandImages, 'POST /ad/render-image': adImageRender, 'POST /tts': tts,
   'POST /ai/ab-variations': abVariations, 'POST /ai/competitor-analysis': competitorAnalysis, 'POST /ai/outrank': outrank,
-  'POST /video/render': videoRender, 'GET /video/status': videoStatus,
+  'POST /video/render': videoRender, 'GET /video/status': videoStatus, 'GET /video/models': videoModelCatalogue,
   'GET /social/accounts': socialAccounts, 'POST /social/sync': socialSync, 'GET /video/download': videoDownload, 'GET /video/merge': videoMerge, 'POST /video/editor/render': videoEditorRender, 'POST /video/editor/assemble': videoEditorAssemble, 'GET /social/connect': socialConnect, 'GET /social/callback': socialCallback, 'GET /social/zernio-callback': socialZernioCallback,
   'POST /social/disconnect': socialDisconnect, 'GET /social/metrics': socialMetricsRoute, 'POST /social/publish': socialPublish,
   'POST /episodes/create': episodeCreate, 'POST /episodes/retry': episodeRetry, 'GET /episodes/status': episodeStatus, 'GET /episodes/clip': episodeClip, 'POST /episodes/pause': episodePause, 'POST /episodes/resume': episodeResume, 'POST /episodes/edit': episodeEdit, 'GET /episodes/video': episodeVideo, 'GET /projects': projectsList, 'GET /projects/get': projectGet, 'POST /projects/reference/clean-plate': projectCleanPlate,

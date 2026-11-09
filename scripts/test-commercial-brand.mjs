@@ -32,7 +32,7 @@ const ui = fs.readFileSync(new URL('../src/components/SeriesStudio.tsx', import.
 assert.ok(ui.includes("if (f.id === 'commercial') { setSceneSeconds(10); setReviewFirst(true); setSeconds(30); }"));
 assert.ok(ui.includes('six directed 5-second shots'));
 const merge = fs.readFileSync(new URL('../server/lib/merge.ts', import.meta.url), 'utf8');
-assert.ok(merge.includes('if (same) {'));
+assert.ok(merge.includes("if (same && options.transition === 'cut') {"), 'compatible hard-cut scenes must retain the stream-copy fast path');
 assert.ok(merge.includes("'-c', 'copy'"));
 assert.ok(merge.includes(".join('\\n')"));
 assert.ok(merge.includes("'-preset', 'ultrafast'"));

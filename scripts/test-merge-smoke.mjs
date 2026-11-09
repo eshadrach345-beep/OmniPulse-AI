@@ -41,6 +41,7 @@ const clipA = path.join(work, 'scene-a.mp4');
 const clipB = path.join(work, 'scene-b.mp4');
 const modulePath = path.join(work, 'merge.mjs');
 let merged = null;
+let mergedTransition = null;
 let server = null;
 const originalInfo = console.info;
 const infoLines = [];
@@ -99,10 +100,22 @@ try {
   const seconds = Number(duration[1]) * 3600 + Number(duration[2]) * 60 + Number(duration[3]);
   assert.ok(seconds >= 3.8 && seconds <= 4.3, `Expected about 4 seconds of video, got ${seconds}.`);
 
-  console.log('Audio scene-merge smoke test passed (two H.264/AAC clips joined by stream-copy).');
+  mergedTransition = await mergeClips([base + '/scene-a.mp4', base + '/scene-b.mp4'], { transition: 'fade', transitionDuration: 0.4 });
+  const transitionProbe = await run(['-hide_banner', '-i', mergedTransition.file, '-f', 'null', '-']);
+  assert.equal(transitionProbe.code, 0, `Crossfade MP4 must decode: ${transitionProbe.stderr.slice(-1200)}`);
+  assert.match(transitionProbe.stderr, /Video:\s*h264/i, 'Crossfade output should retain H.264 video.');
+  assert.match(transitionProbe.stderr, /Audio:\s*aac/i, 'Crossfade output should retain AAC audio.');
+  const transitionDuration = transitionProbe.stderr.match(/Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)/);
+  assert.ok(transitionDuration, 'FFmpeg should report the transitioned film duration.');
+  const transitionSeconds = Number(transitionDuration[1]) * 3600 + Number(transitionDuration[2]) * 60 + Number(transitionDuration[3]);
+  assert.ok(transitionSeconds >= 3.4 && transitionSeconds <= 3.8, `Expected about 3.6 seconds after one 0.4-second crossfade, got ${transitionSeconds}.`);
+  assert.ok(transitionSeconds < seconds - 0.1, 'A crossfade should shorten the joined runtime by its overlap duration.');
+
+  console.log('Scene assembly smoke tests passed (stream-copy cut + real H.264/AAC crossfade).');
 } finally {
   console.info = originalInfo;
   if (merged) await merged.cleanup().catch(() => undefined);
+  if (mergedTransition) await mergedTransition.cleanup().catch(() => undefined);
   if (server) await new Promise((resolve) => server.close(resolve));
   await fs.rm(work, { recursive: true, force: true }).catch(() => undefined);
 }

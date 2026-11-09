@@ -39,16 +39,25 @@ async function inspect(bin: string, file: string): Promise<ClipInfo> {
 }
 
 export interface MergeResult { file: string; cleanup: () => Promise<void>; cached?: boolean }
+export type ClipTransition = 'cut' | 'fade' | 'wipeleft' | 'slideleft' | 'circleopen';
+export interface MergeOptions { transition?: ClipTransition; transitionDuration?: number }
+function normalizeMergeOptions(options: MergeOptions = {}): Required<MergeOptions> {
+  const allowed: ClipTransition[] = ['cut', 'fade', 'wipeleft', 'slideleft', 'circleopen'];
+  const transition = allowed.includes(options.transition as ClipTransition) ? options.transition as ClipTransition : 'cut';
+  const duration = Number(options.transitionDuration);
+  return { transition, transitionDuration: Number.isFinite(duration) ? Math.max(0.2, Math.min(1, duration)) : 0.45 };
+}
 
 /**
  * A recently joined video is kept in the server's temporary folder (a few files, for a short time), so pressing Download again,
  * or downloading after a retry, is instant instead of joining the scenes all over again.
  */
 const CACHE_KEEP = 3, CACHE_MS = 20 * 60_000;
-async function cachePaths(urls: string[]) {
+async function cachePaths(urls: string[], options: Required<MergeOptions>) {
   const crypto = await import('node:crypto'), os = await import('node:os'), path = await import('node:path');
   const dir = path.join(os.tmpdir(), 'op-merge-cache');
-  return { dir, file: path.join(dir, `${crypto.createHash('sha1').update(urls.join('|')).digest('hex')}.mp4`) };
+  const cacheKey = JSON.stringify({ urls, transition: options.transition, transitionDuration: options.transitionDuration });
+  return { dir, file: path.join(dir, `${crypto.createHash('sha1').update(cacheKey).digest('hex')}.mp4`) };
 }
 async function cacheTrim(dir: string) {
   const fs = await import('node:fs/promises'), path = await import('node:path');
@@ -58,18 +67,19 @@ async function cacheTrim(dir: string) {
   await Promise.all(stats.filter((x, i) => i >= CACHE_KEEP || Date.now() - x.st.mtimeMs > CACHE_MS).map((x) => fs.rm(path.join(dir, x.n), { force: true }).catch(() => undefined)));
 }
 
-export async function mergeClips(urls: string[]): Promise<MergeResult> {
+export async function mergeClips(urls: string[], inputOptions: MergeOptions = {}): Promise<MergeResult> {
   if (!urls.length) throw new Error('No clips to join.');
+  const options = normalizeMergeOptions(inputOptions);
   const fs = await import('node:fs/promises');
-  const cache = await cachePaths(urls);
+  const cache = await cachePaths(urls, options);
   const hit = await fs.stat(cache.file).catch(() => null);
   if (hit && hit.size > 2000 && Date.now() - hit.mtimeMs < CACHE_MS) return { file: cache.file, cleanup: async () => undefined, cached: true };
-  const made = await mergeClipsFresh(urls);
+  const made = await mergeClipsFresh(urls, options);
   try { await fs.mkdir(cache.dir, { recursive: true }); await fs.copyFile(made.file, cache.file); await cacheTrim(cache.dir); } catch { /* the cache is only a speed-up */ }
   return made;
 }
 
-async function mergeClipsFresh(urls: string[]): Promise<MergeResult> {
+async function mergeClipsFresh(urls: string[], options: Required<MergeOptions>): Promise<MergeResult> {
   const bin = await ffmpegBinary();
   const fs = await import('node:fs/promises');
   const os = await import('node:os');
@@ -129,7 +139,7 @@ async function mergeClipsFresh(urls: string[]): Promise<MergeResult> {
     // Compatible scene streams (including AAC audio) should never be decoded and re-encoded.
     // Stream-copy preserves the original picture and sound while avoiding the expensive audio
     // normalisation pass that previously timed out inside Vercel's 60-second function budget.
-    if (same) {
+    if (same && options.transition === 'cut') {
       const list = path.join(dir, 'list.txt');
       // The concat demuxer requires an actual newline between file entries.
       const concatList = files.map((f) => "file '" + f.replace(/'/g, "'\\''") + "'").join('\n');
@@ -152,7 +162,7 @@ async function mergeClipsFresh(urls: string[]): Promise<MergeResult> {
     const audioLabels: string[] = [];
     const totalDuration = info.reduce((sum, clip) => sum + Math.max(0.1, clip.seconds), 0);
     info.forEach((c, i) => {
-      parts.push(`[${i}:v]scale=${W}:${H}:force_original_aspect_ratio=decrease,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=24,format=yuv420p,setpts=PTS-STARTPTS[v${i}]`);
+      parts.push(`[${i}:v]scale=${W}:${H}:force_original_aspect_ratio=decrease,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=24,format=yuv420p,settb=AVTB,setpts=PTS-STARTPTS[v${i}]`);
       videoLabels.push(`[v${i}]`);
       if (c.audio) {
         // Match each audio segment to its video's measured duration before concatenating.
@@ -166,10 +176,34 @@ async function mergeClipsFresh(urls: string[]): Promise<MergeResult> {
       }
       audioLabels.push(`[a${i}]`);
     });
-    parts.push(`${videoLabels.join('')}concat=n=${files.length}:v=1:a=0[v]`);
-    // Concatenate audio at the same scene boundaries as video. An acrossfade overlaps and shortens
-    // every boundary, progressively shifting dialogue earlier than the matching picture.
-    parts.push(`${audioLabels.join('')}concat=n=${files.length}:v=0:a=1,apad,atrim=duration=${totalDuration.toFixed(2)}[aout]`);
+    let outputDuration = totalDuration;
+    if (options.transition === 'cut') {
+      parts.push(`${videoLabels.join('')}concat=n=${files.length}:v=1:a=0[v]`);
+      // Keep audio on identical hard-cut boundaries when the creator selects Cut.
+      parts.push(`${audioLabels.join('')}concat=n=${files.length}:v=0:a=1,apad,atrim=duration=${totalDuration.toFixed(2)}[aout]`);
+    } else {
+      const fade = Math.min(options.transitionDuration, ...info.map((clip) => Math.max(0.1, clip.seconds / 2)));
+      let previousVideo = videoLabels[0];
+      let accumulated = info[0].seconds;
+      for (let i = 1; i < files.length; i++) {
+        const nextVideo = `[vx${i}]`;
+        const offset = Math.max(0, accumulated - fade);
+        parts.push(`${previousVideo}${videoLabels[i]}xfade=transition=${options.transition}:duration=${fade.toFixed(3)}:offset=${offset.toFixed(3)}${nextVideo}`);
+        accumulated += info[i].seconds - fade;
+        previousVideo = nextVideo;
+      }
+      parts.push(`${previousVideo}null[v]`);
+
+      // Crossfade each matching audio boundary by the same duration as the picture transition.
+      let previousAudio = audioLabels[0];
+      for (let i = 1; i < files.length; i++) {
+        const nextAudio = `[ax${i}]`;
+        parts.push(`${previousAudio}${audioLabels[i]}acrossfade=d=${fade.toFixed(3)}:c1=tri:c2=tri${nextAudio}`);
+        previousAudio = nextAudio;
+      }
+      outputDuration = Math.max(0.1, totalDuration - fade * (files.length - 1));
+      parts.push(`${previousAudio}apad,atrim=duration=${outputDuration.toFixed(2)}[aout]`);
+    }
     const graph = parts.join(';');
     const args: string[] = ['-y'];
     files.forEach((f) => args.push('-i', f));

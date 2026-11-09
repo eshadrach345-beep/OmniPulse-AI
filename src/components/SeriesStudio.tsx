@@ -204,9 +204,21 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
   const [animalsTalk, setAnimalsTalk] = useState(false);
   const [trope, setTrope] = useState<TropeId>('none');
   const [reviewFirst, setReviewFirst] = useState(true);
-  const [characterReferences, setCharacterReferences] = useState(true);
+  // Character portraits/location plates are optional because they spend additional image credits.
+  const [characterReferences, setCharacterReferences] = useState(false);
   const logoInputRef = useRef<HTMLInputElement | null>(null);
   const brandRefsInputRef = useRef<HTMLInputElement | null>(null);
+  const startFrameInputRef = useRef<HTMLInputElement | null>(null);
+  const endFrameInputRef = useRef<HTMLInputElement | null>(null);
+  const [startFrame, setStartFrame] = useState<BrandMediaAsset | null>(null);
+  const [endFrame, setEndFrame] = useState<BrandMediaAsset | null>(null);
+  const [videoProvider, setVideoProvider] = useState<'fal' | 'deapi' | 'auto'>('fal');
+  const [falEnabled, setFalEnabled] = useState(false);
+  const [deapiEnabled, setDeapiEnabled] = useState(false);
+  const [videoModels, setVideoModels] = useState<{ slug: string; name: string; description: string; supportsImageToVideo: boolean; supportsLastFrame: boolean }[]>([]);
+  const [videoModel, setVideoModel] = useState('Ltx2_5_22B_Dist_INT8');
+  const [videoModelsLoading, setVideoModelsLoading] = useState(true);
+  const [videoModelsError, setVideoModelsError] = useState('');
   const [brandName, setBrandName] = useState('');
   const [brandTagline, setBrandTagline] = useState('');
   const [brandCta, setBrandCta] = useState('');
@@ -217,10 +229,10 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
   const [brandUploadBusy, setBrandUploadBusy] = useState(false);
   const [brandUploadMessage, setBrandUploadMessage] = useState('');
   const [brandUploadError, setBrandUploadError] = useState('');
-  const uploadBrandAssets = async (selection: FileList | null, role: 'logo' | 'reference') => {
+  const uploadBrandAssets = async (selection: FileList | null, role: 'logo' | 'reference' | 'startFrame' | 'endFrame') => {
     const files = selection ? Array.from(selection) : [];
     if (!files.length) return;
-    if (role === 'logo' && files.length > 1) { setBrandUploadError('Choose one logo file.'); return; }
+    if ((role === 'logo' || role === 'startFrame' || role === 'endFrame') && files.length > 1) { setBrandUploadError('Choose one image for this slot.'); return; }
     if (role === 'reference' && brandReferences.length + files.length > 4) { setBrandUploadError('Add up to four visual reference images.'); return; }
     setBrandUploadBusy(true); setBrandUploadError(''); setBrandUploadMessage('');
     try {
@@ -240,9 +252,11 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
         const signed = await api.get<{ url: string }>('/media/url?id=' + encodeURIComponent(saved.id));
         const ready = { ...saved, previewUrl: signed.url };
         if (role === 'logo') setBrandLogo(ready);
+        else if (role === 'startFrame') setStartFrame(ready);
+        else if (role === 'endFrame') setEndFrame(ready);
         else setBrandReferences((current) => [...current, ready].slice(0, 4));
       }
-      setBrandUploadMessage(role === 'logo' ? 'Logo saved to your private Brand Library.' : 'Visual references saved to your private Brand Library.');
+      setBrandUploadMessage(role === 'logo' ? 'Logo saved to your private Brand Library.' : role === 'startFrame' ? 'Opening frame saved to your private media library.' : role === 'endFrame' ? 'Ending frame saved to your private media library.' : 'Visual references saved to your private Brand Library.');
     } catch (e) {
       setBrandUploadError(e instanceof ApiError ? e.message : e instanceof Error ? e.message : 'Brand asset upload failed.');
     } finally { setBrandUploadBusy(false); }
@@ -297,6 +311,24 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
     catch (e) { setError(e instanceof Error ? e.message : 'Your series could not be loaded.'); setProjects((p) => p || []); }
   }, [single]);
   useEffect(() => { void loadList(); }, [loadList]);
+
+  useEffect(() => {
+    let active = true;
+    api.get<{ provider: 'fal' | 'deapi' | 'auto'; models: { slug: string; name: string; description: string; supportsImageToVideo: boolean; supportsLastFrame: boolean }[]; falEnabled: boolean; deapiEnabled: boolean; availableProviders: string[] }>('/video/models')
+      .then((result) => {
+        if (!active) return;
+        setFalEnabled(result.falEnabled);
+        setDeapiEnabled(result.deapiEnabled);
+        const defaultChoice = result.availableProviders.includes(result.provider) ? result.provider : (result.falEnabled ? 'fal' : result.deapiEnabled ? 'deapi' : result.provider);
+        setVideoProvider(defaultChoice as 'fal' | 'deapi' | 'auto');
+        setVideoModels(result.models || []);
+        if (result.models?.length && !result.models.some((model) => model.slug === videoModel)) setVideoModel(result.models[0].slug);
+        setVideoModelsError('');
+      })
+      .catch((error) => { if (active) setVideoModelsError(error instanceof Error ? error.message : 'The video model list is unavailable.'); })
+      .finally(() => { if (active) setVideoModelsLoading(false); });
+    return () => { active = false; };
+  }, []);
 
   useEffect(() => { setNextId(null); }, [episodeId]);
 
@@ -371,6 +403,19 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
   const submit = async () => {
     if (writer === 'ai' && !continuing && idea.trim().length < 10) { setError('Describe your story in a sentence or two: the title and what it is about.'); return; }
     if (writer === 'paste' && script.trim().length < 40 && !(continuing && detail?.recap?.hasRemainingScript)) { setError('Paste your script first. A few lines is enough to start.'); return; }
+    const selectedDeapiModel = videoModels.find((model) => model.slug === videoModel);
+    if (startFrame && (videoProvider === 'deapi' || videoProvider === 'auto') && selectedDeapiModel && !selectedDeapiModel.supportsImageToVideo) {
+      setError('The selected deAPI model does not support image-to-video. Choose a model marked “image-to-video” or remove the opening frame.');
+      return;
+    }
+    if (endFrame && videoProvider !== 'deapi') {
+      setError('Ending-frame control is currently available only when DeAPI is selected as the video engine. Select DeAPI for this production.');
+      return;
+    }
+    if (endFrame && selectedDeapiModel && !selectedDeapiModel.supportsLastFrame) {
+      setError('The selected DeAPI model does not support a separate ending frame. Choose a model marked “start/end frame” or remove the ending frame.');
+      return;
+    }
     const built = buildBrief({ seconds, sceneSeconds, mood, camera, presentation: format === 'documentary' ? 'narrated' : presentation, genre, intensity, dialogue, ending, cast, animalsTalk, trope, lockEnabled: !continuing && lockEnabled, lockName, lockDescriptor, secondsLeft });
     if (built.ok === false) { setError(built.error); return; }
     setError(null); setBusy(true);
@@ -378,10 +423,14 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
       const r = await Series.create({
         projectId: detail?.project.id, title: title.trim() || undefined, idea: idea.trim(), mode: writer, script: writer === 'paste' ? script.trim() : undefined,
         format, look, aspectRatio: ratio, niche: nicheName, brief: built.brief, reviewFirst, characterReferences,
-        brandKit: (brandName.trim() || brandTagline.trim() || brandCta.trim() || brandUrl.trim() || brandLogo || brandReferences.length) ? {
+        videoProvider,
+        videoModel: videoProvider === 'deapi' || videoProvider === 'auto' ? videoModel : undefined,
+        brandKit: (brandName.trim() || brandTagline.trim() || brandCta.trim() || brandUrl.trim() || brandLogo || brandReferences.length || startFrame || endFrame) ? {
           brandName: brandName.trim(), tagline: brandTagline.trim(), primaryColor: brandColor,
           cta: brandCta.trim(), url: brandUrl.trim(),
           logoAssetId: brandLogo?.id, referenceAssetIds: brandReferences.map((asset) => asset.id),
+          startFrameAssetId: startFrame?.id,
+          endFrameAssetId: endFrame?.id,
         } : undefined,
         series: !continuing && kind === 'series' ? { parts, deliver } : undefined,
       });
@@ -642,6 +691,28 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
           <h3 className="text-base font-bold text-white">{continuing ? `${detail!.project.title}: Part ${partNumber}` : single ? 'Make a video' : kind === 'series' ? 'Start a new series' : 'Make a video'}</h3>
           <p className="text-xs text-slate-400">{continuing ? 'We remember the characters, places and ending of the last part, so the story carries on from there.' : 'Choose who writes the script, how long it should be, and the AI does the rest.'}</p>
         </div>
+        <section className="overflow-hidden rounded-2xl border border-indigo-500/20 bg-gradient-to-br from-slate-900 via-slate-950 to-indigo-950/40 p-3.5 sm:p-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div><p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-indigo-300">OmniPulse Creator Canvas</p><h4 className="mt-1 text-sm font-bold text-white">From first idea to finished cut</h4></div>
+            <span className="rounded-full border border-indigo-400/20 bg-indigo-400/10 px-2.5 py-1 text-[9px] font-semibold text-indigo-200">Studio workflow</span>
+          </div>
+          <div className="mt-3 grid grid-cols-2 gap-2 xl:grid-cols-4">
+            {[
+              { number: '01', title: 'Creative brief', detail: 'Story, format, duration and visual style', icon: Sparkles },
+              { number: '02', title: 'Visual direction', detail: 'Cast, brand assets and opening frame', icon: Camera },
+              { number: '03', title: 'Storyboard', detail: 'Review scenes, camera beats and dialogue', icon: FileText },
+              { number: '04', title: 'Edit & export', detail: 'Captions, sound, overlays and final MP4', icon: Film },
+            ].map((step, index) => {
+              const Icon = step.icon;
+              return <div key={step.number} className="relative rounded-xl border border-slate-800/90 bg-slate-950/70 p-3">
+                <div className="flex items-center justify-between"><span className="text-[10px] font-mono font-bold text-indigo-300">{step.number}</span><Icon className="h-3.5 w-3.5 text-slate-500" /></div>
+                <p className="mt-2 text-[11px] font-bold text-white">{step.title}</p>
+                <p className="mt-1 text-[10px] leading-4 text-slate-500">{step.detail}</p>
+                {index < 3 && <span className="absolute -right-1.5 top-1/2 z-10 hidden h-3 w-3 -translate-y-1/2 rounded-full border border-indigo-400/30 bg-slate-900 xl:block" />}
+              </div>;
+            })}
+          </div>
+        </section>
 
         {recap && (
           <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3 space-y-2">
@@ -881,12 +952,95 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
           <input type="checkbox" checked={reviewFirst} onChange={(e) => setReviewFirst(e.target.checked)} className="mt-0.5 accent-indigo-500" />
           <span><span className="font-semibold">Review and edit the screenplay first (recommended).</span> The script is written, then waits for you. Check every scene and line before any video seconds are spent. No video seconds are used until you approve it.</span>
         </label>
-        <label className="flex items-start gap-2 text-xs text-slate-300 cursor-pointer rounded-lg border border-indigo-500/30 bg-indigo-950/20 p-3">
+        <label className="flex items-start gap-2 text-xs text-slate-300 cursor-pointer rounded-lg border border-slate-800 bg-slate-950/60 p-3">
           <input type="checkbox" checked={characterReferences} onChange={(e) => setCharacterReferences(e.target.checked)} className="mt-0.5 accent-indigo-500" />
-          <span><span className="font-semibold text-indigo-200">Use consistent cast and location references (recommended).</span> Creates reusable cast portraits and a master location image, then supplies them to each video clip to help keep faces, hair, wardrobe, room layout and props consistent. Uses additional fal.ai image credits; turn it off to save those credits, but expect less visual continuity.</span>
+          <span><span className="font-semibold text-slate-200">Generate cast and location reference images (optional).</span> This can improve visual continuity, but it uses additional image-generation credits. It is off by default to avoid unexpected charges.</span>
         </label>
+
+        <fieldset className="space-y-3 rounded-xl border border-indigo-500/25 bg-slate-950/60 p-3">
+          <legend className="px-1 text-xs font-semibold text-slate-200">Video engine & source image</legend>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+            <label className="block space-y-1">
+              <span className="text-[11px] font-medium text-slate-400">Video engine for this production</span>
+              <select value={videoProvider} onChange={(event) => setVideoProvider(event.target.value as 'fal' | 'deapi' | 'auto')} className={selectCls}>
+                {falEnabled && <option value="fal">FAL · Kling / FAL video models</option>}
+                {deapiEnabled && <option value="deapi">DeAPI · select from live model list</option>}
+                {falEnabled && deapiEnabled && <option value="auto">Automatic · FAL first, DeAPI backup</option>}
+              </select>
+              <p className="text-[10px] text-slate-500">The choice is saved on this production. FAL and DeAPI selections are strict; Automatic is the only mode that can fail over between them.</p>
+            </label>
+            <span className="mb-0.5 rounded-full border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-center text-[9px] font-semibold uppercase tracking-wide text-slate-400">{videoProvider === 'auto' ? 'Automatic failover' : videoProvider === 'deapi' ? 'DeAPI engine' : 'FAL engine'}</span>
+          </div>
+          {(videoProvider === 'deapi' || videoProvider === 'auto') && deapiEnabled && (
+            <label className="block space-y-1">
+              <span className="text-[11px] font-medium text-slate-400">Video generation model</span>
+              <select value={videoModel} onChange={(event) => setVideoModel(event.target.value)} disabled={videoModelsLoading || videoModels.length === 0} className={selectCls}>
+                {videoModelsLoading && <option value={videoModel}>Loading available deAPI models…</option>}
+                {!videoModelsLoading && videoModels.length === 0 && <option value={videoModel}>No video models returned</option>}
+                {videoModels.map((model) => <option key={model.slug} value={model.slug}>{model.name}{model.supportsImageToVideo ? ' · image-to-video' : ''}</option>)}
+              </select>
+              {videoModels.find((model) => model.slug === videoModel)?.description && <p className="text-[10px] text-slate-500">{videoModels.find((model) => model.slug === videoModel)?.description}</p>}
+              {videoModelsError && <p role="alert" className="text-[10px] text-rose-300">{videoModelsError}</p>}
+              {videoProvider === 'auto' && <p className="text-[10px] text-amber-300/80">The selected deAPI model is used only when automatic failover reaches deAPI. FAL remains the primary engine.</p>}
+            </label>
+          )}
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <p className="text-[11px] font-semibold text-white">Image-to-video opening frame</p>
+              <p className="text-[10px] text-slate-500">Upload one JPG, PNG or WebP to animate its composition as the first shot. The image is stored privately and attached to this production.</p>
+              {startFrame && <p className="mt-1 truncate text-[10px] text-emerald-300">Selected: {startFrame.name}</p>}
+            </div>
+            <div className="flex shrink-0 gap-2">
+              <input ref={startFrameInputRef} type="file" accept="image/jpeg,image/png,image/webp" disabled={brandUploadBusy} onChange={(event) => { void uploadBrandAssets(event.target.files, 'startFrame'); event.currentTarget.value = ''; }} className="hidden" />
+              <button type="button" onClick={() => startFrameInputRef.current?.click()} disabled={brandUploadBusy} className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-500/40 bg-indigo-500/10 px-3 py-2 text-[11px] font-semibold text-indigo-200 disabled:opacity-40"><ImagePlus className="h-3.5 w-3.5" />{startFrame ? 'Replace frame' : 'Upload first frame'}</button>
+              {startFrame && <button type="button" onClick={() => setStartFrame(null)} className="rounded-lg border border-slate-700 px-3 py-2 text-[11px] text-slate-300">Remove</button>}
+            </div>
+          </div>
+          {videoProvider === 'deapi' && (
+            <div className="border-t border-slate-800 pt-3 space-y-2">
+              <div>
+                <p className="text-[11px] font-semibold text-white">Optional ending frame</p>
+                <p className="text-[10px] text-slate-500">For models marked start/end frame, DeAPI guides the shot from your first image toward this final composition.</p>
+                {endFrame && <p className="mt-1 truncate text-[10px] text-emerald-300">Selected: {endFrame.name}</p>}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <input ref={endFrameInputRef} type="file" accept="image/jpeg,image/png,image/webp" disabled={brandUploadBusy} onChange={(event) => { void uploadBrandAssets(event.target.files, 'endFrame'); event.currentTarget.value = ''; }} className="hidden" />
+                <button type="button" onClick={() => endFrameInputRef.current?.click()} disabled={brandUploadBusy || !videoModels.find((model) => model.slug === videoModel)?.supportsLastFrame} className="rounded-lg border border-indigo-500/40 bg-indigo-500/10 px-3 py-2 text-[11px] font-semibold text-indigo-200 disabled:opacity-40">{endFrame ? 'Replace ending frame' : 'Upload ending frame'}</button>
+                {endFrame && <button type="button" onClick={() => setEndFrame(null)} className="rounded-lg border border-slate-700 px-3 py-2 text-[11px] text-slate-300">Remove</button>}
+              </div>
+              {!videoModels.find((model) => model.slug === videoModel)?.supportsLastFrame && <p className="text-[10px] text-slate-500">Choose a model marked “start/end frame” to enable this option.</p>}
+            </div>
+          )}
+          {brandUploadMessage && <p className="text-[10px] text-emerald-300">{brandUploadMessage}</p>}
+          {brandUploadError && <p role="alert" className="text-[10px] text-rose-300">{brandUploadError}</p>}
+        </fieldset>
+        {continuing && (
+          <fieldset className="space-y-3 rounded-xl border border-indigo-500/25 bg-slate-950/60 p-3">
+            <legend className="px-1 text-xs font-semibold text-slate-200">Video engine for this part</legend>
+            <label className="block space-y-1">
+              <span className="text-[11px] font-medium text-slate-400">Choose the rendering provider</span>
+              <select value={videoProvider} onChange={(event) => setVideoProvider(event.target.value as 'fal' | 'deapi' | 'auto')} className={selectCls}>
+                {falEnabled && <option value="fal">FAL · Kling / FAL video models</option>}
+                {deapiEnabled && <option value="deapi">DeAPI · choose model</option>}
+                {falEnabled && deapiEnabled && <option value="auto">Automatic · FAL first, DeAPI backup</option>}
+              </select>
+              <p className="text-[10px] text-slate-500">Saved to this new part. Provider choices are strict unless Automatic is selected.</p>
+            </label>
+            {(videoProvider === 'deapi' || videoProvider === 'auto') && deapiEnabled && (
+              <label className="block space-y-1">
+                <span className="text-[11px] font-medium text-slate-400">DeAPI video model</span>
+                <select value={videoModel} onChange={(event) => setVideoModel(event.target.value)} disabled={videoModelsLoading || videoModels.length === 0} className={selectCls}>
+                  {videoModels.map((model) => <option key={model.slug} value={model.slug}>{model.name}{model.supportsImageToVideo ? ' · image-to-video' : ''}</option>)}
+                </select>
+                {videoModelsError && <p role="alert" className="text-[10px] text-rose-300">{videoModelsError}</p>}
+              </label>
+            )}
+            {!falEnabled && !deapiEnabled && <p role="alert" className="text-[11px] text-rose-300">No video engine is connected. Add FAL_KEY or DEAPI_API_KEY in Vercel before rendering another part.</p>}
+          </fieldset>
+        )}
+        {!falEnabled && !deapiEnabled && !continuing && <p role="alert" className="rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-300">No video engine is connected. Add FAL_KEY or DEAPI_API_KEY in Vercel before generating a video.</p>}
         {errorBox}
-        <button type="button" onClick={submit} disabled={busy} className="w-full py-3 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-xs font-semibold flex items-center justify-center gap-2">
+        <button type="button" onClick={submit} disabled={busy || (!falEnabled && !deapiEnabled)} className="w-full py-3 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-xs font-semibold flex items-center justify-center gap-2">
           {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Clapperboard className="w-4 h-4" />}{continuing ? `Write and make Part ${partNumber}` : kind === 'series' ? (deliver === 'all' ? `Make all ${parts} parts` : 'Write and make Part 1') : 'Write and make the video'}
         </button>
         <p className="text-[11px] text-slate-500 text-center">It starts right away and keeps working on our servers. You do not have to wait on this page.</p>

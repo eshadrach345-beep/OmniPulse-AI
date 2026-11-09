@@ -39,8 +39,9 @@ try {
   await fs.writeFile(overlay, Buffer.concat([header, pixels]));
   await run(ffmpeg, ['-hide_banner', '-y', '-f', 'lavfi', '-i', 'color=c=0x111D31:s=720x1280:r=24', '-f', 'lavfi', '-i', 'sine=frequency=440:sample_rate=48000', '-t', '3', '-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest', base]);
   await renderComposition({
-    base, overlays: [{ layer: { kind: 'image', sourceIn: 0, duration: 3, startAt: 0.2, scale: 18, opacity: 1, x: 80, y: 12, volume: 0 }, file: overlay }],
+    base, overlays: [{ layer: { kind: 'image', sourceIn: 0, duration: 3, startAt: 0.2, scale: 18, opacity: 1, x: 80, y: 12, volume: 0, chromaKey: true, chromaKeyColor: '#D8F36A', chromaKeySimilarity: 0.3, chromaKeyBlend: 0.08 }, file: overlay }],
     audio: [], captions: [], title: 'OMNIPULSE AI', titlePosition: 'top',
+    playbackSpeed: 1.25, clipFadeIn: 0.25, clipFadeOut: 0.25, fitMode: 'cover', colorGrade: 'cinematic',
     textOverlays: [
       { start: 0.2, end: 2.8, text: 'One Platform. Endless Possibilities.', y: 'h*0.60', fontSize: 34, color: '#DCE8F5', weight: 'regular', fadeIn: 0.25, fadeOut: 0.2 },
       { start: 0.3, end: 2.8, text: 'Start free today', y: 'h*0.76', fontSize: 32, color: '#06122B', boxColor: '#2DE0B8', boxBorderWidth: 16, fadeIn: 0.25, fadeOut: 0.2 },
@@ -51,7 +52,7 @@ try {
   const stat = await fs.stat(output);
   assert.ok(stat.size > 6000, 'compositor creates a non-empty MP4');
   await run(ffmpeg, ['-hide_banner', '-i', output, '-f', 'null', '-']);
-  console.log('CPU-only video render smoke test passed (MP4 + logo image layer + title + animated CTA/text overlays).');
+  console.log('CPU-only video render smoke test passed (MP4 + logo image layer + title + animated CTA/text overlays + playback speed + clip fades + crop-to-fill + cinematic grade + chroma key).');
 } finally {
   await fs.rm(compiledPath, { force: true });
   await fs.rm(work, { recursive: true, force: true });
