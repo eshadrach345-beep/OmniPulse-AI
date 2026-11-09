@@ -62,6 +62,25 @@ async function masterAudioTrack(bin: string, file: string, dir: string): Promise
   }
 }
 
+/** Non-destructive delivery diagnostics shared by every final-film assembly path. */
+async function inspectFinalDelivery(file: string, bin: string): Promise<void> {
+  try {
+    const report = await runVideoQualityChecks(file, bin);
+    if (report.warnings.length) {
+      console.warn('Final film delivery QA reported warnings:', report);
+    } else {
+      console.info('Final film delivery QA passed:', {
+        hasAudio: report.hasAudio,
+        integratedLufs: report.integratedLufs,
+        truePeakDbfs: report.truePeakDbfs,
+      });
+    }
+  } catch (error: any) {
+    // Diagnostics are non-destructive: never discard an otherwise playable finished episode.
+    console.warn('Final film delivery QA was unavailable:', error?.message || error);
+  }
+}
+
 export interface MergeResult { file: string; cleanup: () => Promise<void>; cached?: boolean }
 export type ClipTransition = 'cut' | 'fade' | 'wipeleft' | 'slideleft' | 'circleopen';
 export interface MergeOptions { transition?: ClipTransition; transitionDuration?: number }
@@ -156,7 +175,12 @@ async function mergeClipsFresh(urls: string[], options: Required<MergeOptions>):
       }
     }
     const out = path.join(dir, 'out.mp4');
-    if (files.length === 1) { await fs.copyFile(files[0], out); await masterAudioTrack(bin, out, dir); return { file: out, cleanup }; }
+    if (files.length === 1) {
+      await fs.copyFile(files[0], out);
+      await masterAudioTrack(bin, out, dir);
+      await inspectFinalDelivery(out, bin);
+      return { file: out, cleanup };
+    }
 
     const same = info.every((c) => c.video && c.video === info[0].video && c.size === info[0].size && c.audio === info[0].audio);
 
@@ -173,6 +197,7 @@ async function mergeClipsFresh(urls: string[], options: Required<MergeOptions>):
       if (joined.code === 0 && st && st.size > 2000) {
         console.info('Scene merge used packet stream-copy', { sceneCount: files.length, audio: !!info[0].audio });
         await masterAudioTrack(bin, out, dir);
+        await inspectFinalDelivery(out, bin);
         return { file: out, cleanup };
       }
       console.warn('Fast scene stream-copy could not be used; falling back to compatible re-encoding:', joined.err.slice(-900));
@@ -245,23 +270,7 @@ async function mergeClipsFresh(urls: string[], options: Required<MergeOptions>):
     const st2 = await fs.stat(out).catch(() => null);
     if (!r2ok || !st2 || st2.size < 2000) throw new Error('The scenes could not be joined.');
     await masterAudioTrack(bin, out, dir);
-    // Run the delivery checks on the actual joined episode, not only on editor-composition exports.
-    // This catches silent tails and freezes introduced by a source clip or by the final assembly.
-    try {
-      const report = await runVideoQualityChecks(out, bin);
-      if (report.warnings.length) {
-        console.warn('Final film delivery QA reported warnings:', report);
-      } else {
-        console.info('Final film delivery QA passed:', {
-          hasAudio: report.hasAudio,
-          integratedLufs: report.integratedLufs,
-          truePeakDbfs: report.truePeakDbfs,
-        });
-      }
-    } catch (error: any) {
-      // Diagnostics are non-destructive: never discard an otherwise playable finished episode.
-      console.warn('Final film delivery QA was unavailable:', error?.message || error);
-    }
+    await inspectFinalDelivery(out, bin);
     return { file: out, cleanup };
   } catch (e) {
     await cleanup();
