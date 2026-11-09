@@ -2482,7 +2482,8 @@ async function stageRender(row: any, user: ReturnType<typeof toUser>, ep: any): 
        // In a commercial, supplied product/brand references are more important than generated cast portraits.
        // Keep the location plate when present, then reserve the remaining provider slots for the user's actual assets.
        const isCommercial = String(ep.brief?.format || '') === 'commercial';
-       const brandSlots = Math.max(0, 4 - locationRef.length - characterRefs.length);
+       const currentLocation = str(scene.location, 260);
+      const brandSlots = Math.max(0, 4 - locationRef.length - characterRefs.length);
        const selected = isCommercial
          ? [...locationRef, ...brandReferenceImages.slice(0, Math.max(0, 4 - locationRef.length))].slice(0, 4)
          : [...locationRef, ...characterRefs, ...brandReferenceImages.slice(0, brandSlots)].slice(0, 4);
@@ -2490,7 +2491,7 @@ async function stageRender(row: any, user: ReturnType<typeof toUser>, ep: any): 
       // Build a scene-specific still from the strongest saved visual reference, then reuse it on retries.
       if (selectedEpisodeProvider === 'deapi' && !previousUrl && !startImageUrl) {
         let cachedKeyframeUrl = /^https:\/\//i.test(String(p.keyframeUrl || '')) ? String(p.keyframeUrl) : '';
-        if (!cachedKeyframeUrl && /^https:\/\//i.test(String(p.keyframePathname || '')) === false && lookupEnv('FAL_KEY')) {
+        if (!cachedKeyframeUrl && !p.keyframePathname && lookupEnv('FAL_KEY')) {
           const keyframeReference = chooseSceneKeyframeReference(selected);
           if (keyframeReference) {
             const characterDetails = (relevant.length ? relevant : cast.filter((c) => c.referenceImageUrl && /^https:\/\//i.test(c.referenceImageUrl)).slice(0, 2))
@@ -2535,7 +2536,7 @@ async function stageRender(row: any, user: ReturnType<typeof toUser>, ep: any): 
           cachedKeyframeUrl = signedKeyframe.presignedUrl;
         }
         if (cachedKeyframeUrl) startImageUrl = cachedKeyframeUrl;
-        else if (!lookupEnv('FAL_KEY') || !selected.length) {
+        else if (!p.keyframePathname && (!lookupEnv('FAL_KEY') || !selected.length)) {
           p.continuityWarning = 'No scene keyframe was created: add FAL_KEY and save a character or location reference to lock this DeAPI shot visually.';
         }
       }
@@ -2556,7 +2557,6 @@ async function stageRender(row: any, user: ReturnType<typeof toUser>, ep: any): 
             spokenLines: spokenPartLines,
           })
         : undefined;
-      const currentLocation = str(scene.location, 260);
       const continuityPrompt = previousUrl || startImageUrl
         ? `${scene.parts[k].prompt} Continue from the supplied reference frame. Preserve the exact visible character identities, faces, hair, wardrobe, carried props and screen direction. The intended current scene location is ${currentLocation || 'the location described in this scene'}. If it differs from the reference frame, make a clear motivated transition into this current location and replace the old background; do not carry the previous set into the new scene. Keep only the named people required by this scene.`
         : scene.parts[k].prompt;
