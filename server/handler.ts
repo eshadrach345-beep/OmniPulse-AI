@@ -2226,7 +2226,6 @@ async function stageScript(row: any, user: ReturnType<typeof toUser>, ep: any) {
     await sql()`UPDATE projects SET reference_assets = ${jsonb(projectRefs)}::jsonb, updated_at = now() WHERE id = ${ep.project_id}`;
   }
   // Character portraits and the master location plate are generated when the Series Studio reference option is enabled.
-  const selectedVideoProvider = (process.env.VIDEO_PROVIDER || 'fal').trim().toLowerCase();
   if (cfg.characterReferences === true && lookupEnv('FAL_KEY')) {
     await rateLimit(`cast-reference:${row.id}`, 8, 3600);
     const refs = await Promise.all((Array.isArray(sb.characters) ? sb.characters : []).slice(0, 4).map(async (c: any) => {
