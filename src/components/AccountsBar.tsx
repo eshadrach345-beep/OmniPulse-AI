@@ -1,6 +1,6 @@
 import React from 'react';
 import { SocialAccount, PlatformId } from '../types';
-import { Check, ExternalLink, Link2, ShieldCheck, Unplug, Users } from 'lucide-react';
+import { ExternalLink, Link2, ShieldCheck, Unplug } from 'lucide-react';
 
 interface AccountsBarProps {
   accounts: SocialAccount[];
