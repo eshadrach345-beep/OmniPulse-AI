@@ -213,7 +213,7 @@ export async function renderComposition(input: CompositionInput): Promise<void> 
   args.push('-filter_complex', filter.join(';'), '-map', `[${videoLabel}]`);
   if (audioLabels.length) args.push('-map', '[aout]');
   else if (hasBaseAudio) args.push('-map', '0:a?');
-  args.push('-t', String(duration), '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '192k', '-ar', '48000', '-movflags', '+faststart', '-max_muxing_queue_size', '2048', input.output);
+  args.push('-t', String(duration), '-c:v', 'libx264', '-preset', 'veryfast', '-b:v', '8M', '-maxrate', '10M', '-bufsize', '16M', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '192k', '-ar', '48000', '-movflags', '+faststart', '-max_muxing_queue_size', '2048', input.output);
   await run(bin, args, 240_000);
   try {
     const qa = await runVideoQualityChecks(input.output, bin);
