@@ -1164,6 +1164,40 @@ export async function falEditLocationPlate(imageUrl: string, instruction: string
   return url;
 }
 
+/** Creates a shot-specific still from one saved identity/location/product reference before DeAPI image-to-video. */
+export async function falGenerateSceneKeyframe(referenceImageUrl: string, prompt: string, aspect: string = '9:16') {
+  if (!/^https:\/\//i.test(String(referenceImageUrl || ''))) throw new HttpError(400, 'A public visual reference is required to create a scene keyframe.', 'REFERENCE_IMAGE');
+  const ratio = ['9:16', '16:9', '1:1'].includes(aspect) ? aspect : '9:16';
+  let response: Response;
+  try {
+    response = await fetch('https://fal.run/fal-ai/flux-kontext/dev', {
+      method: 'POST',
+      headers: falHeaders(),
+      body: JSON.stringify({
+        prompt: String(prompt || '').slice(0, 3500),
+        image_url: referenceImageUrl,
+        num_inference_steps: 28,
+        guidance_scale: 2.5,
+        num_images: 1,
+        enable_safety_checker: true,
+        output_format: 'jpeg',
+        resolution_mode: ratio,
+      }),
+      signal: AbortSignal.timeout(45_000),
+    });
+  } catch (error: any) {
+    throw new HttpError(424, error?.name === 'TimeoutError' ? 'Scene keyframe generation timed out.' : 'Could not reach the scene keyframe generator.', 'FAL_KEYFRAME');
+  }
+  const payload: any = await response.json().catch(() => ({}));
+  const url = String(payload?.images?.[0]?.url || '');
+  if (!response.ok || !/^https:\/\//i.test(url)) {
+    console.error('fal scene keyframe failed', response.status, payload);
+    const detail = typeof payload?.detail === 'string' ? payload.detail : '';
+    throw new HttpError(424, response.status === 402 ? 'The image generator has run out of credits while preparing a continuity frame.' : `Scene keyframe generation failed (${response.status}${detail ? `: ${detail.slice(0, 150)}` : ''}).`, 'FAL_KEYFRAME');
+  }
+  return url;
+}
+
 /** Generates a reusable wide location plate for a series. */
 export async function falGenerateLocationPlate(description: string, look = 'cinematic') {
   const prompt = `Create a photorealistic wide 16:9 master location reference plate for a fictional ${look} series. Environment: ${description.slice(0, 900)}. Show the complete room or location layout in one coherent establishing view, with stable architecture, furniture, doors, windows and important props clearly visible. No people, no faces, no text, no logos, no watermark. Neutral balanced natural light appropriate to the described setting, realistic materials, consistent spatial geometry, clean composition. This is a reusable continuity reference, not a dramatic movie frame.`;
