@@ -633,36 +633,50 @@ const youtubeGrowthKit: Handler = async ({ req, res, body }) => {
   const keyword = str(body.keyword, 160);
   const title = str(body.title, 180);
   const description = str(body.description, 4000);
-  if (!keyword && !title && description.length < 30) throw new HttpError(400, 'Enter a target topic, title or a short description of the video.');
-  const goal = ['discoverability', 'clicks', 'subscribers', 'shorts'].includes(String(body.goal)) ? String(body.goal) : 'discoverability';
-  const prompt = `You are a practical YouTube channel growth strategist. Build a creator-ready optimization package for a video.
+  const platforms = ['youtube', 'tiktok', 'instagram', 'facebook', 'linkedin', 'x', 'pinterest'];
+  const platform = platforms.includes(String(body.platform).toLowerCase()) ? String(body.platform).toLowerCase() : 'youtube';
+  if (!keyword && !title && description.length < 30) throw new HttpError(400, 'Enter a target topic, title or a short description of the content.');
+  const goal = ['discoverability', 'clicks', 'subscribers', 'shorts', 'reach', 'engagement', 'leads', 'community'].includes(String(body.goal)) ? String(body.goal) : 'discoverability';
+  const platformGuides: Record<string, string> = {
+    youtube: 'Use search-friendly titles and descriptions, video tags, Shorts derivatives, thumbnail concepts, chapters and channel-community prompts.',
+    tiktok: 'Prioritise a 1-2 second opening hook, native vertical video concepts, concise captions, relevant searchable phrases, a small relevant hashtag set and comment prompts.',
+    instagram: 'Prepare Reels hooks, concise captions, searchable profile/content phrases, relevant hashtags, carousel alternatives, Story follow-ups and save/share prompts.',
+    facebook: 'Prepare Reels and feed variants, conversational captions, community discussion prompts, shareable framing and clear page-level calls to action.',
+    linkedin: 'Use professional but human language, practical insight-led hooks, short paragraphs, credible examples, conversation prompts and relevant industry terms.',
+    x: 'Write concise post options and multi-post thread outlines, with a clear point, useful context and a natural reply prompt; avoid engagement bait.',
+    pinterest: 'Write searchable pin titles and descriptions, evergreen keyword phrases, board suggestions, vertical creative concepts and useful destination-page alignment.',
+  };
+  const prompt = `You are a practical social growth and content strategist. Build a creator-ready organic content package for one platform.
+Platform: ${platform.toUpperCase()}
+Platform-specific direction: ${platformGuides[platform]}
 Niche: ${niche}
 Primary topic / search phrase: ${keyword || 'Infer from the supplied title and description'}
-Current title: ${title || '(not supplied)'}
-Video description / content notes: ${description || '(not supplied)'}
+Current title / draft: ${title || '(not supplied)'}
+Content description / notes: ${description || '(not supplied)'}
 Primary goal: ${goal}
 
 Return one valid JSON object only, with these exact keys:
 {
-  "titleOptions": ["5 distinct titles, each clear and natural; do not use deceptive clickbait"],
-  "openingHooks": ["5 concise spoken or on-screen opening hooks for the first 1-3 seconds"],
-  "description": "A ready-to-paste YouTube description with the topic stated naturally near the start and a useful call to action",
-  "tags": ["15-25 relevant YouTube tags, without #"],
-  "hashtags": ["3-5 relevant hashtags, each beginning with #"],
-  "keywordIdeas": ["12 natural long-tail search phrases and related audience questions; no volume or difficulty scores"],
-  "shortsIdeas": ["5 specific short-form video angles derived from this exact topic"],
-  "shortsTitles": ["5 concise Shorts title options based on the same topic"],
-  "thumbnailConcepts": ["3 distinct thumbnail directions; include focal subject, emotion or contrast, composition and 2-4 words of thumbnail text"],
-  "chapterIdeas": ["5 ordered chapter headings; do not invent timestamps or content not present in the brief"],
-  "communityPosts": ["3 ready-to-edit YouTube community post drafts with a clear audience prompt"],
-  "channelGrowthPlan": ["7 practical publishing and learning actions tailored to this brief, without invented analytics"],
-  "optimizationChecklist": ["5 practical checks the creator should make before publishing"]
+  "titleOptions": ["5 distinct platform-appropriate titles, openers or post headlines; no deceptive clickbait"],
+  "openingHooks": ["5 strong first-line or first-2-second hooks tailored to the selected platform"],
+  "description": "One ready-to-paste platform-appropriate caption or description with a useful call to action",
+  "tags": ["12-20 relevant keyword/tag phrases, without #, only where the selected platform supports useful tagging"],
+  "hashtags": ["3-5 relevant hashtags, each beginning with #; don't force hashtags where they are not useful"],
+  "keywordIdeas": ["10-12 natural search phrases, related searches or audience questions; no volume or difficulty scores"],
+  "shortsIdeas": ["5 short-form or platform-native content angles derived from this exact topic"],
+  "shortsTitles": ["5 concise alternative short-form titles or opening text options"],
+  "thumbnailConcepts": ["3 cover, thumbnail or opening-frame concepts appropriate to the selected platform"],
+  "chapterIdeas": ["5 ordered content beats or carousel/thread section headings; no invented timestamps"],
+  "communityPosts": ["3 ready-to-edit audience engagement posts, comments or discussion prompts appropriate to the selected platform"],
+  "channelGrowthPlan": ["7 practical repeatable publishing, community, discovery and learning actions tailored to this platform"],
+  "optimizationChecklist": ["5 concrete quality and publishing checks for this platform"]
 }
-Rules: do not invent search volumes, keyword difficulty, rankings, trends, view counts, click-through rates, audience demographics or channel analytics. Do not claim the video will go viral or guarantee rankings. Recommendations are hypotheses, not measured facts. Do not pad tags with unrelated high-volume phrases. Avoid repeating the same title with minor word changes. Use only information present in the request and general platform writing practices; if context is missing, be conservative.`;
+Rules: do not invent search volumes, keyword difficulty, rankings, trends, views, impressions, click-through rates, engagement rates, posting-time analytics, audience demographics or private channel analytics. Do not claim content will go viral or guarantee reach. Recommendations are creative hypotheses, not measured facts. Avoid unrelated high-volume terms, hashtag stuffing and engagement bait. Distinguish platform features from suggestions; if a feature is unavailable or unknown, do not claim it exists. Use only the brief and general platform writing practices; be conservative when context is missing.`;
   const data = await geminiJson(prompt);
   const strings = (value: any, max: number, limit = 500) => Array.isArray(value)
     ? value.slice(0, max).map((item: any) => str(item, limit)).filter(Boolean) : [];
   const result = {
+    platform,
     titleOptions: strings(data?.titleOptions, 5, 140),
     openingHooks: strings(data?.openingHooks, 5, 220),
     description: str(data?.description, 5000),
