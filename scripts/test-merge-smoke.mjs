@@ -96,7 +96,7 @@ try {
   assert.ok(infoLines.some((line) => line.includes('Scene merge used packet stream-copy')),
     'Matching clips with AAC audio should take the packet stream-copy fast path.');
   const loudnessProbe = await run(['-hide_banner', '-i', merged.file, '-af', 'loudnorm=I=-14:TP=-1.5:LRA=11:print_format=summary', '-f', 'null', '-']);
-  const integratedMatch = loudnessProbe.stderr.match(/Output Integrated:\\s*(-?\\d+(?:\\.\\d+)?)\\s*LUFS/i);
+  const integratedMatch = loudnessProbe.stderr.match(/Output Integrated:\s*(-?\d+(?:\.\d+)?)\s*LUFS/i);
   assert.ok(integratedMatch, 'FFmpeg loudnorm should report the measured output integrated loudness.');
   const integratedLufs = Number(integratedMatch[1]);
   assert.ok(integratedLufs >= -15.5 && integratedLufs <= -12.5,
