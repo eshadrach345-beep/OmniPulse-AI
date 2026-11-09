@@ -37,8 +37,7 @@ export const Landing: React.FC<{ onGetStarted: (mode: 'signup' | 'signin') => vo
   const [annual, setAnnual] = useState(false);
   const [open, setOpen] = useState<number | null>(0);
   useEffect(() => { Auth.plans().then(setPlans).catch(() => undefined); }, []);
-  const referencePlan = plans.find((plan) => plan.id === 'pro' && plan.monthlyAvailable && plan.annualAvailable)
-    || plans.find((plan) => plan.monthlyAvailable && plan.annualAvailable);
+  const referencePlan = plans.find((plan) => plan.id === 'pro' && plan.available) || plans.find((plan) => plan.available);
   const saving = referencePlan ? annualSavingPct(referencePlan.monthly, referencePlan.annual) : 0;
 
   return (
@@ -176,7 +175,7 @@ export const Landing: React.FC<{ onGetStarted: (mode: 'signup' | 'signin') => vo
           <div className="grid items-stretch gap-4 md:grid-cols-3">
             {plans.map((plan) => {
               const featured = plan.id === 'pro';
-              const available = annual ? plan.annualAvailable : plan.monthlyAvailable;
+              const available = plan.available;
               return <article key={plan.id} className={featured ? 'op-price-card featured' : 'op-price-card'}>
                 <div className="flex items-center justify-between gap-2"><h3 className="font-display text-lg font-extrabold text-white">{plan.name}</h3>{featured && <span className="op-most-popular">Most chosen</span>}</div>
                 <p className="mt-6"><span className="font-display text-4xl font-extrabold tracking-tight text-white">{available ? formatMoney(annual ? plan.annual : plan.monthly, plan.currency) : 'Unavailable'}</span><span className="ml-1 text-xs text-slate-500">/month</span></p>
