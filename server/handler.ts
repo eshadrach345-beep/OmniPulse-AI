@@ -12,7 +12,7 @@ import { trendsFormatPrompt, scriptPrompt, adConceptPrompt, abPrompt, competitor
 import { assembleParts, toNativeMultiShotPrompt, addDeapiCastNotes, buildCommercialShotPrompts } from './lib/assemble.js';
 import { refineScene, shownInstruction, proseToUnits, thoughtToVisual, type SpokenLine } from './lib/screenplay.js';
 import { renderComposition } from './lib/compositor.js';
-import { buildSceneKeyframePrompt, chooseSceneKeyframeReference } from './lib/scene-keyframe.js';
+import { buildSceneKeyframePrompt, chooseSceneKeyframeReference, resolveSceneOpeningFrameUrl } from './lib/scene-keyframe.js';
 import { mergeClips, lastFrameJpeg, sampleVideoFrames } from './lib/merge.js';
 import { parseVideoProvider, shouldAttemptKlingMultiShot, shouldFallbackToDeapi, requiresKlingMultiShot } from './lib/video-provider-policy.js';
 import { PROVIDERS, PLATFORM_IDS, Platform, isPlatform, isConfigured, redirectUri, socialPkce, socialAuthorizeUrl, exchangeSocialCode, saveSocialConnection, listSocialAccounts, removeSocialConnection, publishToPlatform, socialMetrics } from './lib/social.js';
@@ -2577,7 +2577,7 @@ async function stageRender(row: any, user: ReturnType<typeof toUser>, ep: any): 
               // Keyframe preparation is an enhancement, not a reason to waste a paid video attempt.
               // DeAPI can still animate the original saved portrait/location/product image directly.
               console.warn('Scene keyframe image edit unavailable; using the saved source reference:', keyframeError?.message || keyframeError);
-              cachedKeyframeUrl = keyframeReference.url;
+              cachedKeyframeUrl = resolveSceneOpeningFrameUrl('', keyframeReference.url);
               p.continuityWarning = 'Using the saved visual reference directly because scene-specific keyframe preparation was unavailable.';
             }
             if (generatedUrl) {
@@ -2608,13 +2608,13 @@ async function stageRender(row: any, user: ReturnType<typeof toUser>, ep: any): 
           const signedKeyframe = await presignUrl(keyframeToken, { pathname: String(p.keyframePathname), operation: 'get', access: 'private', validUntil: Date.now() + 10 * 60 * 1000 });
           cachedKeyframeUrl = signedKeyframe.presignedUrl;
         }
-        if (cachedKeyframeUrl) startImageUrl = cachedKeyframeUrl;
+        if (cachedKeyframeUrl) startImageUrl = resolveSceneOpeningFrameUrl(cachedKeyframeUrl, keyframeReference?.url);
         else if (!p.keyframePathname) {
           // When FAL image editing is not configured, use the actual selected asset as
           // DeAPI's first frame rather than silently reverting to text-to-video.
           const sourceReference = chooseSceneKeyframeReference(selected);
           if (sourceReference) {
-            startImageUrl = sourceReference.url;
+            startImageUrl = resolveSceneOpeningFrameUrl('', sourceReference.url);
             p.continuityWarning = 'Using the saved visual reference directly; add FAL_KEY to prepare a scene-specific keyframe.';
           } else {
             p.continuityWarning = 'No saved visual reference is available for this scene; DeAPI will use text-to-video.';
