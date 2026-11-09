@@ -1,6 +1,6 @@
 import type { VideoMediaLayer, VideoScene } from '../types';
 
-type TimedItem = { start: number; end: number; [key: string]: unknown };
+type TimedItem = { start: number; end: number };
 
 function splitTimedItems<T extends TimedItem>(items: T[] | undefined, splitAt: number): { first: T[]; second: T[] } {
   const first: T[] = [], second: T[] = [];
