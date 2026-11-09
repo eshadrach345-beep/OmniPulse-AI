@@ -966,6 +966,9 @@ export async function deapiAudioSync(
   if (!selected.supportsAudioToVideo) {
     throw new HttpError(400, 'This DeAPI model does not advertise audio-to-video support. Choose an audio-sync model such as a compatible LTX model.', 'DEAPI_MODEL_MODE');
   }
+  if (firstFrame && !selected.supportsImageToVideo) {
+    throw new HttpError(400, 'This DeAPI model does not advertise image conditioning for audio-sync. Remove the speaker image or choose a model supporting image-to-video.', 'DEAPI_FRAME_MODE');
+  }
   const mime = deapiAudioMime(audioContentType, audioFilename);
   if (!mime) throw new HttpError(415, 'Audio-to-video accepts MP3, WAV, OGG or FLAC files.', 'DEAPI_AUDIO_TYPE');
   if (!audio.length || audio.length > 20 * 1024 * 1024) throw new HttpError(413, 'Audio-to-video audio must be non-empty and no larger than 20 MB.', 'DEAPI_AUDIO_SIZE');
