@@ -33,4 +33,8 @@ const refs = [
 assert.equal(mod.chooseSceneKeyframeReference(refs).url, refs[1].url, 'character identity takes priority over location plate');
 assert.equal(mod.chooseSceneKeyframeReference([{ url: 'https://example.test/product.jpg', kind: 'product' }]).kind, 'product');
 assert.equal(mod.chooseSceneKeyframeReference([]), undefined);
+assert.equal(mod.resolveSceneOpeningFrameUrl('https://example.test/prepared.jpg', 'https://example.test/source.jpg'), 'https://example.test/prepared.jpg', 'a prepared scene keyframe takes priority');
+assert.equal(mod.resolveSceneOpeningFrameUrl('', 'https://example.test/source.jpg'), 'https://example.test/source.jpg', 'the saved original reference is used when keyframe preparation is unavailable');
+assert.equal(mod.resolveSceneOpeningFrameUrl('not-a-url', 'https://example.test/source.jpg'), 'https://example.test/source.jpg', 'invalid prepared URLs cannot suppress a valid reference');
+assert.equal(mod.resolveSceneOpeningFrameUrl('', ''), '', 'no reference produces no opening frame');
 console.log('Scene keyframe prompt and reference-selection tests passed.');
