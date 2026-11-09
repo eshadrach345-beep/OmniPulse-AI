@@ -869,7 +869,7 @@ async function deapiParse(r: Response): Promise<string> {
   return String(id);
 }
 
-export async function deapiSubmit(prompt: string, resolution: string = '480P', seconds = 5, aspect: string = '9:16', requestedModel?: string) {
+export async function deapiSubmit(prompt: string, resolution: string = '480P', seconds = 5, aspect: string = '9:16', requestedModel?: string, seedOverride?: number) {
   const [width, height] = deapiCanvas(resolution, aspect);
   const selectedModel = await resolveDeapiVideoModel(requestedModel);
   const c = deapiClip(seconds, selectedModel);
@@ -882,7 +882,7 @@ export async function deapiSubmit(prompt: string, resolution: string = '480P', s
     prompt, width, height, frames: c.frames, fps: c.fps, model: c.model,
     ...buildDeapiVideoFields({ info: modelInfo }, overrides),
   };
-  const requestedSeed = Number(overrides.seed ?? process.env.DEAPI_VIDEO_SEED);
+  const requestedSeed = Number(seedOverride ?? overrides.seed ?? process.env.DEAPI_VIDEO_SEED);
   body.seed = Number.isSafeInteger(requestedSeed) && requestedSeed >= 0 && requestedSeed <= 2_147_483_647
     ? requestedSeed : c.seed;
   let r: Response;
@@ -981,7 +981,7 @@ function deapiVideoOverrides(): Record<string, unknown> {
 }
 
 /** Image-to-video: starts the clip from a picture (the last frame of the previous clip), so a scene carries on without a visible jump. */
-export async function deapiAnimate(prompt: string, firstFrame: Buffer, resolution: string = '480P', seconds = 10, aspect: string = '9:16', requestedModel?: string, lastFrame?: Buffer) {
+export async function deapiAnimate(prompt: string, firstFrame: Buffer, resolution: string = '480P', seconds = 10, aspect: string = '9:16', requestedModel?: string, lastFrame?: Buffer, seedOverride?: number) {
   const [width, height] = deapiCanvas(resolution, aspect);
   const selectedModel = await resolveDeapiVideoModel(requestedModel);
   if (requestedModel) {
@@ -1001,7 +1001,7 @@ export async function deapiAnimate(prompt: string, firstFrame: Buffer, resolutio
   const form = new FormData();
   form.set('model', c.model); form.set('prompt', prompt);
   form.set('width', String(width)); form.set('height', String(height));
-  const requestedSeed = Number(overrides.seed ?? process.env.DEAPI_VIDEO_SEED);
+  const requestedSeed = Number(seedOverride ?? overrides.seed ?? process.env.DEAPI_VIDEO_SEED);
   const seed = Number.isSafeInteger(requestedSeed) && requestedSeed >= 0 && requestedSeed <= 2_147_483_647
     ? requestedSeed : c.seed;
   form.set('frames', String(c.frames)); form.set('fps', String(c.fps)); form.set('seed', String(seed));
