@@ -12,6 +12,7 @@ export interface SceneKeyframeInput {
   referenceKind?: 'character' | 'location' | 'product' | 'prop';
 }
 
+/** Prompt construction stays provider-agnostic so it can be regression-tested without paid image calls. */
 export function buildSceneKeyframePrompt(input: SceneKeyframeInput): string {
   const characters = (input.characters || []).filter((c) => c.name).slice(0, 4)
     .map((c) => `${c.name}: ${String(c.description || 'preserve the supplied face and identity').slice(0, 220)}${c.wardrobe ? `, wardrobe: ${c.wardrobe.slice(0, 100)}` : ''}`)
