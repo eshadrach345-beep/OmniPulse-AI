@@ -1,3 +1,5 @@
+import { runVideoQualityChecks } from './video-qa.js';
+
 type VideoMediaLayer = { kind: 'video' | 'image' | 'audio'; sourceIn: number; duration: number; startAt: number; scale: number; opacity: number; x: number; y: number; volume: number; fadeIn?: number; fadeOut?: number; chromaKey?: boolean; chromaKeyColor?: string; chromaKeySimilarity?: number; chromaKeyBlend?: number };
 type VideoCaptionCue = { start: number; end: number; text: string };
 type VideoTextOverlay = {
@@ -185,7 +187,7 @@ export async function renderComposition(input: CompositionInput): Promise<void> 
   const hasBaseAudio = /Audio:\s/.test(probe);
   const audioLabels: string[] = [];
   if (hasBaseAudio) {
-    filter.push(`[0:a]atempo=${playbackSpeed},atrim=duration=${duration},apad=pad_dur=${duration},atrim=duration=${duration},asetpts=PTS-STARTPTS${audioFade ? ',' + audioFade : ''},aresample=48000,loudnorm=I=-16:TP=-1.5:LRA=11,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo[abase]`);
+    filter.push(`[0:a]atempo=${playbackSpeed},atrim=duration=${duration},apad=pad_dur=${duration},atrim=duration=${duration},asetpts=PTS-STARTPTS${audioFade ? ',' + audioFade : ''},aresample=48000,loudnorm=I=-14:TP=-1.5:LRA=11,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo[abase]`);
     audioLabels.push('[abase]');
   }
   for (const { index, layer } of audioInputs) {
@@ -213,4 +215,12 @@ export async function renderComposition(input: CompositionInput): Promise<void> 
   else if (hasBaseAudio) args.push('-map', '0:a?');
   args.push('-t', String(duration), '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '192k', '-ar', '48000', '-movflags', '+faststart', '-max_muxing_queue_size', '2048', input.output);
   await run(bin, args, 240_000);
+  try {
+    const qa = await runVideoQualityChecks(input.output, bin);
+    if (qa.warnings.length) console.warn('[video-qa] Delivery warnings', qa);
+    else console.info('[video-qa] Delivery checks passed', { hasAudio: qa.hasAudio, integratedLufs: qa.integratedLufs, truePeakDbfs: qa.truePeakDbfs });
+  } catch (error) {
+    // QA must never discard a successfully rendered video if diagnostics themselves fail.
+    console.warn('[video-qa] Diagnostics unavailable', error instanceof Error ? error.message : String(error));
+  }
 }
