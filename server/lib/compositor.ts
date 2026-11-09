@@ -202,12 +202,12 @@ export async function renderComposition(input: CompositionInput): Promise<void> 
     audioLabels.push(`[${label}]`);
   }
   if (audioLabels.length > 1) {
-    filter.push(`${audioLabels.join('')}amix=inputs=${audioLabels.length}:duration=longest:dropout_transition=0,alimiter=limit=0.95,loudnorm=I=-16:TP=-1.5:LRA=11,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo[aout]`);
+    filter.push(`${audioLabels.join('')}amix=inputs=${audioLabels.length}:duration=longest:dropout_transition=0,alimiter=limit=0.95,loudnorm=I=-14:TP=-1.5:LRA=11,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo[aout]`);
   } else if (audioLabels.length === 1 && audioLabels[0] === '[abase]') {
     // The base source has already been speed-adjusted, faded and loudness-normalized above.
     filter.push('[abase]anull[aout]');
   } else if (audioLabels.length === 1) {
-    filter.push(`${audioLabels[0]}loudnorm=I=-16:TP=-1.5:LRA=11,aresample=48000,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo[aout]`);
+    filter.push(`${audioLabels[0]}loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo[aout]`);
   }
 
   args.push('-filter_complex', filter.join(';'), '-map', `[${videoLabel}]`);
