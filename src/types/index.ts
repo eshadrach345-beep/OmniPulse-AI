@@ -46,6 +46,10 @@ export interface NicheCategory {
   researchSources?: ResearchSource[];
   /** True when the research really used live web search. */
   researchGrounded?: boolean;
+  /** Search provider(s) used for the latest radar refresh. */
+  researchProvider?: string;
+  /** ISO timestamp for the latest completed research scan. */
+  researchedAt?: string;
 }
 
 export interface TrendingCreatorVideo {
@@ -100,6 +104,8 @@ export interface HashtagItem {
   competition: 'Low' | 'Medium' | 'High' | 'Unknown';
   velocityScore: number; // 1-100
   category: 'viral' | 'niche' | 'evergreen';
+  /** Whether the tag appeared in a dated source or was generated as an idea. */
+  evidenceStatus?: 'verified' | 'suggested';
 }
 
 export interface HashtagGroup {

@@ -359,6 +359,8 @@ export async function analyzeNicheTrends(nicheName: string, customQuery?: string
   bestPractices: BestPractice[];
   researchSources: import('../types').ResearchSource[];
   researchGrounded: boolean;
+  researchProvider: string;
+  researchedAt: string;
   trendingCreators: TrendingCreator[];
 }> {
   // Two short requests (live search, then formatting) so no single request runs long.
@@ -391,6 +393,8 @@ export async function analyzeNicheTrends(nicheName: string, customQuery?: string
     bestPractices: data.bestPractices || [],
     researchSources: Array.isArray(data.sources) ? data.sources.filter((s: any) => s && /^https?:\/\//i.test(String(s.url || ''))).map((s: any) => ({ title: String(s.title || s.url), url: String(s.url), domain: s.domain ? String(s.domain) : undefined, faviconUrl: s.faviconUrl ? String(s.faviconUrl) : undefined, imageUrl: s.imageUrl && /^https?:\/\//i.test(String(s.imageUrl)) ? String(s.imageUrl) : undefined, snippet: s.snippet ? String(s.snippet) : undefined, publishedAt: s.publishedAt ? String(s.publishedAt) : undefined, sourceType: s.sourceType, platform: s.platform ? String(s.platform) : undefined })) : [],
     researchGrounded: !!data.grounded,
+    researchProvider: String(found.model || 'Live web search'),
+    researchedAt: new Date().toISOString(),
     trendingCreators: Array.isArray(data.trendingCreators) ? data.trendingCreators.filter((c: any) => c && c.name).map((c: any) => ({
       rank: Number(c.rank) || undefined,
       name: String(c.name), handle: String(c.handle || ''), platform: String(c.platform || ''), url: c.url ? String(c.url) : undefined,

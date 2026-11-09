@@ -3,6 +3,7 @@ import { HttpError } from './core.js';
 import { buildDeapiVideoFields, resolveDeapiSeed } from './deapi-tuning.js';
 import { deapiAudioMime, deapiAudioSyncFrames, supportsDeapiAudioSyncModel } from './deapi-audio-sync.js';
 import { isRecentTrendSource, normalizeTrendPublishedAt, TREND_FRESHNESS_DAYS } from './trend-freshness.js';
+import { buildTrendSearchQueries } from './trend-search-plan.js';
 
 export const ENV_ALIASES: Record<string, string[]> = {
   GEMINI_API_KEY: ['GEMINI_API_KEY', 'GOOGLE_API_KEY', 'GOOGLE_GENAI_API_KEY', 'GEMINI_KEY', 'GOOGLE_AI_API_KEY'],
@@ -160,8 +161,8 @@ function waitFromLimit(message: string, retryAfter?: string | null): number {
 }
 const niceWait = (ms: number) => ms >= 3600_000 ? `${Math.round(ms / 360_000) / 10} hours` : ms >= 90_000 ? `${Math.ceil(ms / 60_000)} minutes` : `${Math.max(5, Math.ceil(ms / 1000))} seconds`;
 
-async function callGemini(key: string, model: string, prompt: string, o: { grounded: boolean; json: boolean; timeoutMs: number; maxTokens?: number }): Promise<CallOut> {
-  const body: any = { contents: [{ role: 'user', parts: [{ text: prompt }] }], generationConfig: { maxOutputTokens: o.maxTokens || 8192 } };
+async function callGemini(key: string, model: string, prompt: string, o: { grounded: boolean; json: boolean; timeoutMs: number; maxTokens?: number; temperature?: number }): Promise<CallOut> {
+  const body: any = { contents: [{ role: 'user', parts: [{ text: prompt }] }], generationConfig: { maxOutputTokens: o.maxTokens || 8192, ...(o.temperature === undefined ? {} : { temperature: o.temperature }) } };
   if (o.grounded) body.tools = [{ google_search: {} }];
   if (o.json) body.generationConfig.responseMimeType = 'application/json';
   let r: Response;
@@ -309,13 +310,13 @@ async function discoverModel(b: LlmBackup, current: string): Promise<string | nu
 }
 
 /** One call to a backup writer. Handles services that reject JSON mode by asking again without it. */
-async function callBackup(b: LlmBackup, prompt: string, o: { json: boolean; timeoutMs: number; maxTokens?: number }): Promise<string> {
+async function callBackup(b: LlmBackup, prompt: string, o: { json: boolean; timeoutMs: number; maxTokens?: number; temperature?: number }): Promise<string> {
   const net = (e: any) => new GeminiFail(0, e?.name === 'TimeoutError' ? `${b.label} took too long to answer.` : (e?.message || `Network error talking to ${b.label}.`));
   if (b.kind === 'anthropic') {
     let r: Response;
     try {
       r = await fetch(`${b.base}/v1/messages`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-api-key': b.key, 'anthropic-version': '2023-06-01' },
-        body: JSON.stringify({ model: b.model, max_tokens: o.maxTokens || 8000, messages: [{ role: 'user', content: o.json ? `${prompt}\n\nReturn only the JSON, with no other text.` : prompt }] }), signal: AbortSignal.timeout(o.timeoutMs) });
+        body: JSON.stringify({ model: b.model, max_tokens: o.maxTokens || 8000, temperature: o.temperature ?? 0.9, messages: [{ role: 'user', content: o.json ? `${prompt}\n\nReturn only the JSON, with no other text.` : prompt }] }), signal: AbortSignal.timeout(o.timeoutMs) });
     } catch (e: any) { throw net(e); }
     const d: any = await r.json().catch(() => ({}));
     if (!r.ok) throw new GeminiFail(r.status, `${r.status} ${tidy(d?.error?.message || 'rejected')}`, r.status === 401, r.status === 429 ? waitFromLimit(String(d?.error?.message || ''), r.headers.get('retry-after')) : 0);
@@ -331,7 +332,7 @@ async function callBackup(b: LlmBackup, prompt: string, o: { json: boolean; time
     try {
       res = await fetch(`${b.base}/chat/completions`, {
         method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${b.key}` },
-        body: JSON.stringify({ model: m, temperature: 0.9, max_tokens: maxTok, messages: [{ role: 'user', content: prompt }], ...(json ? { response_format: { type: 'json_object' } } : {}) }),
+        body: JSON.stringify({ model: m, temperature: o.temperature ?? 0.9, max_tokens: maxTok, messages: [{ role: 'user', content: prompt }], ...(json ? { response_format: { type: 'json_object' } } : {}) }),
         signal: AbortSignal.timeout(o.timeoutMs),
       });
     } catch (e: any) { throw net(e); }
@@ -388,7 +389,7 @@ async function callBackup(b: LlmBackup, prompt: string, o: { json: boolean; time
  * Writes text with the best available AI: every Gemini key first (skipping any that are out of quota), then every backup service.
  * One person action therefore never fails just because one free quota ran out, and when everything fails the reason of each is reported.
  */
-export async function llmGenerate(prompt: string, o: { json?: boolean; timeoutMs?: number; deadlineMs?: number; maxTokens?: number; preferBackup?: boolean } = {}): Promise<{ text: string; provider: 'gemini' | 'backup'; model: string }> {
+export async function llmGenerate(prompt: string, o: { json?: boolean; timeoutMs?: number; deadlineMs?: number; maxTokens?: number; preferBackup?: boolean; temperature?: number } = {}): Promise<{ text: string; provider: 'gemini' | 'backup'; model: string }> {
   const json = o.json !== false;
   const start = Date.now();
   const deadline = start + (o.deadlineMs || 50_000);
@@ -409,7 +410,7 @@ export async function llmGenerate(prompt: string, o: { json?: boolean; timeoutMs
     for (const key of open) {
       if (Date.now() >= budget - 4_000) break;
       try {
-        const { out, model } = await withModels(key, budget, (m) => callGemini(key, m, prompt, { grounded: false, json, timeoutMs: Math.max(8_000, Math.min(o.timeoutMs || 40_000, budget - Date.now())), maxTokens: o.maxTokens }));
+        const { out, model } = await withModels(key, budget, (m) => callGemini(key, m, prompt, { grounded: false, json, timeoutMs: Math.max(8_000, Math.min(o.timeoutMs || 40_000, budget - Date.now())), maxTokens: o.maxTokens, temperature: o.temperature }));
         // Validate structured output before accepting a provider. A 200 response with malformed JSON
         // must not block the next configured writer from completing the user's request.
         if (json) extractJson(out.text);
@@ -428,7 +429,7 @@ export async function llmGenerate(prompt: string, o: { json?: boolean; timeoutMs
       const left = deadline - Date.now();
       if (left < 6_000) { errs.push({ who: b.label, f: new GeminiFail(0, 'no time left to try it') }); break; }
       try {
-        const text = await callBackup(b, prompt, { json, timeoutMs: Math.min(o.timeoutMs || 40_000, left), maxTokens: o.maxTokens });
+        const text = await callBackup(b, prompt, { json, timeoutMs: Math.min(o.timeoutMs || 40_000, left), maxTokens: o.maxTokens, temperature: o.temperature });
         // Treat malformed JSON as a provider failure and continue through the remaining backups.
         if (json) extractJson(text);
         return { text, provider: 'backup' as const, model: `${b.id}:${b.model}` };
@@ -563,97 +564,228 @@ async function youtubePublicTrendEvidence(niche: string): Promise<{ text: string
 
 // Independent multi-query search for niche intelligence; does not require Gemini.
 export async function webTrendResearch(niche: string, customQuery: string): Promise<{ text: string; sources: { title: string; url: string; domain: string; faviconUrl: string; imageUrl?: string; snippet: string; publishedAt?: string; sourceType: 'video' | 'article' | 'news' | 'website'; platform?: string }[]; provider: string }> {
-  const focus = customQuery ? ' ' + customQuery : '';
-  const queries = [
-    '"' + niche + '" trends launches news published in the last 14 days' + focus,
-    '"' + niche + '" top YouTube creators and videos published in the last 14 days' + focus,
-    '"' + niche + '" TikTok videos and creators trending in the last 14 days' + focus,
-    '"' + niche + '" Instagram Reels published in the last 14 days' + focus,
-    '"' + niche + '" creator formats and audience conversations from the last 14 days' + focus,
-    '"' + niche + '" recent audience questions, hashtags and market updates published in the last 14 days' + focus,
-  ];
+  const queries = buildTrendSearchQueries(niche, customQuery);
   const unique = new Map<string, any>();
+  const providerNames: string[] = [];
+  const providerErrors: string[] = [];
   const braveKey = (process.env.BRAVE_SEARCH_API_KEY || '').trim();
   const tavilyKey = (process.env.TAVILY_API_KEY || '').trim();
-  let searchText = '';
-  let provider = '';
+
+  const addItems = (items: any[]) => {
+    for (const item of items) {
+      if (!item || !/^https?:\/\//i.test(String(item.url || ''))) continue;
+      const key = String(item.url);
+      const prior = unique.get(key);
+      if (!prior) {
+        unique.set(key, { ...item, content: String(item.content || '').slice(0, 2400) });
+        continue;
+      }
+      if (!isRecentTrendSource(prior.date) && isRecentTrendSource(item.date)) prior.date = item.date;
+      prior.content = [prior.content, String(item.content || '')].filter(Boolean).join('\n').slice(0, 3600);
+      prior.query = [...new Set([prior.query, item.query].filter(Boolean))].join(' | ').slice(0, 700);
+      prior.category = [...new Set([prior.category, item.category].filter(Boolean))].join(',');
+      if (!prior.imageUrl && item.imageUrl) prior.imageUrl = item.imageUrl;
+      if (!prior.faviconUrl && item.faviconUrl) prior.faviconUrl = item.faviconUrl;
+    }
+  };
+
   if (braveKey) {
-    const groups = await Promise.all(queries.map(async (q, i) => {
+    const settled = await Promise.allSettled(queries.map(async (q) => {
       const url = new URL('https://api.search.brave.com/res/v1/llm/context');
-      url.searchParams.set('q', q); url.searchParams.set('count', '15');
-      url.searchParams.set('maximum_number_of_tokens', '2048'); url.searchParams.set('maximum_number_of_urls', '10');
-      url.searchParams.set('context_threshold_mode', 'balanced'); url.searchParams.set('enable_source_metadata', 'true');
+      url.searchParams.set('q', q.query);
+      url.searchParams.set('count', '12');
+      url.searchParams.set('maximum_number_of_tokens', '1600');
+      url.searchParams.set('maximum_number_of_urls', '7');
+      url.searchParams.set('context_threshold_mode', 'balanced');
+      url.searchParams.set('enable_source_metadata', 'true');
       url.searchParams.set('freshness', 'pm');
-      const r = await fetch(url, { headers: { 'X-Subscription-Token': braveKey, Accept: 'application/json' }, signal: AbortSignal.timeout(25000) });
-      if (!r.ok) throw new HttpError(424, 'Brave LLM Context returned ' + r.status + '. Check BRAVE_SEARCH_API_KEY and its plan.', 'SEARCH');
-      const d: any = await r.json(), generic = d && d.grounding && d.grounding.generic || [], meta = d && d.sources || {};
-      return generic.map((x: any) => {
-        const age = meta[x.url]?.age;
+      const response = await fetch(url, {
+        headers: { 'X-Subscription-Token': braveKey, Accept: 'application/json' },
+        signal: AbortSignal.timeout(14_000),
+      });
+      if (!response.ok) throw new Error('Brave ' + response.status);
+      const data: any = await response.json();
+      const generic = data?.grounding?.generic || [];
+      const metadata = data?.sources || {};
+      return generic.map((item: any) => {
+        const meta = metadata[item.url] || {};
+        const age = meta.age || meta.page_age || meta.published_date || '';
         return {
-          title: String(x.title || (meta[x.url] && meta[x.url].title) || '').slice(0, 240),
-          url: String(x.url || ''),
-          content: (x.snippets || []).map((v: any) => String(v)).join('\n').slice(0, 7000),
+          title: String(item.title || meta.title || '').slice(0, 240),
+          url: String(item.url || ''),
+          content: (item.snippets || []).map((snippet: any) => String(snippet)).join('\n').slice(0, 1500),
           date: Array.isArray(age) ? age.join(' | ') : String(age || ''),
-          imageUrl: String(meta[x.url]?.thumbnail?.src || meta[x.url]?.thumbnail || ''),
-          faviconUrl: String(meta[x.url]?.favicon || ''),
-          query: q,
+          imageUrl: String(meta.thumbnail?.src || meta.thumbnail || ''),
+          faviconUrl: String(meta.favicon || ''),
+          query: q.query,
+          category: q.category,
         };
       });
     }));
-    for (const group of groups) for (const x of group) if (/^https?:\/\//i.test(x.url)) {
-      const oldItem = unique.get(x.url);
-      if (oldItem) oldItem.content = (oldItem.content + '\n' + x.content).slice(0, 10000);
-      else unique.set(x.url, x);
-    }
-    const items = [...unique.values()].filter((x) => isRecentTrendSource(x.date)).slice(0, 36);
-    if (items.length < 4) throw new HttpError(424, `Live search returned only ${items.length} date-verified sources published in the last 14 days. Older and undated pages were excluded; try a broader niche.`, 'TREND_FRESHNESS');
-    searchText = items.map((x, i) => '[SOURCE ' + (i + 1) + '] ' + x.title + '\nURL: ' + x.url + '\nPublished/updated: ' + normalizeTrendPublishedAt(x.date) + '\nSearch query: ' + x.query + '\nExtracted evidence: ' + x.content).join('\n\n');
-    provider = 'brave-llm-context';
-  } else if (tavilyKey) {
-    const groups = await Promise.all(queries.map(async q => {
-      const r = await fetch('https://api.tavily.com/search', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ api_key: tavilyKey, query: q, topic: 'general', search_depth: 'advanced', max_results: 8, include_answer: false, include_raw_content: false, include_images: true, include_favicon: true }), signal: AbortSignal.timeout(18000) });
-      if (!r.ok) throw new HttpError(424, 'Tavily Search returned ' + r.status + '. Check TAVILY_API_KEY.', 'SEARCH');
-      const d: any = await r.json();
-      return (d.results || []).map((x: any) => { const pageImages = Array.isArray(x.images) ? x.images : []; const pageImage = pageImages.map((v: any) => typeof v === 'string' ? v : String(v?.url || '')).find((v: string) => /^https?:\/\//i.test(v)) || ''; return { title: String(x.title || '').slice(0, 240), url: String(x.url || ''), content: String(x.content || '').slice(0, 2200), date: String(x.published_date || ''), imageUrl: String(x.image || x.image_url || x.thumbnail_url || x.thumbnail?.src || pageImage), faviconUrl: String(x.favicon || ''), query: q }; });
-    }));
-    for (const group of groups) for (const x of group) if (/^https?:\/\//i.test(x.url)) unique.set(x.url, x);
-    const items = [...unique.values()].filter((x) => isRecentTrendSource(x.date)).slice(0, 36);
-    if (items.length < 4) throw new HttpError(424, `Live search returned only ${items.length} date-verified sources published in the last 14 days. Older and undated pages were excluded; try a broader niche.`, 'TREND_FRESHNESS');
-    searchText = items.map((x, i) => '[SOURCE ' + (i + 1) + '] ' + x.title + '\nURL: ' + x.url + '\nPublished: ' + normalizeTrendPublishedAt(x.date) + '\nSearch query: ' + x.query + '\nEvidence: ' + x.content).join('\n\n');
-    provider = 'tavily';
-  } else {
-    throw new HttpError(424, 'Live niche research needs a search API key. Add TAVILY_API_KEY in Vercel, then redeploy. This research step does not use Gemini.', 'SEARCH_SETUP');
+    const items: any[] = [];
+    settled.forEach((result, index) => {
+      if (result.status === 'fulfilled') items.push(...result.value);
+      else {
+        const message = result.reason instanceof Error ? result.reason.message : 'request failed';
+        providerErrors.push('Brave ' + queries[index].category + ': ' + message);
+        console.warn('[TrendRadar] Brave search query failed:', queries[index].category, message);
+      }
+    });
+    addItems(items);
+    if (items.length) providerNames.push('brave');
   }
+
+  // Tavily is a real fallback, not just a configured-but-unused backup. It also enriches
+  // weak Brave results so one search provider cannot silently define the whole radar.
+  const currentFreshCount = () => [...unique.values()].filter((item) => isRecentTrendSource(item.date)).length;
+  if (tavilyKey && (!braveKey || currentFreshCount() < 12)) {
+    const settled = await Promise.allSettled(queries.map(async (q) => {
+      const response = await fetch('https://api.tavily.com/search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          api_key: tavilyKey,
+          query: q.query,
+          topic: q.category === 'news' || q.category === 'industry' ? 'news' : 'general',
+          search_depth: 'advanced',
+          max_results: 6,
+          include_answer: false,
+          include_raw_content: false,
+          include_images: true,
+          include_favicon: true,
+        }),
+        signal: AbortSignal.timeout(14_000),
+      });
+      if (!response.ok) throw new Error('Tavily ' + response.status);
+      const data: any = await response.json();
+      return (data.results || []).map((item: any) => {
+        const pageImages = Array.isArray(item.images) ? item.images : [];
+        const pageImage = pageImages
+          .map((value: any) => typeof value === 'string' ? value : String(value?.url || ''))
+          .find((value: string) => /^https?:\/\//i.test(value)) || '';
+        return {
+          title: String(item.title || '').slice(0, 240),
+          url: String(item.url || ''),
+          content: String(item.raw_content || item.content || '').slice(0, 1500),
+          date: String(item.published_date || item.publishedAt || item.date || ''),
+          imageUrl: String(item.image || item.image_url || item.thumbnail_url || item.thumbnail?.src || pageImage),
+          faviconUrl: String(item.favicon || ''),
+          query: q.query,
+          category: q.category,
+        };
+      });
+    }));
+    const items: any[] = [];
+    settled.forEach((result, index) => {
+      if (result.status === 'fulfilled') items.push(...result.value);
+      else {
+        const message = result.reason instanceof Error ? result.reason.message : 'request failed';
+        providerErrors.push('Tavily ' + queries[index].category + ': ' + message);
+        console.warn('[TrendRadar] Tavily search query failed:', queries[index].category, message);
+      }
+    });
+    addItems(items);
+    if (items.length) providerNames.push('tavily');
+  }
+
+  if (!braveKey && !tavilyKey) {
+    throw new HttpError(424, 'Live trend research is not configured. Add BRAVE_SEARCH_API_KEY or TAVILY_API_KEY in Vercel, then redeploy. The AI writer key alone does not perform this web search.', 'SEARCH_SETUP');
+  }
+
   let youtubeText = '';
   try {
-    const yt = await youtubePublicTrendEvidence(niche);
-    youtubeText = yt.text;
-    for (const source of yt.sources) {
+    const youtube = await youtubePublicTrendEvidence(niche);
+    youtubeText = youtube.text;
+    for (const source of youtube.sources) {
       const prior = unique.get(source.url);
-      if (prior) prior.date = source.publishedAt;
-      else unique.set(source.url, { title: source.title, url: source.url, date: source.publishedAt, query: 'Official YouTube Data API · last 14 days' });
+      if (prior) {
+        if (!isRecentTrendSource(prior.date) && isRecentTrendSource(source.publishedAt)) prior.date = source.publishedAt;
+      } else {
+        unique.set(source.url, {
+          title: source.title,
+          url: source.url,
+          date: source.publishedAt,
+          query: 'Official YouTube Data API · public videos published in the last 14 days',
+          category: 'youtube',
+          content: '',
+        });
+      }
     }
-  } catch (e) {
-    youtubeText = 'YouTube Data API enrichment unavailable: ' + (e instanceof Error ? e.message : 'request failed') + '. Use only public metrics visible in web-search evidence; do not infer private impressions.';
+  } catch (error) {
+    youtubeText = 'YouTube Data API enrichment unavailable: ' + (error instanceof Error ? error.message : 'request failed') + '. Use only public metrics visible in web-search evidence; do not infer private impressions.';
   }
-  const recentSources = [...unique.values()].filter((x) => isRecentTrendSource(x.date));
-  if (recentSources.length < 4) throw new HttpError(424, 'Trend research did not return enough source dates from the last 14 days. No older trend cards were generated.', 'TREND_FRESHNESS');
-  const sources = recentSources.slice(0, 80).map(x => {
-    const parsed = new URL(x.url);
-    const domain = parsed.hostname.replace(/^www\./i, '');
-    const host = parsed.hostname.toLowerCase();
-    const isYouTube = host === 'youtu.be' || host.endsWith('youtube.com');
-    const videoId = isYouTube ? (host === 'youtu.be' ? parsed.pathname.split('/').filter(Boolean)[0] : (parsed.searchParams.get('v') || parsed.pathname.split('/').filter(Boolean).pop())) : '';
-    const youtubeImage = videoId && /^[A-Za-z0-9_-]{11}$/.test(videoId) ? 'https://img.youtube.com/vi/' + videoId + '/hqdefault.jpg' : '';
-    const rawImage = typeof x.imageUrl === 'string' ? x.imageUrl : '';
-    const imageUrl = /^https?:\/\//i.test(rawImage) ? rawImage : (youtubeImage || undefined);
-    const platform = isYouTube ? 'YouTube' : host.includes('tiktok') ? 'TikTok' : host.includes('instagram') ? 'Instagram' : host.includes('facebook') ? 'Facebook' : host.includes('linkedin') ? 'LinkedIn' : host.includes('x.com') || host.includes('twitter') ? 'X' : undefined;
-    const sourceType: 'video' | 'news' | 'article' = isYouTube && videoId ? 'video' : /news|bbc|cnn|reuters|guardian|forbes|techcrunch|wired|nytimes/i.test(domain) ? 'news' : 'article';
-    return { title: x.title || x.url, url: x.url, domain, faviconUrl: String(x.faviconUrl || '').startsWith('http') ? String(x.faviconUrl) : 'https://www.google.com/s2/favicons?domain=' + encodeURIComponent(domain) + '&sz=64', imageUrl, snippet: String(x.content || '').slice(0, 360), publishedAt: normalizeTrendPublishedAt(x.date), sourceType, platform };
+
+  const recentItems = [...unique.values()].filter((item) => isRecentTrendSource(item.date));
+  if (recentItems.length < 4) {
+    const detail = providerErrors.length ? ' Search-provider diagnostics: ' + providerErrors.slice(0, 4).join('; ') + '.' : '';
+    throw new HttpError(424, 'Live search returned only ' + recentItems.length + ' date-verified sources from the last 14 days. Older and undated pages were excluded. Try a more specific niche or check the Brave/Tavily search keys.' + detail, 'TREND_FRESHNESS');
+  }
+
+  const providers = providerNames.length ? [...new Set(providerNames)].join('+') : (braveKey ? 'brave' : 'tavily');
+  const sourceRows = recentItems.slice(0, 18).map((item, index) => [
+    '[SOURCE ' + (index + 1) + ']',
+    'Category: ' + String(item.category || 'general'),
+    String(item.title || item.url),
+    'URL: ' + item.url,
+    'Published: ' + normalizeTrendPublishedAt(item.date),
+    'Search query: ' + String(item.query || ''),
+    'Evidence: ' + String(item.content || 'The source is date-verified, but the search provider returned no extractable snippet. Open the URL before making a factual claim.').slice(0, 1200),
+  ].join('\n'));
+  const coverage = queries.map((query) => {
+    const count = recentItems.filter((item) => String(item.category || '').includes(query.category)).length;
+    return query.category + '=' + count;
+  }).join(', ');
+  const searchText = 'Search providers used: ' + providers +
+    '. Research date: ' + new Date().toISOString() +
+    '. Strict freshness window: ' + TREND_FRESHNESS_DAYS + ' days. Older and undated sources were excluded.' +
+    '. Date-verified web sources: ' + recentItems.length +
+    '. Query coverage (sources may appear in more than one category): ' + coverage + '.\n\n' +
+    sourceRows.join('\n\n') + '\n\n' + youtubeText;
+
+  const sources = recentItems.slice(0, 48).flatMap((item) => {
+    try {
+      const parsed = new URL(item.url);
+      const domain = parsed.hostname.replace(/^www\./i, '');
+      const host = parsed.hostname.toLowerCase();
+      const isYouTube = host === 'youtu.be' || host.endsWith('youtube.com');
+      const isTikTok = host === 'tiktok.com' || host.endsWith('.tiktok.com');
+      const isInstagram = host === 'instagram.com' || host.endsWith('.instagram.com');
+      const isFacebook = host === 'facebook.com' || host.endsWith('.facebook.com');
+      const isX = host === 'x.com' || host.endsWith('.x.com') || host === 'twitter.com';
+      const videoId = isYouTube
+        ? (host === 'youtu.be' ? parsed.pathname.split('/').filter(Boolean)[0] : (parsed.searchParams.get('v') || parsed.pathname.split('/').filter(Boolean).pop()))
+        : '';
+      const youtubeImage = videoId && /^[A-Za-z0-9_-]{11}$/.test(videoId) ? 'https://img.youtube.com/vi/' + videoId + '/hqdefault.jpg' : '';
+      const rawImage = typeof item.imageUrl === 'string' ? item.imageUrl : '';
+      const imageUrl = /^https?:\/\//i.test(rawImage) ? rawImage : (youtubeImage || undefined);
+      const platform = isYouTube ? 'YouTube' : isTikTok ? 'TikTok' : isInstagram ? 'Instagram' : isFacebook ? 'Facebook' : isX ? 'X' : host.includes('linkedin.com') ? 'LinkedIn' : undefined;
+      const sourceType: 'video' | 'news' | 'article' = (isYouTube || isTikTok || isInstagram)
+        ? 'video'
+        : (String(item.category || '').includes('news') || String(item.category || '').includes('industry') || /news|bbc|cnn|reuters|guardian|forbes|techcrunch|wired|nytimes|bloomberg/i.test(domain))
+          ? 'news'
+          : 'article';
+      return [{
+        title: String(item.title || item.url),
+        url: item.url,
+        domain,
+        faviconUrl: String(item.faviconUrl || '').startsWith('http')
+          ? String(item.faviconUrl)
+          : 'https://www.google.com/s2/favicons?domain=' + encodeURIComponent(domain) + '&sz=64',
+        imageUrl,
+        snippet: String(item.content || '').slice(0, 360),
+        publishedAt: normalizeTrendPublishedAt(item.date),
+        sourceType,
+        platform,
+      }];
+    } catch {
+      return [];
+    }
   });
-  const text = 'Search provider: ' + provider + '. Research date: ' + new Date().toISOString() + '. Strict freshness window: 14 days. Older and undated pages were excluded. Web sources: ' + sources.length + '.\n\n' + searchText + '\n\n' + youtubeText;
-  return { text, sources, provider: provider + ((process.env.YOUTUBE_API_KEY || process.env.YOUTUBE_DATA_API_KEY) ? '+youtube-data-api' : '') };
+  console.info('[TrendRadar] research completed', { niche, providers, dateVerifiedSources: recentItems.length, coverage, providerErrors: providerErrors.slice(0, 4) });
+  const text = searchText + '\n\nResearch quality note: topics must be tied to named, dated events or observed content in these sources. If a niche has little fresh evidence, return fewer results rather than filling the feed with generic ideas.';
+  return { text, sources, provider: providers + ((process.env.YOUTUBE_API_KEY || process.env.YOUTUBE_DATA_API_KEY) ? '+youtube-data-api' : '') };
 }
+
 export async function geminiSearch(researchPrompt: string): Promise<{ text: string; sources: { title: string; url: string }[]; model: string }> {
   const key = geminiKeyList().find((k) => keyBlockedMs(k) === 0) || need('GEMINI_API_KEY', 'GOOGLE_API_KEY');
   if (geminiBlockedMs() > 0) throw new HttpError(424, `Live search has reached Gemini's free limit. Please try again in about ${Math.ceil(geminiBlockedMs() / 1000)} seconds.`, 'GEMINI');
@@ -664,7 +796,9 @@ export async function geminiSearch(researchPrompt: string): Promise<{ text: stri
 
 /** Step 2 of research: turn the findings into the app's JSON (fast, no search). */
 export async function geminiFormat(prompt: string): Promise<{ data: any; model: string }> {
-  const g = await llmGenerate(prompt, { json: true, timeoutMs: 38_000, deadlineMs: 46_000, maxTokens: 12_000, preferBackup: true });
+  // Keep the formatter below small-model free-tier context limits; search evidence is already
+  // compressed by the radar and the prompt itself caps notes to 10.5k characters.
+  const g = await llmGenerate(prompt, { json: true, timeoutMs: 32_000, deadlineMs: 48_000, maxTokens: 3_400, preferBackup: true, temperature: 0.2 });
   try { return { data: extractJson(g.text), model: `${g.provider}:${g.model}` }; } catch { throw new HttpError(424, 'The research came back in an unexpected format. Please try again.', 'GEMINI'); }
 }
 
