@@ -676,7 +676,6 @@ export const VideoEditor: React.FC<Props> = ({ video, onSave }) => {
               </div>
               <div className="grid grid-cols-2 gap-2"><label className="text-[10px] text-slate-400">Fade in<input type="number" min="0" max="3" step="0.1" value={current.clipFadeIn || 0} onChange={(event) => patchCurrent({ clipFadeIn: Number(event.target.value) })} className="mt-1 w-full rounded-lg border border-slate-700 bg-[#08111e] p-2 text-xs text-white" /></label><label className="text-[10px] text-slate-400">Fade out<input type="number" min="0" max="3" step="0.1" value={current.clipFadeOut || 0} onChange={(event) => patchCurrent({ clipFadeOut: Number(event.target.value) })} className="mt-1 w-full rounded-lg border border-slate-700 bg-[#08111e] p-2 text-xs text-white" /></label></div>
             </div>}
-            </>}
           </div>
         </aside>
       </div>
