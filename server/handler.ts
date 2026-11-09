@@ -2455,7 +2455,7 @@ async function stageRender(row: any, user: ReturnType<typeof toUser>, ep: any): 
                 delete p.url;
                 p.error = `Visual QA rejected this shot: ${reason}`.slice(0, 300);
                 p.retryAt = Date.now() + 10_000;
-                console.warn('Visual QA rejected generated scene; retrying with a new seed:', { episodeId: ep.id, scene: en.index + 1, part: k + 1, attempt: p.tries, reason });
+                console.warn('Visual QA rejected generated scene; retrying with a new seed:', { episodeId: ep.id, scene: en.index + 1, part: en.parts.indexOf(p) + 1, attempt: p.tries, reason });
                 if (p.tries >= MAX_PART_TRIES) p.retryAt = undefined;
                 await save();
                 continue;
