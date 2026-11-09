@@ -1,5 +1,5 @@
 /** Strict date parsing for current trend intelligence. Undated sources are never presented as live trends. */
-export const TREND_FRESHNESS_DAYS = 14;
+export const TREND_FRESHNESS_DAYS = 30;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
