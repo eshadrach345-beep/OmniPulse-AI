@@ -200,6 +200,11 @@ export interface VideoMediaLayer {
   scale: number;
   x: number;
   y: number;
+  /** Optional chroma-key cleanup for green-screen image/video overlays. */
+  chromaKey?: boolean;
+  chromaKeyColor?: string;
+  chromaKeySimilarity?: number;
+  chromaKeyBlend?: number;
 }
 
 export interface VideoCaptionCue {
