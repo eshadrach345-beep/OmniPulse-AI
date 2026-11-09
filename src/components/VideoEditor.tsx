@@ -20,6 +20,7 @@ interface DeapiAudioModel { slug: string; name: string; description: string; sup
 interface AudioSyncResult { jobId: string; videoUrl: string; duration: number; frameCount: number }
 type EditorTool = 'media' | 'text' | 'audio' | 'captions' | 'ai';
 interface EditorCapabilities { aiDirectorAvailable: boolean; aiProviders: string[]; transcriptionAvailable: boolean; audioSyncModels: number }
+interface AiTestResult { results: { name: string; ok: boolean; message: string }[]; available: boolean }
 const TOOL_ITEMS: { id: EditorTool; label: string; icon: React.ElementType }[] = [
   { id: 'media', label: 'Media', icon: ImageIcon },
   { id: 'text', label: 'Text', icon: Type },
@@ -46,6 +47,7 @@ export const VideoEditor: React.FC<Props> = ({ video, onSave }) => {
   const [mediaAssets, setMediaAssets] = useState<EditorMediaAsset[]>([]);
   const [mediaLoading, setMediaLoading] = useState(false);
   const [selectedAssetId, setSelectedAssetId] = useState('');
+  const [mediaFilter, setMediaFilter] = useState<'all' | 'video' | 'image' | 'audio'>('all');
   const [selectedMediaTrack, setSelectedMediaTrack] = useState<VideoMediaTrack>('main');
   const [mediaUrls, setMediaUrls] = useState<Record<string, string>>({});
   const [mediaError, setMediaError] = useState('');
@@ -80,6 +82,9 @@ export const VideoEditor: React.FC<Props> = ({ video, onSave }) => {
   const [selectedLayerId, setSelectedLayerId] = useState<string | null>(null);
   const [capabilities, setCapabilities] = useState<EditorCapabilities | null>(null);
   const [capabilityError, setCapabilityError] = useState('');
+  const [aiTestBusy, setAiTestBusy] = useState(false);
+  const [aiTestResult, setAiTestResult] = useState<AiTestResult | null>(null);
+  const [aiTestError, setAiTestError] = useState('');
   const [timelineZoom, setTimelineZoom] = useState(26);
   const [globalPlayhead, setGlobalPlayhead] = useState(0);
   const [newText, setNewText] = useState('Your title');
@@ -174,8 +179,8 @@ export const VideoEditor: React.FC<Props> = ({ video, onSave }) => {
     return () => { active = false; };
   }, [current?.id, current?.mediaLayers, mediaUrls]);
 
-  const addMediaLayer = (trackOverride: VideoMediaTrack = selectedMediaTrack) => {
-    const asset = mediaAssets.find((item) => item.id === selectedAssetId);
+  const addMediaLayer = (trackOverride: VideoMediaTrack = selectedMediaTrack, assetIdOverride?: string) => {
+    const asset = mediaAssets.find((item) => item.id === (assetIdOverride || selectedAssetId));
     if (!asset || !current) return;
     const kind: VideoMediaLayer['kind'] = asset.contentType.startsWith('audio/') ? 'audio' : asset.contentType.startsWith('image/') ? 'image' : 'video';
     const track: VideoMediaTrack = kind === 'audio' ? 'audio' : trackOverride === 'audio' ? 'overlay' : trackOverride;
@@ -391,6 +396,17 @@ export const VideoEditor: React.FC<Props> = ({ video, onSave }) => {
     setAudioSyncStatus('The audio-synced clip is now the main footage for this scene.');
   };
 
+  const testAiConnections = async () => {
+    setAiTestBusy(true); setAiTestError(''); setAiTestResult(null);
+    try {
+      const result = await api.post<AiTestResult>('/video/editor/ai-test', {});
+      setAiTestResult(result);
+      if (!result.available) setAiTestError('No configured AI writer passed its live connection test. Check the provider messages below before using the AI Director.');
+    } catch (error) {
+      setAiTestError(error instanceof Error ? error.message : 'AI connection checks could not run.');
+    } finally { setAiTestBusy(false); }
+  };
+
   const requestDirectorPlan = async () => {
     setDirectorBusy(true); setDirectorError(''); setDirectorPlan(null);
     try {
@@ -536,8 +552,8 @@ export const VideoEditor: React.FC<Props> = ({ video, onSave }) => {
   const previewTitle = current?.beat || 'Scene ' + (selected + 1);
 
   return (
-    <section id="omnipulse-timeline-editor" className="overflow-hidden rounded-2xl border border-slate-800 bg-[#090f1b] text-slate-100 shadow-2xl shadow-black/30">
-      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 bg-[#101a2a] px-3 py-3 sm:px-5">
+    <section id="omnipulse-timeline-editor" className="op-editor overflow-hidden rounded-[22px] border border-white/10 bg-[#0d0a13] text-slate-100 shadow-2xl shadow-black/40">
+      <header className="op-editor-topbar flex flex-wrap items-center justify-between gap-3 border-b border-white/10 px-3 py-3 sm:px-5">
         <div className="flex min-w-0 items-center gap-3">
           <div className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-cyan-300/20 bg-cyan-300/10 text-cyan-200"><Clapperboard className="h-4 w-4" /></div>
           <div className="min-w-0"><h2 className="truncate text-sm font-extrabold text-white">OmniPulse Creative Lab</h2><p className="truncate text-[10px] text-slate-500">{video.title} · {scenes.length} clips · {formatTime(totalSeconds)}</p></div>
@@ -553,8 +569,8 @@ export const VideoEditor: React.FC<Props> = ({ video, onSave }) => {
         </div>
       </header>
 
-      <div className="grid grid-cols-1 lg:grid-cols-[56px_minmax(0,1fr)_300px]">
-        <nav aria-label="Editing tools" className="order-2 flex gap-1 overflow-x-auto border-y border-white/10 bg-[#0c1422] p-2 lg:order-1 lg:flex-col lg:overflow-visible lg:border-y-0 lg:border-r lg:p-2">
+      <div className="grid grid-cols-1 lg:grid-cols-[58px_230px_minmax(0,1fr)_300px] xl:grid-cols-[62px_250px_minmax(0,1fr)_310px]">
+        <nav aria-label="Editing tools" className="order-2 flex gap-1 overflow-x-auto border-y border-white/10 bg-[#15101e] p-2 lg:order-1 lg:flex-col lg:overflow-visible lg:border-y-0 lg:border-r lg:p-2">
           {TOOL_ITEMS.map(({ id, label, icon: Icon }) => (
             <button key={id} type="button" onClick={() => setActiveTool(id)} aria-pressed={activeTool === id}
               className={activeTool === id ? 'flex min-w-[64px] flex-1 flex-col items-center gap-1 rounded-xl border border-cyan-300/25 bg-cyan-300/10 px-2 py-2.5 text-cyan-100 lg:flex-none' : 'flex min-w-[64px] flex-1 flex-col items-center gap-1 rounded-xl border border-transparent px-2 py-2.5 text-slate-500 transition hover:border-white/10 hover:bg-white/5 hover:text-slate-200 lg:flex-none'}>
@@ -563,7 +579,35 @@ export const VideoEditor: React.FC<Props> = ({ video, onSave }) => {
           ))}
         </nav>
 
-        <div className="order-1 min-w-0 bg-[#0b1321] lg:order-2">
+        <aside className="op-media-bin order-3 flex max-h-[220px] min-w-0 flex-col overflow-hidden border-b border-white/10 bg-[#110d18] lg:order-2 lg:max-h-[calc(100vh-180px)] lg:border-b-0 lg:border-r">
+          <div className="flex items-center justify-between border-b border-white/[.07] px-3 py-3">
+            <div><h3 className="text-[11px] font-extrabold text-white">Media bin</h3><p className="mt-0.5 text-[9px] text-slate-500">{mediaAssets.length} files in your library</p></div>
+            <span className="rounded-md border border-violet-300/15 bg-violet-300/[.07] px-2 py-1 text-[8px] font-bold text-violet-200">PROJECT</span>
+          </div>
+          <div className="flex gap-1 overflow-x-auto border-b border-white/[.06] px-2 py-2">
+            {(['all', 'video', 'image', 'audio'] as const).map((filter) => <button key={filter} type="button" onClick={() => setMediaFilter(filter)} className={mediaFilter === filter ? 'rounded-md bg-violet-300/15 px-2.5 py-1.5 text-[9px] font-extrabold capitalize text-violet-100' : 'rounded-md px-2.5 py-1.5 text-[9px] font-semibold capitalize text-slate-500 hover:bg-white/[.04] hover:text-slate-200'}>{filter}</button>)}
+          </div>
+          <div className="min-h-0 flex-1 space-y-1.5 overflow-y-auto p-2.5">
+            {mediaLoading && <p className="px-1 py-3 text-[10px] text-slate-500">Loading your media…</p>}
+            {!mediaLoading && mediaAssets.filter((asset) => mediaFilter === 'all' || (mediaFilter === 'audio' ? asset.contentType.startsWith('audio/') : mediaFilter === 'image' ? asset.contentType.startsWith('image/') : asset.contentType.startsWith('video/'))).map((asset) => {
+              const kind = asset.contentType.startsWith('audio/') ? 'audio' : asset.contentType.startsWith('image/') ? 'image' : 'video';
+              return <div key={asset.id} className={selectedAssetId === asset.id ? 'rounded-lg border border-violet-300/25 bg-violet-300/[.07] p-2' : 'rounded-lg border border-white/[.055] bg-white/[.025] p-2 hover:border-white/15'}>
+                <button type="button" onClick={() => { setSelectedAssetId(asset.id); setActiveTool(kind === 'audio' ? 'audio' : 'media'); }} className="flex w-full min-w-0 items-center gap-2 text-left">
+                  <span className={kind === 'audio' ? 'grid h-9 w-10 shrink-0 place-items-center rounded-md bg-orange-300/10 text-orange-200' : kind === 'image' ? 'grid h-9 w-10 shrink-0 place-items-center rounded-md bg-violet-300/10 text-violet-200' : 'grid h-9 w-10 shrink-0 place-items-center rounded-md bg-blue-300/10 text-blue-200'}>{kind === 'audio' ? <AudioLines className="h-4 w-4" /> : kind === 'image' ? <ImageIcon className="h-4 w-4" /> : <Film className="h-4 w-4" />}</span>
+                  <span className="min-w-0 flex-1"><span className="block truncate text-[9px] font-bold text-slate-200">{asset.name}</span><span className="mt-0.5 block text-[8px] uppercase tracking-wider text-slate-600">{kind} · {(asset.size / 1024 / 1024).toFixed(1)} MB</span></span>
+                </button>
+                <div className="mt-2 flex gap-1">
+                  <button type="button" onClick={() => { setSelectedAssetId(asset.id); addMediaLayer(kind === 'audio' ? 'audio' : 'main', asset.id); }} className="flex-1 rounded-md bg-violet-300/[.12] px-2 py-1.5 text-[8px] font-extrabold text-violet-100 hover:bg-violet-300/20">Add to timeline</button>
+                  {kind !== 'audio' && <button type="button" onClick={() => { setSelectedAssetId(asset.id); addMediaLayer('overlay', asset.id); }} className="rounded-md border border-white/10 px-2 py-1.5 text-[8px] font-bold text-slate-300">Overlay</button>}
+                </div>
+              </div>;
+            })}
+            {!mediaLoading && !mediaAssets.some((asset) => mediaFilter === 'all' || (mediaFilter === 'audio' ? asset.contentType.startsWith('audio/') : mediaFilter === 'image' ? asset.contentType.startsWith('image/') : asset.contentType.startsWith('video/'))) && <p className="px-1 py-3 text-[9px] leading-5 text-slate-500">No matching files yet. Upload clips, images or audio in Creator Upload Studio, then return here.</p>}
+          </div>
+          <div className="border-t border-white/[.06] p-2.5"><p className="text-[8px] leading-4 text-slate-600">Select a file and add it to the main video, overlay or audio track. Drag timeline layers to reposition them.</p></div>
+        </aside>
+
+        <div className="order-1 min-w-0 bg-[#100c17] lg:order-3">
           <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 px-3 py-2.5 sm:px-4">
             <div className="flex items-center gap-2 text-[10px] text-slate-400"><Film className="h-3.5 w-3.5 text-cyan-200" /><span>Preview monitor</span><span className="text-slate-700">/</span><span className="max-w-[180px] truncate text-slate-200">{previewTitle}</span></div>
             <div className="flex items-center gap-2">
@@ -607,7 +651,7 @@ export const VideoEditor: React.FC<Props> = ({ video, onSave }) => {
           </div>
         </div>
 
-        <aside className="order-3 min-w-0 border-t border-white/10 bg-[#0c1524] lg:border-l lg:border-t-0">
+        <aside className="order-4 min-w-0 border-t border-white/10 bg-[#120e19] lg:border-l lg:border-t-0">
           <div className="flex items-center justify-between border-b border-white/10 px-4 py-3"><div><h3 className="text-xs font-extrabold text-white">{TOOL_ITEMS.find((tool) => tool.id === activeTool)?.label || 'Inspector'}</h3><p className="mt-0.5 text-[9px] text-slate-500">Selected clip and track controls</p></div><Settings2 className="h-4 w-4 text-cyan-200" /></div>
           <div className="max-h-[620px] space-y-4 overflow-y-auto p-3 sm:p-4 lg:max-h-[calc(100vh-250px)]">
             {activeTool === 'media' && <>
