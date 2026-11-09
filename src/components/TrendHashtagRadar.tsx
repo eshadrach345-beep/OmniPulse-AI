@@ -14,6 +14,7 @@ import { analyzeNicheTrends } from '../services/aiService';
 import { api } from '../services/api';
 
 type YouTubeGrowthKit = {
+  platform: string;
   titleOptions: string[];
   openingHooks: string[];
   description: string;
@@ -111,7 +112,8 @@ export const TrendHashtagRadar: React.FC<TrendHashtagRadarProps> = ({
   const [seoKeyword, setSeoKeyword] = useState('');
   const [seoTitle, setSeoTitle] = useState('');
   const [seoDescription, setSeoDescription] = useState('');
-  const [seoGoal, setSeoGoal] = useState<'discoverability' | 'clicks' | 'subscribers' | 'shorts'>('discoverability');
+  const [seoGoal, setSeoGoal] = useState<'discoverability' | 'clicks' | 'subscribers' | 'shorts' | 'reach' | 'engagement' | 'leads' | 'community'>('discoverability');
+  const [growthPlatform, setGrowthPlatform] = useState<'youtube' | 'tiktok' | 'instagram' | 'facebook' | 'linkedin' | 'x' | 'pinterest'>('youtube');
   const [growthKit, setGrowthKit] = useState<YouTubeGrowthKit | null>(null);
   const [growthKitBusy, setGrowthKitBusy] = useState(false);
   const [growthKitError, setGrowthKitError] = useState('');
@@ -145,7 +147,7 @@ export const TrendHashtagRadar: React.FC<TrendHashtagRadarProps> = ({
     setGrowthKitBusy(true); setGrowthKitError(''); setGrowthKit(null);
     try {
       const result = await api.post<YouTubeGrowthKit>('/ai/youtube-growth-kit', {
-        niche: activeNiche.name, keyword: seoKeyword.trim(), title: seoTitle.trim(),
+        niche: activeNiche.name, platform: growthPlatform, keyword: seoKeyword.trim(), title: seoTitle.trim(),
         description: seoDescription.trim(), goal: seoGoal,
       });
       setGrowthKit(result);
@@ -348,7 +350,7 @@ export const TrendHashtagRadar: React.FC<TrendHashtagRadarProps> = ({
           }`}
         >
           <Youtube className="w-3.5 h-3.5 text-red-300" />
-          <span>YouTube Growth Studio</span>
+          <span>Social Growth Studio</span>
         </button>
 
         <button
@@ -818,15 +820,16 @@ export const TrendHashtagRadar: React.FC<TrendHashtagRadarProps> = ({
             <div className="flex items-start gap-3">
               <div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl border border-red-400/20 bg-red-400/10"><Youtube className="h-5 w-5 text-red-300" /></div>
               <div className="min-w-0">
-                <h2 className="text-sm font-bold text-white">YouTube Growth Studio</h2>
-                <p className="mt-1 max-w-3xl text-xs leading-5 text-slate-400">Build a publish-ready SEO and creative package: title variations, opening hooks, description, tags, thumbnail angles and Shorts ideas. Recommendations are generated from your brief; this tool does not pretend to know private channel analytics or keyword search volumes.</p>
+                <h2 className="text-sm font-bold text-white">Social Growth Studio</h2>
+                <p className="mt-1 max-w-3xl text-xs leading-5 text-slate-400">Build a platform-specific organic content package with hooks, captions, keyword ideas, hashtags, creative concepts, community prompts and a repeatable growth plan. Recommendations are not presented as measured analytics.</p>
               </div>
             </div>
             <form onSubmit={buildYouTubeGrowthKit} className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-2">
+              <label className="block space-y-1"><span className="text-[11px] font-semibold text-slate-300">Target platform</span><select value={growthPlatform} onChange={(event) => setGrowthPlatform(event.target.value as typeof growthPlatform)} className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-xs text-white"><option value="youtube">YouTube</option><option value="tiktok">TikTok</option><option value="instagram">Instagram</option><option value="facebook">Facebook</option><option value="linkedin">LinkedIn</option><option value="x">X</option><option value="pinterest">Pinterest</option></select></label>
               <label className="block space-y-1"><span className="text-[11px] font-semibold text-slate-300">Primary topic / keyword</span><input value={seoKeyword} onChange={(event) => setSeoKeyword(event.target.value)} maxLength={160} placeholder="e.g. AI video editing for small businesses" className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-xs text-white placeholder:text-slate-600" /></label>
               <label className="block space-y-1"><span className="text-[11px] font-semibold text-slate-300">Current video title (optional)</span><input value={seoTitle} onChange={(event) => setSeoTitle(event.target.value)} maxLength={180} placeholder="Paste your working title" className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-xs text-white placeholder:text-slate-600" /></label>
               <label className="block space-y-1 lg:col-span-2"><span className="text-[11px] font-semibold text-slate-300">What happens in the video?</span><textarea value={seoDescription} onChange={(event) => setSeoDescription(event.target.value)} maxLength={4000} rows={4} placeholder="Describe the video, intended audience, key points and the result viewers should get..." className="w-full resize-y rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-xs text-white placeholder:text-slate-600" /></label>
-              <label className="block space-y-1"><span className="text-[11px] font-semibold text-slate-300">Main growth goal</span><select value={seoGoal} onChange={(event) => setSeoGoal(event.target.value as typeof seoGoal)} className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-xs text-white"><option value="discoverability">Search discovery</option><option value="clicks">More qualified clicks</option><option value="subscribers">Subscriber growth</option><option value="shorts">Shorts reach</option></select></label>
+              <label className="block space-y-1"><span className="text-[11px] font-semibold text-slate-300">Main growth goal</span><select value={seoGoal} onChange={(event) => setSeoGoal(event.target.value as typeof seoGoal)} className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-xs text-white"><option value="discoverability">Discoverability</option><option value="clicks">Qualified clicks</option><option value="subscribers">Subscribers / followers</option><option value="shorts">Short-form reach</option><option value="reach">Broader reach</option><option value="engagement">Meaningful engagement</option><option value="leads">Leads / enquiries</option><option value="community">Community building</option></select></label>
               <div className="flex items-end"><button type="submit" disabled={growthKitBusy || (!seoKeyword.trim() && !seoTitle.trim() && seoDescription.trim().length < 30)} className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-red-600 px-4 py-2.5 text-xs font-semibold text-white shadow-lg shadow-red-950/20 transition-colors hover:bg-red-500 disabled:opacity-40">{growthKitBusy ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}{growthKitBusy ? 'Building growth package…' : 'Build YouTube package'}</button></div>
             </form>
             {growthKitError && <p role="alert" className="mt-3 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-300">{growthKitError}</p>}
@@ -834,6 +837,7 @@ export const TrendHashtagRadar: React.FC<TrendHashtagRadarProps> = ({
 
           {growthKit && (
             <div className="space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-emerald-500/20 bg-emerald-500/5 px-3 py-2"><span className="text-[10px] font-semibold uppercase tracking-wider text-emerald-200">Generated for {growthKit.platform.toUpperCase()}</span><span className="text-[10px] text-slate-400">Platform-aware draft · no measured analytics invented</span></div>
               {youtubeSeoAudit && (
                 <section className="rounded-xl border border-indigo-500/20 bg-gradient-to-r from-indigo-500/5 to-slate-900 p-4">
                   <div className="flex flex-wrap items-center justify-between gap-3">
