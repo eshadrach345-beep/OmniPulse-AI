@@ -24,8 +24,12 @@ const base = path.join(work, 'base.mp4');
 const overlay = path.join(work, 'brand-mark.ppm');
 const output = path.join(work, 'rendered.mp4');
 const compiledPath = path.resolve('scripts/.tmp-compositor-smoke.mjs');
+const compiledQaPath = path.resolve('scripts/.tmp-video-qa.mjs');
 try {
-  const source = await fs.readFile(new URL('../server/lib/compositor.ts', import.meta.url), 'utf8');
+  const qaSource = await fs.readFile(new URL('../server/lib/video-qa.ts', import.meta.url), 'utf8');
+  const compiledQa = ts.transpileModule(qaSource, { fileName: 'video-qa.ts', compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText;
+  await fs.writeFile(compiledQaPath, compiledQa);
+  const source = (await fs.readFile(new URL('../server/lib/compositor.ts', import.meta.url), 'utf8')).replace("from './video-qa.js'", "from './.tmp-video-qa.mjs'");
   const compiled = ts.transpileModule(source, {
     fileName: 'compositor.ts',
     compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
@@ -55,5 +59,6 @@ try {
   console.log('CPU-only video render smoke test passed (MP4 + logo image layer + title + animated CTA/text overlays + playback speed + clip fades + crop-to-fill + cinematic grade + chroma key).');
 } finally {
   await fs.rm(compiledPath, { force: true });
+  await fs.rm(compiledQaPath, { force: true });
   await fs.rm(work, { recursive: true, force: true });
 }
