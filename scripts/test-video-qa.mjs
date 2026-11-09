@@ -37,3 +37,10 @@ const clearJob = rejectionCode.indexOf('delete p.jobId');
 assert.ok(refundUpdate >= 0, 'a visually rejected completed provider job must be marked failed for billing');
 assert.ok(clearJob > refundUpdate, 'billing row must be marked failed before the episode drops its job ID');
 assert.match(rejectionCode, /WHERE id = \$\{p\.jobId\} AND user_id = \$\{row\.id\}/, 'refund update must be scoped to the current user and rejected job');
+
+const providerTimeoutBlock = handler.match(/const MAX_PROVIDER_JOB_MS = 20 \* 60_000;[\s\S]*?const st = await refreshJob\(j\);/);
+assert.ok(providerTimeoutBlock, 'stale provider jobs must have a bounded timeout before status polling');
+assert.match(providerTimeoutBlock[0], /Date\.now\(\) - providerStartedAt > MAX_PROVIDER_JOB_MS/);
+assert.match(providerTimeoutBlock[0], /UPDATE video_jobs SET status = 'failed'/);
+assert.match(providerTimeoutBlock[0], /p\.tries = MAX_PART_TRIES/);
+assert.match(handler, /if \(p\.tries < 2\) \{[\s\S]*?Visual QA still found issues after one retry/);
