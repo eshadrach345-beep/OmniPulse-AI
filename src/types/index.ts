@@ -213,6 +213,22 @@ export interface VideoCaptionCue {
   text: string;
 }
 
+/** Timed text layer, previewed in the editor and composited into the exported MP4. */
+export interface VideoTextOverlay {
+  id: string;
+  start: number;
+  end: number;
+  text: string;
+  y: 'h*0.12' | 'h*0.5' | 'h*0.78';
+  fontSize: number;
+  color?: string;
+  boxColor?: string;
+  boxBorderWidth?: number;
+  fadeIn?: number;
+  fadeOut?: number;
+  weight?: 'regular' | 'bold';
+}
+
 
 export interface VideoScene {
   id: string;
@@ -221,6 +237,10 @@ export interface VideoScene {
   mediaLayers?: VideoMediaLayer[];
   /** Word/segment-timed captions created from source-media transcription. */
   captions?: VideoCaptionCue[];
+  /** Timed exportable text and title graphics. */
+  textOverlays?: VideoTextOverlay[];
+  /** Source in-point for a generated provider clip when there is no explicit main media layer. */
+  sourceIn?: number;
   lines?: SceneLine[];
   /** Multi-character productions: the rendered clip for this scene. */
   clipUrl?: string;

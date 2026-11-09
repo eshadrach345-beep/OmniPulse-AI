@@ -3108,6 +3108,23 @@ const mediaUpload: Handler = async ({ req, res, body }) => {
   });
   json(res, 200, response);
 };
+/** Reports which AI tools are actually configured without exposing API keys or triggering paid generation. */
+const videoEditorCapabilities: Handler = async ({ req, res }) => {
+  await requireAccess(req);
+  const ai = aiWriterStatus();
+  const audioModels = lookupEnv('DEAPI_API_KEY') ? await deapiVideoModels().catch(() => []) : [];
+  const aiProviders = [
+    ...(ai.geminiKeys > 0 ? ['Gemini'] : []),
+    ...ai.backups.map((backup) => backup.label),
+  ];
+  json(res, 200, {
+    aiDirectorAvailable: aiProviders.length > 0,
+    aiProviders,
+    transcriptionAvailable: !!process.env.GROQ_API_KEY?.trim(),
+    audioSyncModels: audioModels.filter((model) => model.supportsAudioToVideo).length,
+  });
+};
+
 /** Render one editor scene with its private source, visual overlays, audio layers and timestamped captions. */
 const videoEditorRender: Handler = async ({ req, res, body }) => {
   const { row } = await requireAccess(req);
@@ -3210,6 +3227,7 @@ const videoEditorRender: Handler = async ({ req, res, body }) => {
       catch { await fs.rm(target, { force: true }); throw new HttpError(413, 'The generated scene source exceeded the 500 MB renderer limit.'); }
       totalDownloaded += received;
       basePath = target;
+      baseSourceIn = Math.max(0, Number(scene.sourceIn) || 0);
     }
 
     const overlayFiles = [];
@@ -3239,8 +3257,23 @@ const videoEditorRender: Handler = async ({ req, res, body }) => {
         text: str(cue?.text, 500),
       }))
       .filter((cue: any) => cue.text && cue.end > cue.start);
+    const textOverlays = (Array.isArray(scene.textOverlays) ? scene.textOverlays : []).slice(0, 12)
+      .map((layer: any) => ({
+        start: clampNumber(layer?.start, 0, 0, duration),
+        end: clampNumber(layer?.end, duration, 0, duration),
+        text: str(layer?.text, 220),
+        y: ['h*0.12', 'h*0.5', 'h*0.78'].includes(String(layer?.y)) ? String(layer.y) : 'h*0.78',
+        fontSize: clampNumber(layer?.fontSize, 44, 18, 112),
+        color: /^#?[0-9a-f]{6}$/i.test(String(layer?.color || '')) ? String(layer.color) : '#ffffff',
+        boxColor: /^#?[0-9a-f]{6}$/i.test(String(layer?.boxColor || '')) ? String(layer.boxColor) : undefined,
+        boxBorderWidth: clampNumber(layer?.boxBorderWidth, 12, 0, 48),
+        fadeIn: clampNumber(layer?.fadeIn, 0, 0, 3),
+        fadeOut: clampNumber(layer?.fadeOut, 0, 0, 3),
+        weight: layer?.weight === 'regular' ? 'regular' : 'bold',
+      }))
+      .filter((layer: any) => layer.text && layer.end > layer.start);
     try {
-      await renderComposition({ base: basePath, baseIsImage, baseSourceIn, playbackSpeed: clampNumber(scene.playbackSpeed, 1, 0.5, 2), clipFadeIn: clampNumber(scene.clipFadeIn, 0, 0, Math.min(3, duration / 2)), clipFadeOut: clampNumber(scene.clipFadeOut, 0, 0, Math.min(3, duration / 2)), fitMode: scene.fitMode === 'cover' ? 'cover' : 'contain', colorGrade: ['cinematic', 'warm', 'cool', 'monochrome', 'vintage', 'vivid'].includes(String(scene.colorGrade)) ? scene.colorGrade : 'none', overlays: overlayFiles, audio: audioFiles, captions, title: str(scene.onScreenText, 180), titlePosition: scene.overlayPosition === 'top' || scene.overlayPosition === 'bottom' ? scene.overlayPosition : 'center', duration, width, height, output });
+      await renderComposition({ base: basePath, baseIsImage, baseSourceIn, playbackSpeed: clampNumber(scene.playbackSpeed, 1, 0.5, 2), clipFadeIn: clampNumber(scene.clipFadeIn, 0, 0, Math.min(3, duration / 2)), clipFadeOut: clampNumber(scene.clipFadeOut, 0, 0, Math.min(3, duration / 2)), fitMode: scene.fitMode === 'cover' ? 'cover' : 'contain', colorGrade: ['cinematic', 'warm', 'cool', 'monochrome', 'vintage', 'vivid'].includes(String(scene.colorGrade)) ? scene.colorGrade : 'none', overlays: overlayFiles, audio: audioFiles, captions, textOverlays, title: str(scene.onScreenText, 180), titlePosition: scene.overlayPosition === 'top' || scene.overlayPosition === 'bottom' ? scene.overlayPosition : 'center', duration, width, height, output });
     } catch (error: any) {
       console.error('editor scene render failed', error?.message);
       if (error?.message === 'FFMPEG_NOT_AVAILABLE') throw new HttpError(424, 'The server video compositor is not installed yet.', 'FFMPEG_NOT_AVAILABLE');
@@ -3256,7 +3289,7 @@ const videoEditorRender: Handler = async ({ req, res, body }) => {
       VALUES (${id}, ${row.id}, ${blob.pathname}, ${blob.url}, ${name}, 'video/mp4', ${stat.size})`;
     const token = await issueSignedToken({ operations: ['get'] });
     const signed = await presignUrl(token, { pathname: blob.pathname, operation: 'get', access: 'private', validUntil: Date.now() + 60 * 60 * 1000 });
-    json(res, 200, { asset: { id, name, contentType: 'video/mp4', size: stat.size }, downloadUrl: signed.presignedUrl, duration, renderedLayers: overlayFiles.length + audioFiles.length, captionsBurnedIn: captions.length > 0 || Boolean(str(scene.onScreenText, 180).trim()) });
+    json(res, 200, { asset: { id, name, contentType: 'video/mp4', size: stat.size }, downloadUrl: signed.presignedUrl, duration, renderedLayers: overlayFiles.length + audioFiles.length, captionsBurnedIn: captions.length > 0 || textOverlays.length > 0 || Boolean(str(scene.onScreenText, 180).trim()) });
   } finally {
     await fs.rm(workDir, { recursive: true, force: true }).catch(() => undefined);
   }
@@ -3496,7 +3529,7 @@ const routes: Record<string, Handler> = {
   'POST /ai/generate-script': genScript, 'POST /ai/research-trends': researchTrends, 'POST /ai/youtube-growth-kit': youtubeGrowthKit, 'POST /ai/ad-concepts': adConcepts, 'POST /ad/brand-images': adBrandImages, 'POST /ad/render-image': adImageRender, 'POST /tts': tts,
   'POST /ai/ab-variations': abVariations, 'POST /ai/competitor-analysis': competitorAnalysis, 'POST /ai/outrank': outrank,
   'POST /video/render': videoRender, 'POST /video/audio-sync': videoAudioSync, 'GET /video/status': videoStatus, 'GET /video/models': videoModelCatalogue,
-  'GET /social/accounts': socialAccounts, 'POST /social/sync': socialSync, 'GET /video/download': videoDownload, 'GET /video/merge': videoMerge, 'POST /video/editor/render': videoEditorRender, 'POST /video/editor/assemble': videoEditorAssemble, 'GET /social/connect': socialConnect, 'GET /social/callback': socialCallback, 'GET /social/zernio-callback': socialZernioCallback,
+  'GET /social/accounts': socialAccounts, 'POST /social/sync': socialSync, 'GET /video/download': videoDownload, 'GET /video/merge': videoMerge, 'GET /video/editor/capabilities': videoEditorCapabilities, 'POST /video/editor/render': videoEditorRender, 'POST /video/editor/assemble': videoEditorAssemble, 'GET /social/connect': socialConnect, 'GET /social/callback': socialCallback, 'GET /social/zernio-callback': socialZernioCallback,
   'POST /social/disconnect': socialDisconnect, 'GET /social/metrics': socialMetricsRoute, 'POST /social/publish': socialPublish,
   'POST /episodes/create': episodeCreate, 'POST /episodes/retry': episodeRetry, 'GET /episodes/status': episodeStatus, 'GET /episodes/clip': episodeClip, 'POST /episodes/pause': episodePause, 'POST /episodes/resume': episodeResume, 'POST /episodes/edit': episodeEdit, 'GET /episodes/video': episodeVideo, 'GET /projects': projectsList, 'GET /projects/get': projectGet, 'POST /projects/reference/clean-plate': projectCleanPlate,
   'GET /cron/dispatch': cronDispatch, 'POST /cron/dispatch': cronDispatch,
