@@ -781,6 +781,7 @@ export async function webTrendResearch(niche: string, customQuery: string): Prom
       return [];
     }
   });
+  console.info('[TrendRadar] research completed', { niche, providers, dateVerifiedSources: recentItems.length, coverage, providerErrors: providerErrors.slice(0, 4) });
   const text = searchText + '\n\nResearch quality note: topics must be tied to named, dated events or observed content in these sources. If a niche has little fresh evidence, return fewer results rather than filling the feed with generic ideas.';
   return { text, sources, provider: providers + ((process.env.YOUTUBE_API_KEY || process.env.YOUTUBE_DATA_API_KEY) ? '+youtube-data-api' : '') };
 }
