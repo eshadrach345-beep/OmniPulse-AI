@@ -957,7 +957,7 @@ export async function deapiAudioSync(
   audioContentType: string,
   audioFilename: string,
   durationSeconds: number,
-  aspect: string = '9:16',
+  aspect: string,
   requestedModel: string,
   firstFrame?: Buffer,
 ) {
