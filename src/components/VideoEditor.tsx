@@ -455,6 +455,55 @@ export const VideoEditor: React.FC<Props> = ({ video, onSave }) => {
     const next = [...scenes]; const [item] = next.splice(selected, 1); next.splice(to, 0, item);
     commit(next); setSelected(to);
   };
+  const reorderScene = (from: number, to: number) => {
+    if (from === to || from < 0 || to < 0 || from >= scenes.length || to >= scenes.length) return;
+    const next = [...scenes];
+    const [item] = next.splice(from, 1);
+    next.splice(to, 0, item);
+    commit(next);
+    setSelected(to);
+    setSelectedLayerId(null);
+  };
+  const handleTimelineLayerDrop = (event: React.DragEvent<HTMLDivElement>, targetTrack: 'overlay' | 'audio' | 'text') => {
+    event.preventDefault();
+    const raw = event.dataTransfer.getData('application/x-omni-timeline');
+    if (!raw) return;
+    let payload: { kind: 'media' | 'text'; sceneIndex: number; layerId: string };
+    try { payload = JSON.parse(raw); } catch { return; }
+    if (!Number.isInteger(payload.sceneIndex) || !payload.layerId || !scenes[payload.sceneIndex]) return;
+    const rect = event.currentTarget.getBoundingClientRect();
+    const globalTime = Math.max(0, Math.min(totalSeconds, (event.clientX - rect.left) / timelineZoom));
+    let targetIndex = sceneStarts.findIndex((range) => globalTime >= range.start && globalTime < range.start + range.duration);
+    if (targetIndex < 0) targetIndex = scenes.length - 1;
+    const localTime = Math.max(0, globalTime - (sceneStarts[targetIndex]?.start || 0));
+    const next = scenes.map((scene) => ({ ...scene, mediaLayers: [...(scene.mediaLayers || [])], textOverlays: [...(scene.textOverlays || [])] }));
+    if (payload.kind === 'media' && targetTrack !== 'text') {
+      const source = next[payload.sceneIndex];
+      const layer = source.mediaLayers.find((item) => item.id === payload.layerId);
+      if (!layer || (targetTrack === 'audio' && layer.kind !== 'audio') || (targetTrack === 'overlay' && layer.kind === 'audio')) return;
+      source.mediaLayers = source.mediaLayers.filter((item) => item.id !== payload.layerId);
+      const targetDuration = Math.max(0.5, Number(next[targetIndex].duration) || 1);
+      const startAt = Math.min(localTime, Math.max(0, targetDuration - 0.1));
+      next[targetIndex].mediaLayers.push({
+        ...layer,
+        track: targetTrack,
+        startAt,
+        duration: Math.min(layer.duration, Math.max(0.1, targetDuration - startAt)),
+      });
+    } else if (payload.kind === 'text' && targetTrack === 'text') {
+      const source = next[payload.sceneIndex];
+      const overlay = source.textOverlays.find((item) => item.id === payload.layerId);
+      if (!overlay) return;
+      const duration = Math.max(0.1, overlay.end - overlay.start);
+      source.textOverlays = source.textOverlays.filter((item) => item.id !== payload.layerId);
+      const targetDuration = Math.max(0.5, Number(next[targetIndex].duration) || 1);
+      const start = Math.min(localTime, Math.max(0, targetDuration - 0.1));
+      next[targetIndex].textOverlays.push({ ...overlay, start, end: Math.min(targetDuration, start + duration) });
+    } else return;
+    commit(next);
+    setSelected(targetIndex);
+    setSelectedLayerId(payload.layerId);
+  };
   const remove = () => {
     if (scenes.length <= 1) return;
     const next = scenes.filter((_, index) => index !== selected);
@@ -728,7 +777,7 @@ export const VideoEditor: React.FC<Props> = ({ video, onSave }) => {
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3"><div><h3 className="text-xs font-extrabold uppercase tracking-wider text-white">Multitrack timeline</h3><p className="mt-1 text-[9px] text-slate-500">Click any clip or layer to select it. Split with the playhead and adjust timing in the inspector.</p></div><div className="flex items-center gap-2"><span className="font-mono text-[10px] text-cyan-200">{formatTime(globalPlayhead)}</span><span className="text-[9px] text-slate-600">of</span><span className="font-mono text-[10px] text-slate-400">{formatTime(totalSeconds)}</span></div></div>
         <div className="overflow-x-auto rounded-xl border border-slate-800 bg-[#0c1421]">
           <div className="relative" style={{ width: timelineWidth, minWidth: '100%' }}>
-            <div className="relative ml-[82px] h-7 border-b border-white/10">
+            <div className="relative ml-[94px] h-7 border-b border-white/10">
               {Array.from({ length: totalMarkers }, (_, index) => {
                 const time = Math.min(totalSeconds, index * 5);
                 return <div key={index} className="absolute top-0 h-full border-l border-white/10 pl-1.5 pt-1 text-[8px] font-mono text-slate-600" style={{ left: time * timelineZoom }}>{formatTime(time)}</div>;
@@ -740,20 +789,20 @@ export const VideoEditor: React.FC<Props> = ({ video, onSave }) => {
               { id: 'text', label: 'TEXT' },
               { id: 'captions', label: 'CAPTIONS' },
               { id: 'audio', label: 'AUDIO' },
-            ] as const).map((track) => <div key={track.id} className="relative grid min-h-[48px] grid-cols-[82px_1fr] border-b border-white/[.06] last:border-b-0">
+            ] as const).map((track) => <div key={track.id} className="op-track-row relative grid min-h-[58px] grid-cols-[94px_1fr] border-b border-white/[.06] last:border-b-0">
               <div className="flex items-center px-3 text-[8px] font-extrabold tracking-wider text-slate-500">{track.label}</div>
-              <div className="relative min-h-[48px]">
+              <div className="relative min-h-[58px]" onDragOver={(event) => { if (track.id === 'overlay' || track.id === 'audio' || track.id === 'text') event.preventDefault(); }} onDrop={(event) => { if (track.id === 'overlay' || track.id === 'audio' || track.id === 'text') handleTimelineLayerDrop(event, track.id); }}>
                 {track.id === 'video' && scenes.map((scene, index) => {
                   const range = sceneStarts[index];
-                  return <button key={scene.id} type="button" onClick={() => selectedTrackBlock(index, 0)} title={scene.beat || 'Scene ' + (index + 1)} className={index === selected ? 'absolute top-1 h-10 overflow-hidden rounded-md border border-cyan-200 bg-gradient-to-r from-cyan-400/35 to-blue-500/35 px-2 text-left shadow-[0_0_18px_rgba(34,211,238,.12)]' : 'absolute top-1 h-10 overflow-hidden rounded-md border border-cyan-500/20 bg-gradient-to-r from-cyan-500/15 to-blue-500/15 px-2 text-left hover:border-cyan-300/50'} style={{ left: range.start * timelineZoom, width: Math.max(26, range.duration * timelineZoom - 3) }}><span className="block truncate text-[9px] font-bold text-white">Clip {index + 1}</span><span className="block truncate text-[8px] text-cyan-100/70">{formatTime(range.duration)}</span></button>;
+                  return <button key={scene.id} type="button" draggable onDragStart={(event) => event.dataTransfer.setData('application/x-omni-scene', String(index))} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); const from = Number(event.dataTransfer.getData('application/x-omni-scene')); if (Number.isInteger(from)) reorderScene(from, index); }} onClick={() => selectedTrackBlock(index, 0)} title={scene.beat || 'Scene ' + (index + 1)} className={index === selected ? 'absolute top-1 h-10 overflow-hidden rounded-md border border-cyan-200 bg-gradient-to-r from-cyan-400/35 to-blue-500/35 px-2 text-left shadow-[0_0_18px_rgba(34,211,238,.12)]' : 'absolute top-1 h-10 overflow-hidden rounded-md border border-cyan-500/20 bg-gradient-to-r from-cyan-500/15 to-blue-500/15 px-2 text-left hover:border-cyan-300/50'} style={{ left: range.start * timelineZoom, width: Math.max(26, range.duration * timelineZoom - 3) }}><span className="block truncate text-[9px] font-bold text-white">Clip {index + 1}</span><span className="block truncate text-[8px] text-cyan-100/70">{formatTime(range.duration)}</span></button>;
                 })}
                 {track.id === 'overlay' && scenes.flatMap((scene, index) => (scene.mediaLayers || []).filter((layer) => layer.track === 'overlay').map((layer) => {
                   const left = ((sceneStarts[index]?.start || 0) + layer.startAt) * timelineZoom;
-                  return <button key={layer.id} type="button" onClick={() => selectedTrackBlock(index, layer.startAt, layer.id)} title={layer.name} className={selectedLayerId === layer.id ? 'absolute top-1 h-10 truncate rounded-md border border-blue-200 bg-blue-400/35 px-1.5 text-left text-[8px] text-white' : 'absolute top-1 h-10 truncate rounded-md border border-blue-400/20 bg-blue-500/20 px-1.5 text-left text-[8px] text-blue-100'} style={{ left, width: Math.max(18, layer.duration * timelineZoom - 2) }}>{layer.name}</button>;
+                  return <button key={layer.id} type="button" draggable onDragStart={(event) => event.dataTransfer.setData('application/x-omni-timeline', JSON.stringify({ kind: 'media', sceneIndex: index, layerId: layer.id }))} onClick={() => selectedTrackBlock(index, layer.startAt, layer.id)} title={layer.name} className={selectedLayerId === layer.id ? 'absolute top-1 h-10 truncate rounded-md border border-blue-200 bg-blue-400/35 px-1.5 text-left text-[8px] text-white' : 'absolute top-1 h-10 truncate rounded-md border border-blue-400/20 bg-blue-500/20 px-1.5 text-left text-[8px] text-blue-100'} style={{ left, width: Math.max(18, layer.duration * timelineZoom - 2) }}>{layer.name}</button>;
                 }))}
                 {track.id === 'text' && scenes.flatMap((scene, index) => (scene.textOverlays || []).map((layer) => {
                   const left = ((sceneStarts[index]?.start || 0) + layer.start) * timelineZoom;
-                  return <button key={layer.id} type="button" onClick={() => { setActiveTool('text'); selectedTrackBlock(index, layer.start, layer.id); }} title={layer.text} className={selectedLayerId === layer.id ? 'absolute top-1 h-10 truncate rounded-md border border-violet-200 bg-violet-400/35 px-1.5 text-left text-[8px] text-white' : 'absolute top-1 h-10 truncate rounded-md border border-violet-400/20 bg-violet-500/20 px-1.5 text-left text-[8px] text-violet-100'} style={{ left, width: Math.max(18, (layer.end - layer.start) * timelineZoom - 2) }}>{layer.text}</button>;
+                  return <button key={layer.id} type="button" draggable onDragStart={(event) => event.dataTransfer.setData('application/x-omni-timeline', JSON.stringify({ kind: 'text', sceneIndex: index, layerId: layer.id }))} onClick={() => { setActiveTool('text'); selectedTrackBlock(index, layer.start, layer.id); }} title={layer.text} className={selectedLayerId === layer.id ? 'absolute top-1 h-10 truncate rounded-md border border-violet-200 bg-violet-400/35 px-1.5 text-left text-[8px] text-white' : 'absolute top-1 h-10 truncate rounded-md border border-violet-400/20 bg-violet-500/20 px-1.5 text-left text-[8px] text-violet-100'} style={{ left, width: Math.max(18, (layer.end - layer.start) * timelineZoom - 2) }}>{layer.text}</button>;
                 }))}
                 {track.id === 'captions' && scenes.flatMap((scene, index) => (scene.captions || []).map((cue, cueIndex) => {
                   const left = ((sceneStarts[index]?.start || 0) + cue.start) * timelineZoom;
@@ -761,11 +810,11 @@ export const VideoEditor: React.FC<Props> = ({ video, onSave }) => {
                 }))}
                 {track.id === 'audio' && scenes.flatMap((scene, index) => (scene.mediaLayers || []).filter((layer) => layer.track === 'audio').map((layer) => {
                   const left = ((sceneStarts[index]?.start || 0) + layer.startAt) * timelineZoom;
-                  return <button key={layer.id} type="button" onClick={() => { setActiveTool('audio'); selectedTrackBlock(index, layer.startAt, layer.id); }} title={layer.name} className={selectedLayerId === layer.id ? 'absolute top-1 h-10 truncate rounded-md border border-amber-200 bg-amber-300/35 px-1.5 text-left text-[8px] text-white' : 'absolute top-1 h-10 truncate rounded-md border border-amber-400/20 bg-amber-400/15 px-1.5 text-left text-[8px] text-amber-100'} style={{ left, width: Math.max(18, layer.duration * timelineZoom - 2) }}>{layer.name}</button>;
+                  return <button key={layer.id} type="button" draggable onDragStart={(event) => event.dataTransfer.setData('application/x-omni-timeline', JSON.stringify({ kind: 'media', sceneIndex: index, layerId: layer.id }))} onClick={() => { setActiveTool('audio'); selectedTrackBlock(index, layer.startAt, layer.id); }} title={layer.name} className={selectedLayerId === layer.id ? 'absolute top-1 h-10 truncate rounded-md border border-amber-200 bg-amber-300/35 px-1.5 text-left text-[8px] text-white' : 'absolute top-1 h-10 truncate rounded-md border border-amber-400/20 bg-amber-400/15 px-1.5 text-left text-[8px] text-amber-100'} style={{ left, width: Math.max(18, layer.duration * timelineZoom - 2) }}>{layer.name}</button>;
                 }))}
               </div>
             </div>)}
-            <div className="pointer-events-none absolute bottom-0 top-7 z-20 w-px bg-cyan-200 shadow-[0_0_8px_rgba(103,232,249,.8)]" style={{ left: 82 + globalPlayhead * timelineZoom }}><span className="absolute -left-1.5 -top-1 h-3.5 w-3.5 rounded-sm bg-cyan-200 shadow-[0_0_12px_rgba(103,232,249,.7)]" /></div>
+            <div className="pointer-events-none absolute bottom-0 top-7 z-20 w-px bg-cyan-200 shadow-[0_0_8px_rgba(103,232,249,.8)]" style={{ left: 94 + globalPlayhead * timelineZoom }}><span className="absolute -left-1.5 -top-1 h-3.5 w-3.5 rounded-sm bg-cyan-200 shadow-[0_0_12px_rgba(103,232,249,.7)]" /></div>
           </div>
         </div>
         <div className="mt-2 flex items-center gap-2"><span className="text-[9px] text-slate-600">PLAYHEAD</span><input aria-label="Timeline playhead" type="range" min="0" max={Math.max(0.5, totalSeconds)} step="0.05" value={Math.min(globalPlayhead, totalSeconds)} onChange={(event) => seekGlobalTime(Number(event.target.value))} className="w-full accent-cyan-300" /></div>
