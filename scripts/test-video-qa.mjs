@@ -27,3 +27,13 @@ const noAudio = mod.parseVideoQualityOutput('[freezedetect] freeze_start: 1.0', 
 assert.equal(noAudio.integratedLufs, null);
 assert.equal(noAudio.hasAudio, false);
 console.log('Video delivery QA parser tests passed (freeze, silence, loudness, true peak and no-audio handling).');
+
+const handler = fs.readFileSync(new URL('../server/handler.ts', import.meta.url), 'utf8');
+const rejectionBlock = handler.match(/if \(!review\.passed && review\.severity === 'major'\) \{([\s\S]*?)\n\s*\}\n\s*\} else \{/);
+assert.ok(rejectionBlock, 'visual QA major-rejection path must exist');
+const rejectionCode = rejectionBlock[1];
+const refundUpdate = rejectionCode.indexOf("UPDATE video_jobs SET status = 'failed'");
+const clearJob = rejectionCode.indexOf('delete p.jobId');
+assert.ok(refundUpdate >= 0, 'a visually rejected completed provider job must be marked failed for billing');
+assert.ok(clearJob > refundUpdate, 'billing row must be marked failed before the episode drops its job ID');
+assert.match(rejectionCode, /WHERE id = \$\{p\.jobId\} AND user_id = \$\{row\.id\}/, 'refund update must be scoped to the current user and rejected job');

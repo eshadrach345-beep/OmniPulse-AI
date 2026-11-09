@@ -2459,6 +2459,10 @@ async function stageRender(row: any, user: ReturnType<typeof toUser>, ep: any): 
               p.visualReview = { passed: review.passed, severity: review.severity, issues: review.issues, summary: review.summary };
               if (!review.passed && review.severity === 'major') {
                 const reason = review.summary || review.issues[0] || 'Major visual continuity defect detected.';
+                // Visual QA has rejected this completed provider render. Mark its billing row
+                // failed before scheduling a replacement so plan/top-up usage excludes it.
+                await sql()`UPDATE video_jobs SET status = 'failed', error = ${('Visual QA rejected this shot: ' + reason).slice(0, 300)}
+                  WHERE id = ${p.jobId} AND user_id = ${row.id}`;
                 delete p.jobId;
                 delete p.url;
                 p.error = `Visual QA rejected this shot: ${reason}`.slice(0, 300);
