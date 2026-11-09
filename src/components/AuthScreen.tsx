@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Zap, Mail, Lock, User, Briefcase, Loader2, ArrowLeft, ShieldCheck, Eye, EyeOff } from 'lucide-react';
+import { Mail, Lock, User, Briefcase, Loader2, ArrowLeft, ShieldCheck, Eye, EyeOff } from 'lucide-react';
 import { Auth } from '../services/authService';
 import { ApiError } from '../services/api';
 import { AppUser } from '../types/auth';
