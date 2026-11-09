@@ -2017,6 +2017,7 @@ const ACTIVE_STATUSES = ['PROCESSING', 'RENDERING'];
 const OPEN_STATUSES = ['PROCESSING', 'RENDERING', 'PAUSED', 'REVIEW'];
 const MAX_SCRIPT_ATTEMPTS = 8;
 const MAX_PART_TRIES = 3;
+const MAX_PROVIDER_JOB_MS = 20 * 60_000; // A short scene must not remain queued indefinitely.
 const EPISODE_TIMEOUT_MS = 3 * 3600_000;
 const STEP_LEASE_SECONDS = 50;
 const STEP_BUDGET_MS = 40_000;
@@ -2421,6 +2422,23 @@ async function stageRender(row: any, user: ReturnType<typeof toUser>, ep: any): 
     if (left() < 6_000) break;
     const j = ((await sql()`SELECT * FROM video_jobs WHERE id = ${p.jobId} AND user_id = ${row.id}`) as any[])[0];
     if (!j) { p.error = 'The render record is missing.'; delete p.jobId; p.retryAt = Date.now() + 5_000; continue; }
+    // A provider job can remain queued forever even while the browser keeps polling.
+    // Stop tracking jobs after a firm limit so the episode can fail visibly instead of spinning for hours.
+    const providerStartedAt = new Date(j.created_at || 0).getTime();
+    if (j.status !== 'done' && j.status !== 'failed' && Number.isFinite(providerStartedAt)
+      && providerStartedAt > 0 && Date.now() - providerStartedAt > MAX_PROVIDER_JOB_MS) {
+      const timeoutMessage = 'The video provider did not finish this scene within 20 minutes. The unfinished job was stopped; retry the missing scene or choose another video model/provider.';
+      await sql()`UPDATE video_jobs SET status = 'failed', error = ${timeoutMessage}
+        WHERE id = ${p.jobId} AND user_id = ${row.id} AND status NOT IN ('done', 'failed')`;
+      delete p.jobId;
+      delete p.checkAt;
+      delete p.retryAt;
+      p.tries = MAX_PART_TRIES;
+      p.error = timeoutMessage;
+      await save();
+      console.error('Video provider job exceeded maximum render time:', { episodeId: ep.id, scene: en.index + 1, part: en.parts.indexOf(p) + 1, ageMs: Date.now() - providerStartedAt });
+      continue;
+    }
     try {
       const st = await refreshJob(j);
       if (st.state === 'done' && st.videoUrl) {
@@ -2459,18 +2477,22 @@ async function stageRender(row: any, user: ReturnType<typeof toUser>, ep: any): 
               p.visualReview = { passed: review.passed, severity: review.severity, issues: review.issues, summary: review.summary };
               if (!review.passed && review.severity === 'major') {
                 const reason = review.summary || review.issues[0] || 'Major visual continuity defect detected.';
-                // Visual QA has rejected this completed provider render. Mark its billing row
-                // failed before scheduling a replacement so plan/top-up usage excludes it.
-                await sql()`UPDATE video_jobs SET status = 'failed', error = ${('Visual QA rejected this shot: ' + reason).slice(0, 300)}
-                  WHERE id = ${p.jobId} AND user_id = ${row.id}`;
-                delete p.jobId;
-                delete p.url;
-                p.error = `Visual QA rejected this shot: ${reason}`.slice(0, 300);
-                p.retryAt = Date.now() + 10_000;
-                console.warn('Visual QA rejected generated scene; retrying with a new seed:', { episodeId: ep.id, scene: en.index + 1, part: en.parts.indexOf(p) + 1, attempt: p.tries, reason });
-                if (p.tries >= MAX_PART_TRIES) p.retryAt = undefined;
-                await save();
-                continue;
+                if (p.tries < 2) {
+                  // Allow one targeted regeneration for an unmistakable major defect.
+                  // A second rejection becomes a visible warning rather than an endless QA loop.
+                  await sql()`UPDATE video_jobs SET status = 'failed', error = ${('Visual QA rejected this shot: ' + reason).slice(0, 300)}
+                    WHERE id = ${p.jobId} AND user_id = ${row.id}`;
+                  delete p.jobId;
+                  delete p.url;
+                  p.error = `Visual QA rejected this shot: ${reason}`.slice(0, 300);
+                  p.retryAt = Date.now() + 10_000;
+                  console.warn('Visual QA rejected generated scene; retrying once with a new seed:', { episodeId: ep.id, scene: en.index + 1, part: en.parts.indexOf(p) + 1, attempt: p.tries, reason });
+                  await save();
+                  continue;
+                }
+                p.visualReviewStatus = 'warning';
+                p.visualReview = { ...p.visualReview, passed: false, severity: 'major', summary: `Accepted after one visual retry. Review warning: ${reason}` };
+                console.warn('Visual QA still found issues after one retry; keeping the playable shot and showing a warning:', { episodeId: ep.id, scene: en.index + 1, part: en.parts.indexOf(p) + 1, reason });
               }
             } else {
               p.visualReviewStatus = 'unavailable';
