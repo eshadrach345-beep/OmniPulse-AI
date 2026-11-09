@@ -628,12 +628,13 @@ export async function webTrendResearch(niche: string, customQuery: string): Prom
 
   const runTavily = async () => {
     if (!tavilyKey) return 0;
-    const groups = await Promise.all(queries.map(async (q) => {
+    const groups = await Promise.all(queries.map(async (q, index) => {
       try {
+        const isNewsQuery = index < 2;
         const r = await fetch('https://api.tavily.com/search', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ api_key: tavilyKey, query: q, topic: 'general', search_depth: 'advanced', max_results: 7, include_answer: false, include_raw_content: false, include_images: true, include_favicon: true }),
+          body: JSON.stringify({ api_key: tavilyKey, query: q, topic: isNewsQuery ? 'news' : 'general', ...(isNewsQuery ? { time_range: 'month' } : {}), search_depth: 'advanced', max_results: 7, include_answer: false, include_raw_content: false, include_images: true, include_favicon: true }),
           signal: AbortSignal.timeout(22000),
         });
         if (!r.ok) throw new Error('Tavily Search returned ' + r.status);
