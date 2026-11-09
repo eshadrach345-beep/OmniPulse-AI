@@ -2570,27 +2570,38 @@ async function stageRender(row: any, user: ReturnType<typeof toUser>, ep: any): 
                 : keyframeReference.kind === 'location' ? 'location'
                 : keyframeReference.kind === 'product' ? 'product' : 'prop',
             });
-            const generatedUrl = await falGenerateSceneKeyframe(keyframeReference.url, keyframePrompt, aspect);
-            const imageResponse = await fetch(generatedUrl, { signal: AbortSignal.timeout(20_000) });
-            if (!imageResponse.ok) throw new HttpError(424, 'The generated scene keyframe could not be downloaded.', 'REFERENCE_IMAGE');
-            const imageBytes = Buffer.from(await imageResponse.arrayBuffer());
-            if (!imageBytes.length || imageBytes.length > 15 * 1024 * 1024) throw new HttpError(413, 'The generated scene keyframe is too large.', 'REFERENCE_IMAGE');
-            if (process.env.BLOB_READ_WRITE_TOKEN) {
-              const keyframeBlob = await put(`scene-keyframes/${row.id}/${ep.id}/scene-${en.index + 1}-part-${k + 1}.jpg`,
-                new Blob([new Uint8Array(imageBytes)], { type: 'image/jpeg' }), {
-                  access: 'private', token: process.env.BLOB_READ_WRITE_TOKEN, contentType: 'image/jpeg', addRandomSuffix: false,
-                });
-              p.keyframePathname = keyframeBlob.pathname;
-              const keyframeToken = await issueSignedToken({ operations: ['get'] });
-              const signedKeyframe = await presignUrl(keyframeToken, { pathname: keyframeBlob.pathname, operation: 'get', access: 'private', validUntil: Date.now() + 10 * 60 * 1000 });
-              cachedKeyframeUrl = signedKeyframe.presignedUrl;
-            } else {
-              cachedKeyframeUrl = generatedUrl;
-              p.keyframeUrl = generatedUrl;
+            let generatedUrl = '';
+            try {
+              generatedUrl = await falGenerateSceneKeyframe(keyframeReference.url, keyframePrompt, aspect);
+            } catch (keyframeError: any) {
+              // Keyframe preparation is an enhancement, not a reason to waste a paid video attempt.
+              // DeAPI can still animate the original saved portrait/location/product image directly.
+              console.warn('Scene keyframe image edit unavailable; using the saved source reference:', keyframeError?.message || keyframeError);
+              cachedKeyframeUrl = keyframeReference.url;
+              p.continuityWarning = 'Using the saved visual reference directly because scene-specific keyframe preparation was unavailable.';
             }
-            p.keyframeGeneratedAt = new Date().toISOString();
-            p.keyframeReference = keyframeReference.name;
-            await save();
+            if (generatedUrl) {
+              const imageResponse = await fetch(generatedUrl, { signal: AbortSignal.timeout(20_000) });
+              if (!imageResponse.ok) throw new HttpError(424, 'The generated scene keyframe could not be downloaded.', 'REFERENCE_IMAGE');
+              const imageBytes = Buffer.from(await imageResponse.arrayBuffer());
+              if (!imageBytes.length || imageBytes.length > 15 * 1024 * 1024) throw new HttpError(413, 'The generated scene keyframe is too large.', 'REFERENCE_IMAGE');
+              if (process.env.BLOB_READ_WRITE_TOKEN) {
+                const keyframeBlob = await put(`scene-keyframes/${row.id}/${ep.id}/scene-${en.index + 1}-part-${k + 1}.jpg`,
+                  new Blob([new Uint8Array(imageBytes)], { type: 'image/jpeg' }), {
+                    access: 'private', token: process.env.BLOB_READ_WRITE_TOKEN, contentType: 'image/jpeg', addRandomSuffix: false,
+                  });
+                p.keyframePathname = keyframeBlob.pathname;
+                const keyframeToken = await issueSignedToken({ operations: ['get'] });
+                const signedKeyframe = await presignUrl(keyframeToken, { pathname: keyframeBlob.pathname, operation: 'get', access: 'private', validUntil: Date.now() + 10 * 60 * 1000 });
+                cachedKeyframeUrl = signedKeyframe.presignedUrl;
+              } else {
+                cachedKeyframeUrl = generatedUrl;
+                p.keyframeUrl = generatedUrl;
+              }
+              p.keyframeGeneratedAt = new Date().toISOString();
+              p.keyframeReference = keyframeReference.name;
+              await save();
+            }
           }
         } else if (!cachedKeyframeUrl && p.keyframePathname && process.env.BLOB_READ_WRITE_TOKEN) {
           const keyframeToken = await issueSignedToken({ operations: ['get'] });
@@ -2598,8 +2609,16 @@ async function stageRender(row: any, user: ReturnType<typeof toUser>, ep: any): 
           cachedKeyframeUrl = signedKeyframe.presignedUrl;
         }
         if (cachedKeyframeUrl) startImageUrl = cachedKeyframeUrl;
-        else if (!p.keyframePathname && (!lookupEnv('FAL_KEY') || !selected.length)) {
-          p.continuityWarning = 'No scene keyframe was created: add FAL_KEY and save a character or location reference to lock this DeAPI shot visually.';
+        else if (!p.keyframePathname) {
+          // When FAL image editing is not configured, use the actual selected asset as
+          // DeAPI's first frame rather than silently reverting to text-to-video.
+          const sourceReference = chooseSceneKeyframeReference(selected);
+          if (sourceReference) {
+            startImageUrl = sourceReference.url;
+            p.continuityWarning = 'Using the saved visual reference directly; add FAL_KEY to prepare a scene-specific keyframe.';
+          } else {
+            p.continuityWarning = 'No saved visual reference is available for this scene; DeAPI will use text-to-video.';
+          }
         }
       }
       const spokenPartLines = Array.isArray(scene.parts[k]?.lines)
