@@ -2066,6 +2066,13 @@ function episodeView(e: any) {
     finalVideoUrl: (e.final_video_url as string | null) || null, hasBrandLogo: !!cfg.brandKit?.logoAssetId, error: e.status === 'FAILED' ? ((e.error as string | null) || 'This part could not be finished.') : null, note,
     createdAt: iso(e.created_at), updatedAt: iso(e.updated_at),
     totalScenes: scenes.length, renderedScenes: sceneStates.filter((s) => s === 'done').length, partsTotal, partsDone, sceneStates,
+    visualQuality: entries.flatMap((entry) => entry.parts.map((part, index) => ({
+      scene: entry.index + 1, part: index + 1,
+      status: part.visualReviewStatus || 'pending',
+      severity: part.visualReview?.severity || null,
+      issues: part.visualReview?.issues || [],
+      summary: part.visualReview?.summary || part.continuityWarning || '',
+    }))),
     totalSeconds: Number(sb.totalSeconds) || 0,
     mode: cfg.mode === 'paste' ? 'paste' : 'ai', hasRemainingScript: !!sb.remainingScript,
     targetParts: Number(e.target_parts) || 1, autoContinue: !!e.auto_continue,
