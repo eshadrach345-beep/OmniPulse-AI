@@ -51,7 +51,7 @@ try {
       { start: 0.3, end: 2.8, text: 'Start free today', y: 'h*0.76', fontSize: 32, color: '#06122B', boxColor: '#2DE0B8', boxBorderWidth: 16, fadeIn: 0.25, fadeOut: 0.2 },
       { start: 0.3, end: 2.8, text: 'OmniPulseai.us.ci', y: 'h*0.88', fontSize: 28, color: '#2DE0B8' },
     ],
-    duration: 3, width: 720, height: 1280, output,
+    duration: 3, width: 1080, height: 1920, output,
   });
   const stat = await fs.stat(output);
   assert.ok(stat.size > 6000, 'compositor creates a non-empty MP4');
