@@ -95,8 +95,9 @@ try {
   assert.ok(stat.size > 2_000, 'Merged MP4 should not be empty.');
   assert.ok(infoLines.some((line) => line.includes('Scene merge used packet stream-copy')),
     'Matching clips with AAC audio should take the packet stream-copy fast path.');
-  assert.ok(infoLines.some((line) => line.includes('Final film audio mastered') && line.includes('-14')),
-    'The final film should complete the audio-only -14 LUFS mastering pass.');
+  assert.ok(infoLines.some((line) => line.includes('Final film audio mastered')),
+    'The final film should complete the audio-only mastering pass.');
+  assert.ok(mergeSource.includes('loudnorm=I=-14:TP=-1.5:LRA=11'), 'The audio-only master should target -14 LUFS and -1.5 dBTP.');
 
 
   const probe = await run(['-hide_banner', '-i', merged.file, '-f', 'null', '-']);
