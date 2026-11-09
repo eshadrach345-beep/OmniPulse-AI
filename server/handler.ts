@@ -1476,11 +1476,11 @@ const tts: Handler = async ({ req, res, body }) => {
 
 // ---------------------------------------------------------------- video (fal.ai / deAPI queue)
 /** Sends one clip to the configured video provider (VIDEO_PROVIDER: fal, deapi or auto) and returns its queue addresses. */
-async function submitToProvider(prompt: string, reso: '480P' | '768P' | '1080P', seconds: 5 | 10, aspect: string, multiPrompt?: { prompt: string; duration: number }[], videoModel?: string, videoProvider?: string): Promise<{ statusUrl: string; responseUrl: string }> {
+async function submitToProvider(prompt: string, reso: '480P' | '768P' | '1080P', seconds: 5 | 10, aspect: string, multiPrompt?: { prompt: string; duration: number }[], videoModel?: string, videoProvider?: string, seedOverride?: number): Promise<{ statusUrl: string; responseUrl: string }> {
   let provider: ReturnType<typeof parseVideoProvider>;
   try { provider = parseVideoProvider(videoProvider || process.env.VIDEO_PROVIDER); }
   catch (e: any) { throw new HttpError(500, e?.message || 'Invalid VIDEO_PROVIDER setting.', 'VIDEO_PROVIDER'); }
-  const viaDeapi = async () => { const deapiPrompt = multiPrompt?.length ? `${prompt} ${toNativeMultiShotPrompt(multiPrompt)}` : prompt; const j = await deapiSubmit(deapiPrompt, reso, seconds, aspect, videoModel); return { statusUrl: `deapi:${j.requestId}`, responseUrl: 'deapi' }; };
+  const viaDeapi = async () => { const deapiPrompt = multiPrompt?.length ? `${prompt} ${toNativeMultiShotPrompt(multiPrompt)}` : prompt; const j = await deapiSubmit(deapiPrompt, reso, seconds, aspect, videoModel, seedOverride); return { statusUrl: `deapi:${j.requestId}`, responseUrl: 'deapi' }; };
   const viaFal = async () => { const j = await falSubmit(prompt, reso, seconds, aspect); return { statusUrl: j.statusUrl, responseUrl: j.responseUrl }; };
   if (provider === 'deapi') return viaDeapi();
   if (provider === 'fal') return viaFal();
@@ -2274,7 +2274,7 @@ async function reserveSource(row: any, user: ReturnType<typeof toUser>, seconds:
  * Starts one 10 second clip. The second half of a 20 second scene starts from the last picture of the first half (image-to-video),
  * so the scene carries on without a jump; if that is not possible it falls back to a normal clip with a "continue" prompt.
  */
-async function startPart(row: any, user: ReturnType<typeof toUser>, spec: { prompt: string; aspect: string; kind: 'text' | 'continue'; prevUrl?: string; startImageUrl?: string; lastFrame?: Buffer; referenceImages?: { name: string; url: string; description?: string }[]; multiPrompt?: { prompt: string; duration: number }[]; commercial?: boolean; videoModel?: string; videoProvider?: string }) {
+async function startPart(row: any, user: ReturnType<typeof toUser>, spec: { prompt: string; aspect: string; kind: 'text' | 'continue'; prevUrl?: string; startImageUrl?: string; lastFrame?: Buffer; referenceImages?: { name: string; url: string; description?: string }[]; multiPrompt?: { prompt: string; duration: number }[]; commercial?: boolean; videoModel?: string; videoProvider?: string; seed?: number }) {
   const source = await reserveSource(row, user, PART_SECONDS);
   await rateLimit(`render:${row.id}`, 300, 3600);
   const reso = PLANS[user.tier]?.resolution || '480P';
@@ -2328,7 +2328,7 @@ async function startPart(row: any, user: ReturnType<typeof toUser>, spec: { prom
       frame = bytes;
     }
     if (provider === 'deapi') {
-      const j = await deapiAnimate(deapiAnimationPrompt, frame, reso, PART_SECONDS, spec.aspect, spec.videoModel, spec.lastFrame);
+      const j = await deapiAnimate(deapiAnimationPrompt, frame, reso, PART_SECONDS, spec.aspect, spec.videoModel, spec.lastFrame, spec.seed);
       job = { statusUrl: `deapi:${j.requestId}`, responseUrl: 'deapi' };
     } else {
       try {
@@ -2341,7 +2341,7 @@ async function startPart(row: any, user: ReturnType<typeof toUser>, spec: { prom
       } catch (e: any) {
         if (e instanceof RateLimited) throw e;
         if (shouldFallbackToDeapi(provider) && lookupEnv('DEAPI_API_KEY')) {
-          const j = await deapiAnimate(deapiPrompt, frame, reso, PART_SECONDS, spec.aspect, spec.videoModel, spec.lastFrame);
+          const j = await deapiAnimate(deapiPrompt, frame, reso, PART_SECONDS, spec.aspect, spec.videoModel, spec.lastFrame, spec.seed);
           job = { statusUrl: `deapi:${j.requestId}`, responseUrl: 'deapi' };
         } else throw e;
       }
@@ -2356,11 +2356,11 @@ async function startPart(row: any, user: ReturnType<typeof toUser>, spec: { prom
         job = { statusUrl: j.statusUrl, responseUrl: j.responseUrl };
       } catch (e: any) {
         if (provider === 'auto' && lookupEnv('DEAPI_API_KEY')) {
-          const j = await deapiSubmit(deapiPrompt, reso, PART_SECONDS, spec.aspect, spec.videoModel);
+          const j = await deapiSubmit(deapiPrompt, reso, PART_SECONDS, spec.aspect, spec.videoModel, spec.seed);
           job = { statusUrl: `deapi:${j.requestId}`, responseUrl: 'deapi' };
         } else throw e;
       }
-    } else job = await submitToProvider(deapiPrompt, reso, PART_SECONDS, spec.aspect, deapiMultiPrompt, spec.videoModel, spec.videoProvider);
+    } else job = await submitToProvider(deapiPrompt, reso, PART_SECONDS, spec.aspect, deapiMultiPrompt, spec.videoModel, spec.videoProvider, spec.seed);
   }
   const id = newId('job');
   await sql()`INSERT INTO video_jobs (id, user_id, status_url, response_url, seconds, source) VALUES (${id}, ${row.id}, ${job.statusUrl}, ${job.responseUrl}, ${PART_SECONDS}, ${source})`;
@@ -2622,7 +2622,7 @@ async function stageRender(row: any, user: ReturnType<typeof toUser>, ep: any): 
       const continuityPrompt = previousUrl || startImageUrl
         ? `${scene.parts[k].prompt} Continue from the supplied reference frame. Preserve the exact visible character identities, faces, hair, wardrobe, carried props and screen direction. The intended current scene location is ${currentLocation || 'the location described in this scene'}. If it differs from the reference frame, make a clear motivated transition into this current location and replace the old background; do not carry the previous set into the new scene. Keep only the named people required by this scene.`
         : scene.parts[k].prompt;
-      const { jobId } = await startPart(row, user, { prompt: continuityPrompt, aspect, kind: previousUrl || startImageUrl ? 'continue' : 'text', prevUrl: previousUrl, startImageUrl, referenceImages: selected, multiPrompt: commercialMultiPrompt || scene.parts[k].multiPrompt, commercial: isCommercial, videoModel: str(ep.brief?.videoModel, 120) || undefined, videoProvider: str(ep.brief?.videoProvider, 20) || undefined, lastFrame: userEndingFrame });
+      const { jobId } = await startPart(row, user, { prompt: continuityPrompt, aspect, kind: previousUrl || startImageUrl ? 'continue' : 'text', prevUrl: previousUrl, startImageUrl, referenceImages: selected, multiPrompt: commercialMultiPrompt || scene.parts[k].multiPrompt, commercial: isCommercial, videoModel: str(ep.brief?.videoModel, 120) || undefined, videoProvider: str(ep.brief?.videoProvider, 20) || undefined, lastFrame: userEndingFrame, seed: p.tries > 0 ? Math.floor(Math.random() * 2_000_000_000) : undefined });
       p.jobId = jobId; p.tries += 1; p.checkAt = Date.now() + FIRST_CHECK_MS; delete p.error; started++;
     } catch (e: any) {
       if (e instanceof RateLimited) {
