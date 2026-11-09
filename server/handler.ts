@@ -2926,7 +2926,7 @@ const mediaUpload: Handler = async ({ req, res, body }) => {
       const contentType = str(meta.type, 100).toLowerCase();
       const size = Number(meta.size);
       const allowed = ['video/mp4', 'video/quicktime', 'video/webm', 'video/x-matroska', 'audio/mpeg', 'audio/mp4', 'audio/wav', 'audio/x-wav', 'audio/ogg', 'audio/flac', 'audio/x-flac', 'image/jpeg', 'image/png', 'image/webp'];
-      if (!name || !allowed.includes(contentType)) throw new HttpError(415, 'Upload an MP4, MOV, WebM, MKV, MP3, WAV, JPG, PNG or WebP file.');
+      if (!name || !allowed.includes(contentType)) throw new HttpError(415, 'Upload an MP4, MOV, WebM, MKV, MP3, M4A, WAV, OGG, FLAC, JPG, PNG or WebP file.');
       if (!Number.isFinite(size) || size <= 0) throw new HttpError(400, 'The selected file is empty or its size could not be read.');
       const maxBytes = user.tier === 'agency' ? 2 * 1024 ** 3 : user.tier === 'pro' ? 1024 ** 3 : 250 * 1024 ** 2;
       if (size > maxBytes) throw new HttpError(413, `This plan allows files up to ${Math.round(maxBytes / 1024 ** 2)} MB each.`, 'UPLOAD_TOO_LARGE');
