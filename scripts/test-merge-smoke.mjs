@@ -109,6 +109,7 @@ try {
   assert.ok(transitionDuration, 'FFmpeg should report the transitioned film duration.');
   const transitionSeconds = Number(transitionDuration[1]) * 3600 + Number(transitionDuration[2]) * 60 + Number(transitionDuration[3]);
   assert.ok(transitionSeconds >= 3.4 && transitionSeconds <= 3.8, `Expected about 3.6 seconds after one 0.4-second crossfade, got ${transitionSeconds}.`);
+  assert.ok(transitionSeconds < seconds - 0.1, 'A crossfade should shorten the joined runtime by its overlap duration.');
 
   console.log('Scene assembly smoke tests passed (stream-copy cut + real H.264/AAC crossfade).');
 } finally {
