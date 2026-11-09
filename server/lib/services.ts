@@ -161,8 +161,8 @@ function waitFromLimit(message: string, retryAfter?: string | null): number {
 }
 const niceWait = (ms: number) => ms >= 3600_000 ? `${Math.round(ms / 360_000) / 10} hours` : ms >= 90_000 ? `${Math.ceil(ms / 60_000)} minutes` : `${Math.max(5, Math.ceil(ms / 1000))} seconds`;
 
-async function callGemini(key: string, model: string, prompt: string, o: { grounded: boolean; json: boolean; timeoutMs: number; maxTokens?: number }): Promise<CallOut> {
-  const body: any = { contents: [{ role: 'user', parts: [{ text: prompt }] }], generationConfig: { maxOutputTokens: o.maxTokens || 8192 } };
+async function callGemini(key: string, model: string, prompt: string, o: { grounded: boolean; json: boolean; timeoutMs: number; maxTokens?: number; temperature?: number }): Promise<CallOut> {
+  const body: any = { contents: [{ role: 'user', parts: [{ text: prompt }] }], generationConfig: { maxOutputTokens: o.maxTokens || 8192, ...(o.temperature === undefined ? {} : { temperature: o.temperature }) } };
   if (o.grounded) body.tools = [{ google_search: {} }];
   if (o.json) body.generationConfig.responseMimeType = 'application/json';
   let r: Response;
@@ -310,13 +310,13 @@ async function discoverModel(b: LlmBackup, current: string): Promise<string | nu
 }
 
 /** One call to a backup writer. Handles services that reject JSON mode by asking again without it. */
-async function callBackup(b: LlmBackup, prompt: string, o: { json: boolean; timeoutMs: number; maxTokens?: number }): Promise<string> {
+async function callBackup(b: LlmBackup, prompt: string, o: { json: boolean; timeoutMs: number; maxTokens?: number; temperature?: number }): Promise<string> {
   const net = (e: any) => new GeminiFail(0, e?.name === 'TimeoutError' ? `${b.label} took too long to answer.` : (e?.message || `Network error talking to ${b.label}.`));
   if (b.kind === 'anthropic') {
     let r: Response;
     try {
       r = await fetch(`${b.base}/v1/messages`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-api-key': b.key, 'anthropic-version': '2023-06-01' },
-        body: JSON.stringify({ model: b.model, max_tokens: o.maxTokens || 8000, messages: [{ role: 'user', content: o.json ? `${prompt}\n\nReturn only the JSON, with no other text.` : prompt }] }), signal: AbortSignal.timeout(o.timeoutMs) });
+        body: JSON.stringify({ model: b.model, max_tokens: o.maxTokens || 8000, temperature: o.temperature ?? 0.9, messages: [{ role: 'user', content: o.json ? `${prompt}\n\nReturn only the JSON, with no other text.` : prompt }] }), signal: AbortSignal.timeout(o.timeoutMs) });
     } catch (e: any) { throw net(e); }
     const d: any = await r.json().catch(() => ({}));
     if (!r.ok) throw new GeminiFail(r.status, `${r.status} ${tidy(d?.error?.message || 'rejected')}`, r.status === 401, r.status === 429 ? waitFromLimit(String(d?.error?.message || ''), r.headers.get('retry-after')) : 0);
@@ -332,7 +332,7 @@ async function callBackup(b: LlmBackup, prompt: string, o: { json: boolean; time
     try {
       res = await fetch(`${b.base}/chat/completions`, {
         method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${b.key}` },
-        body: JSON.stringify({ model: m, temperature: 0.9, max_tokens: maxTok, messages: [{ role: 'user', content: prompt }], ...(json ? { response_format: { type: 'json_object' } } : {}) }),
+        body: JSON.stringify({ model: m, temperature: o.temperature ?? 0.9, max_tokens: maxTok, messages: [{ role: 'user', content: prompt }], ...(json ? { response_format: { type: 'json_object' } } : {}) }),
         signal: AbortSignal.timeout(o.timeoutMs),
       });
     } catch (e: any) { throw net(e); }
@@ -389,7 +389,7 @@ async function callBackup(b: LlmBackup, prompt: string, o: { json: boolean; time
  * Writes text with the best available AI: every Gemini key first (skipping any that are out of quota), then every backup service.
  * One person action therefore never fails just because one free quota ran out, and when everything fails the reason of each is reported.
  */
-export async function llmGenerate(prompt: string, o: { json?: boolean; timeoutMs?: number; deadlineMs?: number; maxTokens?: number; preferBackup?: boolean } = {}): Promise<{ text: string; provider: 'gemini' | 'backup'; model: string }> {
+export async function llmGenerate(prompt: string, o: { json?: boolean; timeoutMs?: number; deadlineMs?: number; maxTokens?: number; preferBackup?: boolean; temperature?: number } = {}): Promise<{ text: string; provider: 'gemini' | 'backup'; model: string }> {
   const json = o.json !== false;
   const start = Date.now();
   const deadline = start + (o.deadlineMs || 50_000);
@@ -410,7 +410,7 @@ export async function llmGenerate(prompt: string, o: { json?: boolean; timeoutMs
     for (const key of open) {
       if (Date.now() >= budget - 4_000) break;
       try {
-        const { out, model } = await withModels(key, budget, (m) => callGemini(key, m, prompt, { grounded: false, json, timeoutMs: Math.max(8_000, Math.min(o.timeoutMs || 40_000, budget - Date.now())), maxTokens: o.maxTokens }));
+        const { out, model } = await withModels(key, budget, (m) => callGemini(key, m, prompt, { grounded: false, json, timeoutMs: Math.max(8_000, Math.min(o.timeoutMs || 40_000, budget - Date.now())), maxTokens: o.maxTokens, temperature: o.temperature }));
         // Validate structured output before accepting a provider. A 200 response with malformed JSON
         // must not block the next configured writer from completing the user's request.
         if (json) extractJson(out.text);
@@ -429,7 +429,7 @@ export async function llmGenerate(prompt: string, o: { json?: boolean; timeoutMs
       const left = deadline - Date.now();
       if (left < 6_000) { errs.push({ who: b.label, f: new GeminiFail(0, 'no time left to try it') }); break; }
       try {
-        const text = await callBackup(b, prompt, { json, timeoutMs: Math.min(o.timeoutMs || 40_000, left), maxTokens: o.maxTokens });
+        const text = await callBackup(b, prompt, { json, timeoutMs: Math.min(o.timeoutMs || 40_000, left), maxTokens: o.maxTokens, temperature: o.temperature });
         // Treat malformed JSON as a provider failure and continue through the remaining backups.
         if (json) extractJson(text);
         return { text, provider: 'backup' as const, model: `${b.id}:${b.model}` };
@@ -795,7 +795,9 @@ export async function geminiSearch(researchPrompt: string): Promise<{ text: stri
 
 /** Step 2 of research: turn the findings into the app's JSON (fast, no search). */
 export async function geminiFormat(prompt: string): Promise<{ data: any; model: string }> {
-  const g = await llmGenerate(prompt, { json: true, timeoutMs: 38_000, deadlineMs: 46_000, maxTokens: 12_000, preferBackup: true });
+  // Keep the formatter below small-model free-tier context limits; search evidence is already
+  // compressed by the radar and the prompt itself caps notes to 10.5k characters.
+  const g = await llmGenerate(prompt, { json: true, timeoutMs: 32_000, deadlineMs: 48_000, maxTokens: 3_400, preferBackup: true, temperature: 0.2 });
   try { return { data: extractJson(g.text), model: `${g.provider}:${g.model}` }; } catch { throw new HttpError(424, 'The research came back in an unexpected format. Please try again.', 'GEMINI'); }
 }
 
