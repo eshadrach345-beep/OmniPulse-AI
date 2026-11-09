@@ -72,11 +72,11 @@ export const Landing: React.FC<{ onGetStarted: (mode: 'signup' | 'signin') => vo
                 <span className="op-live-dot" /> YOUR CREATIVE CONTROL ROOM
               </div>
               <h1 className="mt-7 max-w-[680px] font-display text-[3.35rem] font-extrabold leading-[.94] tracking-[-.065em] sm:text-6xl xl:text-[5.4rem]">
-                From raw idea
-                <span className="op-title-gradient block">to the final frame.</span>
+                Make every idea
+                <span className="op-title-gradient block">move like cinema.</span>
               </h1>
               <p className="mt-7 max-w-xl text-sm leading-7 text-slate-300 sm:text-base sm:leading-8">
-                Research the moment. Direct the story. Generate scenes. Edit every layer. Publish when it is ready. OmniPulse brings the creative workflow into one connected studio.
+                Find the signal, shape the story, generate the scenes and finish every cut in one cinematic workspace built for creators who want more control.
               </p>
               <div className="mt-8 flex flex-wrap gap-3">
                 <button onClick={() => onGetStarted('signup')} className="op-button-primary rounded-2xl px-6 py-4 text-sm font-extrabold">
@@ -96,6 +96,7 @@ export const Landing: React.FC<{ onGetStarted: (mode: 'signup' | 'signin') => vo
               <div className="op-stage-orbit op-orbit-one" />
               <div className="op-stage-orbit op-orbit-two" />
               <div className="op-stage-shadow" />
+              <div className="op-prism-float" aria-hidden="true"><span /><i /><b /></div>
               <div className="op-float-card op-float-top">
                 <div className="flex items-center justify-between"><span className="flex items-center gap-2 text-[9px] font-extrabold uppercase tracking-[.16em] text-violet-100"><TrendingUp className="h-3.5 w-3.5" /> Trend radar</span><span className="op-tiny-live">LIVE</span></div>
                 <p className="mt-3 text-xs font-bold text-white">Audience interest is climbing</p>
