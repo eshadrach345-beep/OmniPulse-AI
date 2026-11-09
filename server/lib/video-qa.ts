@@ -69,7 +69,7 @@ async function execute(bin: string, args: string[], timeoutMs = 90_000): Promise
 /** CPU-only delivery checks. Findings are warnings, not silent render failures. */
 export async function runVideoQualityChecks(file: string, bin: string): Promise<VideoQualityReport> {
   const probe = await execute(bin, ['-hide_banner', '-i', file, '-f', 'null', '-']);
-  const hasAudio = /Audio:\\s/.test(probe);
+  const hasAudio = /Audio:\s/.test(probe);
   const filters = ['-vf', 'freezedetect=n=0.003:d=1'];
   if (hasAudio) filters.push('-af', 'silencedetect=n=-45dB:d=0.5,ebur128=peak=true');
   const output = await execute(bin, ['-hide_banner', '-i', file, ...filters, '-f', 'null', '-']);
