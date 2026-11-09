@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import { HttpError } from './core.js';
 import { buildDeapiVideoFields } from './deapi-tuning.js';
+import { deapiAudioMime, deapiAudioSyncFrames, supportsDeapiAudioSyncModel } from './deapi-audio-sync.js';
 import { isRecentTrendSource, normalizeTrendPublishedAt, TREND_FRESHNESS_DAYS } from './trend-freshness.js';
 
 export const ENV_ALIASES: Record<string, string[]> = {
@@ -829,7 +830,7 @@ async function loadDeapiModelCatalogue(): Promise<any[]> {
 }
 
 /** Safe model metadata for the authenticated generator UI. No credentials or internal headers are returned. */
-export async function deapiVideoModels(): Promise<{ slug: string; name: string; description: string; supportsImageToVideo: boolean; supportsLastFrame: boolean }[]> {
+export async function deapiVideoModels(): Promise<{ slug: string; name: string; description: string; supportsImageToVideo: boolean; supportsLastFrame: boolean; supportsAudioToVideo: boolean }[]> {
   const list = await loadDeapiModelCatalogue();
   return list.flatMap((item: any) => {
     const slug = String(item?.slug || '').trim();
@@ -844,12 +845,14 @@ export async function deapiVideoModels(): Promise<{ slug: string; name: string; 
       || /^(ltx25|ltx23|seedance25|minimaxh3)/.test(normalizedSlug);
     const supportsLastFrame = /(last_frame_image|end.?frame|last.?frame)/i.test(evidence)
       || /^(ltx23|ltx25|minimaxh3)/.test(normalizedSlug);
+    const supportsAudioToVideo = supportsDeapiAudioSyncModel(slug, evidence);
     return [{
       slug,
       name,
       description: String(item?.description || info?.description || '').slice(0, 260),
       supportsImageToVideo,
       supportsLastFrame,
+      supportsAudioToVideo,
     }];
   }).sort((a, b) => a.name.localeCompare(b.name));
 }
@@ -945,6 +948,64 @@ export async function deapiAnimate(prompt: string, firstFrame: Buffer, resolutio
     throw new HttpError(424, e?.name === 'TimeoutError' ? 'The video engine (deAPI) did not respond in time. Please try again.' : 'Could not reach the video engine (deAPI).', 'DEAPI');
   }
   return { requestId: await deapiParse(r) };
+}
+
+/** Generates a lip-synced performance from private audio, with an optional identity reference image. */
+export async function deapiAudioSync(
+  prompt: string,
+  audio: Buffer,
+  audioContentType: string,
+  audioFilename: string,
+  durationSeconds: number,
+  aspect: string = '9:16',
+  requestedModel: string,
+  firstFrame?: Buffer,
+) {
+  const selected = (await deapiVideoModels()).find((model) => model.slug === requestedModel);
+  if (!selected) throw new HttpError(400, 'Choose a video model available on the connected DeAPI account.', 'DEAPI_MODEL_UNAVAILABLE');
+  if (!selected.supportsAudioToVideo) {
+    throw new HttpError(400, 'This DeAPI model does not advertise audio-to-video support. Choose an audio-sync model such as a compatible LTX model.', 'DEAPI_MODEL_MODE');
+  }
+  const mime = deapiAudioMime(audioContentType, audioFilename);
+  if (!mime) throw new HttpError(415, 'Audio-to-video accepts MP3, WAV, OGG or FLAC files.', 'DEAPI_AUDIO_TYPE');
+  if (!audio.length || audio.length > 20 * 1024 * 1024) throw new HttpError(413, 'Audio-to-video audio must be non-empty and no larger than 20 MB.', 'DEAPI_AUDIO_SIZE');
+  const frameCount = deapiAudioSyncFrames(durationSeconds);
+  const [width, height] = deapiCanvas('480P', aspect);
+  const overrides = deapiVideoOverrides();
+  const requestedSeed = Number(overrides.seed ?? process.env.DEAPI_VIDEO_SEED);
+  const seed = Number.isSafeInteger(requestedSeed) && requestedSeed >= 0 && requestedSeed <= 2_147_483_647
+    ? requestedSeed : Math.floor(Math.random() * 2_000_000_000);
+  const form = new FormData();
+  form.set('model', selected.slug);
+  form.set('prompt', prompt.slice(0, 2200));
+  form.set('width', String(width));
+  form.set('height', String(height));
+  form.set('frames', String(frameCount));
+  form.set('seed', String(seed));
+  form.set('audio', new Blob([new Uint8Array(audio)], { type: mime.type }), `audio.${mime.extension}`);
+  if (firstFrame) {
+    const imageMime = (bytes: Buffer) => {
+      if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return { type: 'image/jpeg', ext: 'jpg' };
+      if (bytes.length >= 8 && bytes.subarray(0, 8).toString('hex') === '89504e470d0a1a0a') return { type: 'image/png', ext: 'png' };
+      if (bytes.length >= 12 && bytes.toString('ascii', 0, 4) === 'RIFF' && bytes.toString('ascii', 8, 12) === 'WEBP') return { type: 'image/webp', ext: 'webp' };
+      throw new HttpError(415, 'The speaker reference must be a valid JPG, PNG or WebP image.', 'DEAPI_FRAME_TYPE');
+    };
+    const image = imageMime(firstFrame);
+    if (firstFrame.length > 10 * 1024 * 1024) throw new HttpError(413, 'The speaker reference image must be 10 MB or smaller.', 'DEAPI_FRAME_SIZE');
+    form.set('first_frame_image', new Blob([new Uint8Array(firstFrame)], { type: image.type }), `speaker.${image.ext}`);
+  }
+  let response: Response;
+  try {
+    response = await fetch(`${DEAPI_BASE}/videos/audio-syncs`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${need('DEAPI_API_KEY')}`, Accept: 'application/json' },
+      body: form,
+      signal: AbortSignal.timeout(30_000),
+    });
+  } catch (error: any) {
+    throw new HttpError(424, error?.name === 'TimeoutError' ? 'The DeAPI audio-sync engine did not respond in time.' : 'Could not reach the DeAPI audio-sync engine.', 'DEAPI');
+  }
+  return { requestId: await deapiParse(response), frameCount, duration: frameCount / 24 };
 }
 
 export async function deapiStatus(requestId: string) {
