@@ -2176,7 +2176,7 @@ const episodeCreate: Handler = async ({ req, res, body }) => {
   }
 
   const episodeId = newId('ep');
-  const settings = { format: input.format, look: input.look, aspect: input.aspect, niche: input.niche, brief: input.brief, variationSeed: input.variationSeed, mode, script, direction, brandKit: hasBrandKit ? brandKit : null, videoProvider, videoModel: videoModel || undefined, reviewFirst: body.reviewFirst === true, characterReferences: body.characterReferences === true, approved: false };
+  const settings = { format: input.format, look: input.look, aspect: input.aspect, niche: input.niche, brief: input.brief, variationSeed: input.variationSeed, mode, script, direction, brandKit: hasBrandKit ? brandKit : null, videoProvider, videoModel: videoModel || undefined, reviewFirst: body.reviewFirst === true, characterReferences: body.characterReferences === true || (videoProvider === 'deapi' && !!lookupEnv('FAL_KEY')), approved: false };
   try {
     await sql()`INSERT INTO episodes (id, project_id, part_number, prompt_input, status, brief) VALUES (${episodeId}, ${projectId}, ${partNumber}, ${input.idea}, 'PROCESSING', ${jsonb(settings)}::jsonb)`;
   } catch (e: any) {
@@ -2227,7 +2227,7 @@ async function stageScript(row: any, user: ReturnType<typeof toUser>, ep: any) {
   }
   // Character portraits and the master location plate are generated when the Series Studio reference option is enabled.
   const selectedVideoProvider = (process.env.VIDEO_PROVIDER || 'fal').trim().toLowerCase();
-  if (cfg.characterReferences === true && selectedVideoProvider !== 'deapi' && lookupEnv('FAL_KEY')) {
+  if (cfg.characterReferences === true && lookupEnv('FAL_KEY')) {
     await rateLimit(`cast-reference:${row.id}`, 8, 3600);
     const refs = await Promise.all((Array.isArray(sb.characters) ? sb.characters : []).slice(0, 4).map(async (c: any) => {
       if (c.referenceImageUrl && /^https:\/\//i.test(c.referenceImageUrl)) return c;
