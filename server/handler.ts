@@ -2025,7 +2025,7 @@ const CHECK_EVERY_MS = 20_000;
 const MAX_STARTS_PER_STEP = 4;
 
 /** One 10 second clip of a scene, as saved in episodes.render_jobs. */
-interface PartEntry { tries: number; jobId?: string; url?: string; error?: string; checkAt?: number; retryAt?: number }
+interface PartEntry { tries: number; jobId?: string; url?: string; error?: string; checkAt?: number; retryAt?: number; keyframeUrl?: string; keyframePathname?: string; keyframeGeneratedAt?: string; keyframeReference?: string; continuityWarning?: string }
 /** One scene: a 10 second scene has one clip, a 20 second scene has two that follow each other. */
 interface RenderEntry { index: number; parts: PartEntry[] }
 
