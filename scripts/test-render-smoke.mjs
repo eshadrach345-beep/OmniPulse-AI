@@ -55,7 +55,8 @@ try {
   });
   const stat = await fs.stat(output);
   assert.ok(stat.size > 6000, 'compositor creates a non-empty MP4');
-  await run(ffmpeg, ['-hide_banner', '-i', output, '-f', 'null', '-']);
+  const outputInfo = await run(ffmpeg, ['-hide_banner', '-i', output, '-f', 'null', '-']);
+  assert.match(outputInfo, /1080x1920/, 'portrait master export should be 1080x1920');
   console.log('CPU-only video render smoke test passed (MP4 + logo image layer + title + animated CTA/text overlays + playback speed + clip fades + crop-to-fill + cinematic grade + chroma key).');
 } finally {
   await fs.rm(compiledPath, { force: true });
