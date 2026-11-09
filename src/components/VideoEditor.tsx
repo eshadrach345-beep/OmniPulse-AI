@@ -401,6 +401,11 @@ export const VideoEditor: React.FC<Props> = ({ video, onSave }) => {
     try {
       const result = await api.post<AiTestResult>('/video/editor/ai-test', {});
       setAiTestResult(result);
+      setCapabilities((current) => current ? {
+        ...current,
+        aiDirectorAvailable: result.available,
+        aiProviders: result.results.filter((item) => item.ok).map((item) => item.name),
+      } : current);
       if (!result.available) setAiTestError('No configured AI writer passed its live connection test. Check the provider messages below before using the AI Director.');
     } catch (error) {
       setAiTestError(error instanceof Error ? error.message : 'AI connection checks could not run.');
@@ -731,7 +736,26 @@ export const VideoEditor: React.FC<Props> = ({ video, onSave }) => {
             </>}
 
             {activeTool === 'ai' && <>
-              <div className="rounded-xl border border-cyan-300/15 bg-cyan-300/[.045] p-3"><div className="flex items-center justify-between gap-2"><p className="text-[10px] font-extrabold uppercase tracking-wider text-cyan-100">AI services</p><span className={capabilities?.aiDirectorAvailable ? 'rounded-full bg-emerald-300/10 px-2 py-1 text-[9px] text-emerald-200' : 'rounded-full bg-amber-300/10 px-2 py-1 text-[9px] text-amber-200'}>{capabilities?.aiDirectorAvailable ? 'Available' : 'Not ready'}</span></div><p className="mt-2 text-[9px] leading-4 text-slate-400">{capabilityError || (capabilities?.aiDirectorAvailable ? 'AI Director: ' + capabilities.aiProviders.join(', ') : 'No AI writing provider is available. Configure Gemini or a supported backup provider in Vercel.')}</p></div>
+              <div className="rounded-xl border border-violet-300/15 bg-violet-300/[.045] p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-[10px] font-extrabold uppercase tracking-wider text-violet-100">AI services</p>
+                  <span className={aiTestResult ? (aiTestResult.available ? 'rounded-full bg-emerald-300/10 px-2 py-1 text-[9px] text-emerald-200' : 'rounded-full bg-rose-300/10 px-2 py-1 text-[9px] text-rose-200') : capabilities?.aiDirectorAvailable ? 'rounded-full bg-amber-300/10 px-2 py-1 text-[9px] text-amber-200' : 'rounded-full bg-rose-300/10 px-2 py-1 text-[9px] text-rose-200'}>
+                    {aiTestResult ? (aiTestResult.available ? 'Connection passed' : 'Connection failed') : capabilities?.aiDirectorAvailable ? 'Configured · untested' : 'Not configured'}
+                  </span>
+                </div>
+                <p className="mt-2 text-[9px] leading-4 text-slate-400">{capabilityError || (capabilities?.aiDirectorAvailable ? 'Configured writers: ' + capabilities.aiProviders.join(', ') + '. Run the live test before relying on AI editing.' : 'No AI writer is configured. Add a supported Gemini or backup provider key in Vercel.')}</p>
+                <button type="button" onClick={() => void testAiConnections()} disabled={aiTestBusy} className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-lg border border-violet-200/20 bg-violet-300/10 px-3 py-2.5 text-[10px] font-extrabold text-violet-100 hover:bg-violet-300/15 disabled:opacity-40">
+                  {aiTestBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ShieldCheck className="h-3.5 w-3.5" />}
+                  {aiTestBusy ? 'Testing AI providers…' : 'Test AI connections'}
+                </button>
+                {aiTestResult && <div className="mt-3 space-y-1.5 border-t border-white/[.07] pt-2">
+                  {aiTestResult.results.map((result, index) => <div key={result.name + index} className="flex items-start gap-2 text-[9px]">
+                    <span className={result.ok ? 'mt-0.5 h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-300' : 'mt-0.5 h-1.5 w-1.5 shrink-0 rounded-full bg-rose-300'} />
+                    <span className="min-w-0"><strong className={result.ok ? 'text-emerald-200' : 'text-rose-200'}>{result.name}</strong><span className="block leading-4 text-slate-500">{result.message}</span></span>
+                  </div>)}
+                </div>}
+                {aiTestError && <p role="alert" className="mt-2 text-[9px] leading-4 text-rose-300">{aiTestError}</p>}
+              </div>
               <div className="space-y-2"><p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">AI Director · edit by instruction</p><textarea value={directorInstruction} onChange={(event) => setDirectorInstruction(event.target.value)} rows={3} maxLength={2400} placeholder="Tighten the opening, add a title at the reveal, and suggest a stronger cut into scene three…" className="w-full rounded-lg border border-slate-700 bg-[#08111e] p-2.5 text-xs text-white" /><button type="button" onClick={() => void requestDirectorPlan()} disabled={directorBusy || directorInstruction.trim().length < 8 || !capabilities?.aiDirectorAvailable} className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-cyan-300 px-3 py-2.5 text-[10px] font-extrabold text-slate-950 disabled:opacity-30">{directorBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}{directorBusy ? 'Preparing edit proposal…' : 'Ask AI Director'}</button>{directorError && <p role="alert" className="text-[10px] text-rose-300">{directorError}</p>}</div>
               {directorPlan && <div className="space-y-2 border-t border-white/10 pt-3"><p className="text-[10px] font-bold text-cyan-100">{directorPlan.summary}</p>{directorPlan.edits.map((edit, index) => <div key={index} className="rounded-lg border border-slate-800 bg-white/[.025] p-2"><p className="text-[10px] font-bold text-white">Scene {edit.scene} · {edit.reason}</p>{edit.visualDirection && <p className="mt-1 text-[9px] leading-4 text-slate-400">{edit.visualDirection}</p>}{edit.overlayText && <p className="mt-1 text-[9px] text-violet-200">Title: {edit.overlayText}</p>}</div>)}<button type="button" onClick={applyDirectorPlan} className="w-full rounded-lg bg-emerald-400 px-3 py-2 text-[10px] font-extrabold text-slate-950">Apply proposal to timeline</button></div>}
               <div className="space-y-2 border-t border-white/10 pt-3"><p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Contextual media matching</p><button type="button" onClick={() => void requestMediaMatches()} disabled={mediaMatchBusy || !transcript?.segments?.length || !mediaAssets.length || !capabilities?.aiDirectorAvailable} className="w-full rounded-lg border border-cyan-300/20 bg-cyan-300/5 px-3 py-2.5 text-[10px] font-bold text-cyan-100 disabled:opacity-30">{mediaMatchBusy ? 'Matching your media…' : 'Find matching moments'}</button><p className="text-[9px] leading-4 text-slate-500">{!transcript?.segments?.length ? 'First create a transcript in the Captions tool. The Director then matches timestamped speech to files in your private library.' : !mediaAssets.length ? 'Upload supporting footage, images or sound before matching.' : 'The Director suggests placements using only your uploaded media. Review placements before applying.'}</p>{mediaMatchError && <p role="alert" className="text-[10px] text-rose-300">{mediaMatchError}</p>}{mediaMatchPlan && <div className="space-y-2">{mediaMatchPlan.summary && <p className="text-[9px] text-slate-300">{mediaMatchPlan.summary}</p>}{mediaMatchPlan.matches.map((match, index) => <div key={match.assetId + index} className="rounded-lg border border-slate-800 p-2"><p className="truncate text-[10px] font-bold text-white">{match.name}</p><p className="text-[9px] text-slate-500">{formatTime(match.startAt)} · {match.duration.toFixed(1)}s · {match.reason}</p></div>)}<button type="button" onClick={applyMediaMatches} className="w-full rounded-lg bg-cyan-300 px-3 py-2 text-[10px] font-extrabold text-slate-950">Place {mediaMatchPlan.matches.length} matches on tracks</button></div>}</div>
