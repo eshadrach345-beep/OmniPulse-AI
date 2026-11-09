@@ -2556,7 +2556,7 @@ async function stageRender(row: any, user: ReturnType<typeof toUser>, ep: any): 
       // Build a scene-specific still from the strongest saved visual reference, then reuse it on retries.
       if (selectedEpisodeProvider === 'deapi' && !previousUrl && !startImageUrl) {
         let cachedKeyframeUrl = /^https:\/\//i.test(String(p.keyframeUrl || '')) ? String(p.keyframeUrl) : '';
-        if (!cachedKeyframeUrl && !p.keyframePathname && lookupEnv('FAL_KEY')) {
+        if (!cachedKeyframeUrl && !p.keyframePathname && lookupEnv('FAL_KEY') && process.env.ENABLE_SCENE_KEYFRAMES === 'true') {
           const keyframeReference = chooseSceneKeyframeReference(selected);
           if (keyframeReference) {
             const characterDetails = (relevant.length ? relevant : cast.filter((c) => c.referenceImageUrl && /^https:\/\//i.test(c.referenceImageUrl)).slice(0, 2))
@@ -2619,7 +2619,7 @@ async function stageRender(row: any, user: ReturnType<typeof toUser>, ep: any): 
           const sourceReference = chooseSceneKeyframeReference(selected);
           if (sourceReference) {
             startImageUrl = resolveSceneOpeningFrameUrl('', sourceReference.url);
-            p.continuityWarning = 'Using the saved visual reference directly; add FAL_KEY to prepare a scene-specific keyframe.';
+            p.continuityWarning = 'Using the saved visual reference directly for faster scene generation. Set ENABLE_SCENE_KEYFRAMES=true to enable optional scene-specific keyframe preparation.';
           } else {
             p.continuityWarning = 'No saved visual reference is available for this scene; DeAPI will use text-to-video.';
           }

@@ -687,7 +687,7 @@ export async function geminiVisualReview(
 ): Promise<VisualReviewResult | null> {
   const key = geminiKeyList().find((candidate) => keyBlockedMs(candidate) === 0);
   if (!key || frames.length < 3) return null;
-  const models = [...new Set([...PREFERRED_MODELS(), ...(await discoverModels(key))])].slice(0, 4);
+  const models = [...new Set([...PREFERRED_MODELS(), ...(await discoverModels(key))])].slice(0, 2);
   const images = [
     ...referenceImages.slice(0, 2).map((image) => ({ ...image, label: `REFERENCE: ${image.name}` })),
     ...frames.slice(0, 4).map((image, index) => ({ ...image, label: `SHOT FRAME ${index + 1} at ${Number(image.timestamp || 0).toFixed(2)} seconds` })),
@@ -721,7 +721,7 @@ export async function geminiVisualReview(
           contents: [{ role: 'user', parts }],
           generationConfig: { responseMimeType: 'application/json', maxOutputTokens: 1200, temperature: 0.1 },
         }),
-        signal: AbortSignal.timeout(22_000),
+        signal: AbortSignal.timeout(12_000),
       });
       const payload: any = await response.json().catch(() => ({}));
       if (!response.ok) {
