@@ -20,51 +20,58 @@ const BRAND: Record<PlatformId, { label: string; short: string; color: string; b
   pinterest: { label: 'Pinterest', short: 'P', color: '#ff8294', bg: 'linear-gradient(135deg,#e60023,#a90019)' },
 };
 
-const PlatformMark: React.FC<{ id: PlatformId }> = ({ id }) => (
-  <div role="img" aria-label={BRAND[id].label + ' logo'} title={BRAND[id].label}
-    className="grid h-8 w-8 shrink-0 place-items-center rounded-xl text-sm font-extrabold text-white shadow-lg"
-    style={{ background: BRAND[id].bg, boxShadow: '0 5px 16px ' + BRAND[id].color + '22' }}>
+const PlatformMark: React.FC<{ id: PlatformId; avatar?: string }> = ({ id, avatar }) => (
+  avatar ? <img src={avatar} alt="" className="h-7 w-7 shrink-0 rounded-lg object-cover" /> :
+  <span role="img" aria-label={BRAND[id].label + ' logo'} title={BRAND[id].label}
+    className="grid h-7 w-7 shrink-0 place-items-center rounded-lg text-xs font-extrabold text-white"
+    style={{ background: BRAND[id].bg, boxShadow: '0 4px 12px ' + BRAND[id].color + '24' }}>
     {BRAND[id].short}
-  </div>
+  </span>
 );
 
 export const AccountsBar: React.FC<AccountsBarProps> = ({ accounts, onToggleConnect, onRequestConnect, compact = false }) => {
   const connectedCount = accounts.filter((account) => account.connected).length;
   return (
-    <section className={compact ? 'social-compact rounded-2xl border border-slate-800/80 bg-slate-950/70 p-3 sm:p-4' : 'rounded-2xl border border-slate-800/80 bg-slate-950/70 p-4 sm:p-5'}>
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2.5">
-          <div className="grid h-8 w-8 place-items-center rounded-lg bg-cyan-400/10 text-cyan-200"><Link2 className="h-4 w-4" /></div>
-          <div><h2 className="text-sm font-bold text-white">Social channels</h2><p className="text-[10px] text-slate-500">Secure connections for publishing</p></div>
+    <section className={compact
+      ? 'social-compact rounded-xl border border-white/[.07] bg-[#111019]/80 p-2.5 sm:p-3'
+      : 'rounded-2xl border border-white/[.08] bg-[#111019]/80 p-3 sm:p-4'}>
+      <div className="mb-2.5 flex flex-wrap items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-2">
+          <div className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-violet-400/10 text-violet-200"><Link2 className="h-3.5 w-3.5" /></div>
+          <div className="min-w-0"><h2 className="text-xs font-extrabold text-white">Social channels</h2><p className="text-[9px] text-slate-500">Secure publishing connections</p></div>
         </div>
-        <div className="flex items-center gap-2 rounded-lg border border-slate-800 bg-slate-900/70 px-3 py-2">
-          <span className="text-sm font-extrabold tabular-nums text-white">{connectedCount}<span className="font-medium text-slate-500">/{accounts.length}</span></span>
-          <span className="text-[10px] text-slate-400">connected</span>
+        <div className="inline-flex items-center gap-1.5 rounded-full border border-white/[.08] bg-white/[.035] px-2.5 py-1">
+          <span className="text-[11px] font-extrabold tabular-nums text-white">{connectedCount}<span className="font-medium text-slate-500">/{accounts.length}</span></span>
+          <span className="text-[9px] text-slate-400">connected</span>
         </div>
       </div>
-      <div className={compact ? 'grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-7' : 'grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7'}>
+      <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-7">
         {accounts.map((account) => {
           const brand = BRAND[account.id];
           const unavailable = !account.connected && (account.publishable === false || account.configured === false);
           return (
-            <article key={account.id} className={account.connected ? 'min-w-0 rounded-xl border border-emerald-400/25 bg-emerald-400/[.045] p-2.5' : 'min-w-0 rounded-xl border border-slate-800 bg-slate-900/55 p-2.5 transition hover:border-slate-600'}>
-              <div className="flex min-w-0 items-center gap-2">
-                {account.connected && account.avatarUrl ? <img src={account.avatarUrl} alt="" className="h-8 w-8 shrink-0 rounded-xl object-cover" /> : <PlatformMark id={account.id} />}
-                <div className="min-w-0">
-                  <p className="truncate text-[11px] font-bold text-white">{brand.label}</p>
-                  <p className={account.connected ? 'mt-0.5 truncate text-[9px] text-emerald-300' : unavailable ? 'mt-0.5 truncate text-[9px] text-amber-300' : 'mt-0.5 truncate text-[9px] text-slate-500'}>{account.connected ? 'Connected' : unavailable ? 'Setup required' : 'Not connected'}</p>
-                </div>
+            <article key={account.id} className={account.connected
+              ? 'flex min-w-0 items-center gap-2 rounded-lg border border-emerald-400/20 bg-emerald-400/[.045] px-2 py-1.5'
+              : 'flex min-w-0 items-center gap-2 rounded-lg border border-white/[.065] bg-white/[.025] px-2 py-1.5 transition hover:border-violet-300/25 hover:bg-white/[.045]'}>
+              <PlatformMark id={account.id} avatar={account.connected ? account.avatarUrl : undefined} />
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-[10px] font-extrabold text-white">{brand.label}</p>
+                <p className={account.connected ? 'truncate text-[8px] text-emerald-300' : unavailable ? 'truncate text-[8px] text-amber-300' : 'truncate text-[8px] text-slate-500'}>
+                  {account.connected ? (account.handle || 'Connected') : unavailable ? 'Setup needed' : 'Not connected'}
+                </p>
               </div>
-              {account.connected && account.handle && <p className="mt-2 truncate text-[10px] text-slate-400">{account.handle}</p>}
               <button type="button" disabled={unavailable} onClick={() => account.connected ? onToggleConnect(account.id) : onRequestConnect(account)}
-                className={account.connected ? 'mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg border border-rose-500/20 bg-rose-500/[.07] px-2 py-1.5 text-[10px] font-bold text-rose-200 hover:bg-rose-500/15 disabled:opacity-40' : 'mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg border border-cyan-400/20 bg-cyan-400/[.08] px-2 py-1.5 text-[10px] font-bold text-cyan-100 hover:bg-cyan-400/15 disabled:opacity-40'}>
-                {account.connected ? <><Unplug className="h-3 w-3" />Disconnect</> : unavailable ? 'Unavailable' : <>Connect <ExternalLink className="h-3 w-3" /></>}
+                aria-label={account.connected ? 'Disconnect ' + brand.label : 'Connect ' + brand.label}
+                className={account.connected
+                  ? 'inline-flex h-7 shrink-0 items-center gap-1 rounded-md border border-rose-400/15 bg-rose-400/[.06] px-2 text-[8px] font-extrabold text-rose-200 transition hover:bg-rose-400/15 disabled:opacity-40'
+                  : 'inline-flex h-7 shrink-0 items-center gap-1 rounded-md border border-violet-300/20 bg-violet-300/[.07] px-2 text-[8px] font-extrabold text-violet-100 transition hover:bg-violet-300/15 disabled:opacity-40'}>
+                {account.connected ? <><Unplug className="h-3 w-3" />Off</> : unavailable ? 'Locked' : <>Connect <ExternalLink className="h-2.5 w-2.5" /></>}
               </button>
             </article>
           );
         })}
       </div>
-      {!compact && <p className="mt-3 flex items-center gap-2 text-[10px] leading-5 text-slate-500"><ShieldCheck className="h-3.5 w-3.5 shrink-0 text-emerald-400" />Sign in on each platform’s official authorization page. OmniPulse never asks for your social password.</p>}
+      {!compact && <p className="mt-2.5 flex items-center gap-1.5 text-[9px] leading-4 text-slate-500"><ShieldCheck className="h-3 w-3 shrink-0 text-emerald-400" />Sign in through each platform’s official authorization page. OmniPulse never asks for your social password.</p>}
     </section>
   );
 };
