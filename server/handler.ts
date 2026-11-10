@@ -1489,7 +1489,13 @@ async function submitToProvider(prompt: string, reso: '480P' | '768P' | '1080P',
   const viaDeapi = async () => { const deapiPrompt = multiPrompt?.length ? `${prompt} ${toNativeMultiShotPrompt(multiPrompt)}` : prompt; const j = await deapiSubmit(deapiPrompt, reso, seconds, aspect, videoModel, seedOverride); return { statusUrl: `deapi:${j.requestId}`, responseUrl: 'deapi' }; };
   const viaFal = async () => { const j = await falSubmit(prompt, reso, seconds, aspect, videoQuality); return { statusUrl: j.statusUrl, responseUrl: j.responseUrl }; };
   if (provider === 'deapi') return viaDeapi();
-  if (provider === 'fal') return viaFal();
+  if (provider === 'fal') {
+    try { return await viaFal(); } catch (e: any) {
+      if (!shouldFallbackToDeapi(provider, e) || !lookupEnv('DEAPI_API_KEY')) throw e;
+      console.warn('fal.ai credits exhausted; using configured deAPI backup:', e?.message);
+      return viaDeapi();
+    }
+  }
   // Automatic failover is opt-in: VIDEO_PROVIDER=auto. fal/deapi selections are strict.
   try { return await viaFal(); } catch (e: any) {
     if (!lookupEnv('DEAPI_API_KEY')) throw e;
@@ -2482,7 +2488,7 @@ async function startPart(row: any, user: ReturnType<typeof toUser>, spec: { prom
         job = { statusUrl: j.statusUrl, responseUrl: j.responseUrl };
       } catch (e: any) {
         if (e instanceof RateLimited) throw e;
-        if (shouldFallbackToDeapi(provider) && lookupEnv('DEAPI_API_KEY')) {
+        if (shouldFallbackToDeapi(provider, e) && lookupEnv('DEAPI_API_KEY')) {
           const j = await deapiAnimate(deapiPrompt, frame, reso, PART_SECONDS, spec.aspect, spec.videoModel, spec.lastFrame, spec.seed);
           job = { statusUrl: `deapi:${j.requestId}`, responseUrl: 'deapi' };
         } else throw e;
@@ -2497,7 +2503,7 @@ async function startPart(row: any, user: ReturnType<typeof toUser>, spec: { prom
         const j = await falReferenceVideoSubmit(prompt, refs.map((x) => x.url), reso, PART_SECONDS, spec.aspect, undefined, spec.videoQuality || 'balanced');
         job = { statusUrl: j.statusUrl, responseUrl: j.responseUrl };
       } catch (e: any) {
-        if (provider === 'auto' && lookupEnv('DEAPI_API_KEY')) {
+        if (shouldFallbackToDeapi(provider, e) && lookupEnv('DEAPI_API_KEY')) {
           const j = await deapiSubmit(deapiPrompt, reso, PART_SECONDS, spec.aspect, spec.videoModel, spec.seed);
           job = { statusUrl: `deapi:${j.requestId}`, responseUrl: 'deapi' };
         } else throw e;
