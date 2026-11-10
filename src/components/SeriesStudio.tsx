@@ -563,6 +563,43 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
             </>
           )}
 
+          {episode && (episode.status === 'COMPLETED' || episode.status === 'FAILED') && episode.visualQuality?.length > 0 && (() => {
+            const checks = episode.visualQuality;
+            const passed = checks.filter((check) => check.status === 'passed').length;
+            const warnings = checks.filter((check) => check.status === 'warning' || check.status === 'rejected').length;
+            const unavailable = checks.filter((check) => check.status === 'unavailable').length;
+            const attention = checks.filter((check) => check.status !== 'passed').slice(0, 6);
+            return (
+              <section className="rounded-xl border border-slate-700 bg-slate-950/70 p-3 space-y-2">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-xs font-semibold text-white">AI visual quality review</p>
+                  <p className="text-[10px] text-slate-400">{passed}/{checks.length} clips passed · {warnings} warnings · {unavailable} unverified</p>
+                </div>
+                {attention.length > 0 ? (
+                  <div className="space-y-2">
+                    {attention.map((check) => (
+                      <div key={`${check.scene}-${check.part}`} className="rounded-lg border border-slate-800 bg-slate-900/70 px-2.5 py-2">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <span className="text-[10px] font-semibold text-slate-200">Scene {check.scene} · Clip {check.part}</span>
+                          <span className={`text-[9px] font-bold uppercase ${check.status === 'rejected' ? 'text-rose-300' : check.status === 'warning' ? 'text-amber-300' : 'text-slate-400'}`}>{check.status}</span>
+                        </div>
+                        <p className="mt-1 text-[10px] text-slate-400">{check.summary || 'No additional review details.'}</p>
+                        {(check.qualityScore !== null || check.promptMatchScore !== null || check.motionCoherenceScore !== null) && (
+                          <p className="mt-1 text-[9px] text-slate-500">
+                            {check.qualityScore !== null ? `Visual quality ${check.qualityScore}/100 · ` : ''}
+                            {check.promptMatchScore !== null ? `Scene match ${check.promptMatchScore}/100 · ` : ''}
+                            {check.motionCoherenceScore !== null ? `Motion coherence ${check.motionCoherenceScore}/100` : ''}
+                          </p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ) : <p className="text-[10px] text-emerald-300">All reviewed clips passed the automated visual checks.</p>}
+                {unavailable > 0 && <p className="text-[10px] text-amber-300">Some clips could not be checked by the vision reviewer. Those clips are marked unverified, not passed.</p>}
+              </section>
+            );
+          })()}
+
           {episode?.status === 'FAILED' && (
             <div className="space-y-2">
               <div role="alert" className="text-xs text-red-300 bg-red-950/40 border border-red-900 rounded-lg px-3 py-2">{episode.error || 'This part could not be made.'}</div>
