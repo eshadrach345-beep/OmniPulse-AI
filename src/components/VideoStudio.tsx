@@ -20,6 +20,7 @@ import {
   StudioAudioService,
 } from '../services/aiService';
 import { STUDIO_VOICES, StudioVoice } from '../data/voicesData';
+import { api } from '../services/api';
 import { CAMERA_OPTIONS, GENRE_OPTIONS, MOOD_OPTIONS, PRESENTATION_OPTIONS, formatSeconds } from '../data/storyOptions';
 import { 
   Play, 
@@ -58,6 +59,18 @@ import {
   Lock,
   X
 } from 'lucide-react';
+
+interface DeapiVideoModelOption {
+  slug: string;
+  name: string;
+  description: string;
+  supportsImageToVideo: boolean;
+  supportsNativeAudio: boolean;
+  minDurationSeconds: number;
+  maxDurationSeconds: number;
+  durationLabel: string;
+  supportsDirectClipDurations: boolean;
+}
 
 interface VideoStudioProps {
   videos: GeneratedVideo[];
@@ -141,6 +154,12 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
   const [selectedVoiceId, setSelectedVoiceId] = useState<string>(''); // no voice is chosen for the user
   const [selectedSeconds, setSelectedSeconds] = useState<number>(5);
   const [videoQuality, setVideoQuality] = useState<'balanced' | 'quality'>('balanced');
+  const [videoProvider, setVideoProvider] = useState<'fal' | 'deapi'>('fal');
+  const [falEnabled, setFalEnabled] = useState(false);
+  const [deapiEnabled, setDeapiEnabled] = useState(false);
+  const [deapiModels, setDeapiModels] = useState<DeapiVideoModelOption[]>([]);
+  const [selectedDeapiModel, setSelectedDeapiModel] = useState('seedance-2.5');
+  const [deapiModelsLoading, setDeapiModelsLoading] = useState(true);
   const [voiceGenderFilter, setVoiceGenderFilter] = useState<'all' | 'male' | 'female'>('all');
   const [voiceTypeFilter, setVoiceTypeFilter] = useState<'all' | 'commercial_ad' | 'viral_short' | 'storyteller' | 'explainer_tech' | 'conversational'>('all');
   const [voiceMomentum, setVoiceMomentum] = useState<number>(1.10); // 0.75x to 1.40x
@@ -166,6 +185,27 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
   const [isMuted, setIsMuted] = useState(false);
   const [videoDuration, setVideoDuration] = useState(15);
   const [playerMode, setPlayerMode] = useState<'storyboard' | 'raw_mp4'>('storyboard');
+
+  useEffect(() => {
+    let active = true;
+    api.get<{ provider: 'fal' | 'deapi' | 'auto'; models: DeapiVideoModelOption[]; falEnabled: boolean; deapiEnabled: boolean }>('/video/models')
+      .then((result) => {
+        if (!active) return;
+        setFalEnabled(!!result.falEnabled);
+        setDeapiEnabled(!!result.deapiEnabled);
+        const models = Array.isArray(result.models) ? result.models : [];
+        setDeapiModels(models);
+        const preferred = models.find((model) => model.slug === 'seedance-2.5' && model.supportsDirectClipDurations)
+          || models.find((model) => model.supportsDirectClipDurations)
+          || models[0];
+        if (preferred) setSelectedDeapiModel(preferred.slug);
+        if (!result.falEnabled && result.deapiEnabled) setVideoProvider('deapi');
+        else if (!result.deapiEnabled && result.falEnabled) setVideoProvider('fal');
+      })
+      .catch((error) => console.warn('Video model catalogue could not be loaded:', error))
+      .finally(() => { if (active) setDeapiModelsLoading(false); });
+    return () => { active = false; };
+  }, []);
 
   // Ensure active video has valid videoUrl
   const currentVideoSrc = activeVideo.videoUrl || '';
@@ -447,6 +487,8 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
         grokHookStyle: hookFormula,
         voiceId: selectedVoiceId,
         seconds: selectedSeconds,
+        videoProvider,
+        videoModel: videoProvider === 'deapi' ? selectedDeapiModel : undefined,
         voiceMomentum,
         voiceQuality,
         videoQuality,
@@ -1141,11 +1183,60 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
                 </div>
               </div>
 
+              <div className="space-y-2">
+                <label className="block text-xs font-semibold text-slate-300">Video generation engine</label>
+                <select
+                  value={videoProvider}
+                  onChange={(event) => {
+                    const next = event.target.value as 'fal' | 'deapi';
+                    setVideoProvider(next);
+                    if (next === 'fal' && selectedSeconds > 10) setSelectedSeconds(10);
+                  }}
+                  className="w-full rounded-lg bg-slate-950 border border-slate-800 p-2.5 text-xs text-white"
+                >
+                  {falEnabled && <option value="fal">FAL · current short-clip engine (5–10 seconds)</option>}
+                  {deapiEnabled && <option value="deapi">DeAPI · direct model generation (up to 30 seconds where supported)</option>}
+                  {!falEnabled && !deapiEnabled && <option value="fal">No video engine is currently connected</option>}
+                </select>
+                {videoProvider === 'deapi' && (
+                  <div className="space-y-1.5">
+                    <label className="block text-xs font-semibold text-slate-300">DeAPI video model</label>
+                    <select
+                      value={selectedDeapiModel}
+                      disabled={deapiModelsLoading || deapiModels.length === 0}
+                      onChange={(event) => {
+                        const nextSlug = event.target.value;
+                        setSelectedDeapiModel(nextSlug);
+                        const model = deapiModels.find((item) => item.slug === nextSlug);
+                        const supported = [5, 10, 15, 20, 25, 30].filter((value) => model && value >= model.minDurationSeconds && value <= model.maxDurationSeconds);
+                        if (!supported.includes(selectedSeconds)) setSelectedSeconds(supported[0] || 5);
+                      }}
+                      className="w-full rounded-lg bg-slate-950 border border-slate-800 p-2.5 text-xs text-white"
+                    >
+                      {deapiModelsLoading && <option value={selectedDeapiModel}>Loading DeAPI models…</option>}
+                      {!deapiModelsLoading && deapiModels.length === 0 && <option value={selectedDeapiModel}>No models returned by DeAPI</option>}
+                      {deapiModels.map((model) => <option key={model.slug} value={model.slug}>{model.name}{model.supportsNativeAudio ? ' · native audio' : ''} · {model.durationLabel}</option>)}
+                    </select>
+                    {deapiModels.find((model) => model.slug === selectedDeapiModel) && (
+                      <p className="text-[10px] text-slate-400">
+                        {deapiModels.find((model) => model.slug === selectedDeapiModel)?.description || 'Model availability and duration limits are read from your connected DeAPI catalogue.'}
+                      </p>
+                    )}
+                    {deapiModelsLoading === false && !deapiEnabled && <p className="text-[10px] text-amber-300">Add DEAPI_API_KEY to your Vercel environment and redeploy to enable DeAPI.</p>}
+                  </div>
+                )}
+              </div>
+
               {/* Video length */}
               <div className="space-y-2">
                 <label className="block text-xs font-semibold text-slate-300">Video length</label>
-                <div className="grid grid-cols-2 gap-2">
-                  {[5, 10].map((sec) => {
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  {(videoProvider === 'deapi'
+                    ? [5, 10, 15, 20, 25, 30].filter((sec) => {
+                        const model = deapiModels.find((item) => item.slug === selectedDeapiModel);
+                        return !!model && sec >= model.minDurationSeconds && sec <= model.maxDurationSeconds;
+                      })
+                    : [5, 10]).map((sec) => {
                     const tooLong = secondsLeft != null && secondsLeft < sec;
                     return (
                       <button
@@ -1158,17 +1249,24 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
                     );
                   })}
                 </div>
+                {videoProvider === 'deapi' && ![5, 10, 15, 20, 25, 30].some((sec) => {
+                  const model = deapiModels.find((item) => item.slug === selectedDeapiModel);
+                  return !!model && sec >= model.minDurationSeconds && sec <= model.maxDurationSeconds;
+                }) && <p className="text-[10px] text-amber-300">No standard duration choices are available for this model. Choose another model with supported duration limits.</p>}
+                {selectedSeconds > 10 && videoProvider === 'deapi' && <p className="text-[10px] text-indigo-200">Long clips are sent as one continuous DeAPI generation. The full {selectedSeconds}-second duration is deducted from your allowance.</p>}
                 {secondsLeft != null && <p className="text-[11px] text-slate-400">{secondsLeft} seconds of video left this month.</p>}
               </div>
 
-              <div className="space-y-1.5">
-                <label className="block text-xs font-semibold text-slate-300">Video rendering quality</label>
-                <select value={videoQuality} onChange={(event) => setVideoQuality(event.target.value as 'balanced' | 'quality')} className="w-full rounded-lg bg-slate-950 border border-slate-800 p-2.5 text-xs text-white">
-                  <option value="balanced">Balanced · H3 Max Turbo (lower cost)</option>
-                  <option value="quality">Quality-first · H3 Max (stronger prompt adherence and aesthetics)</option>
-                </select>
-                <p className="text-[10px] text-slate-500">Quality-first has a higher FAL charge per second. Balanced stays selected by default; a custom workspace FAL model override takes precedence.</p>
-              </div>
+              {videoProvider === 'fal' && (
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-semibold text-slate-300">Video rendering quality</label>
+                  <select value={videoQuality} onChange={(event) => setVideoQuality(event.target.value as 'balanced' | 'quality')} className="w-full rounded-lg bg-slate-950 border border-slate-800 p-2.5 text-xs text-white">
+                    <option value="balanced">Balanced · H3 Max Turbo (lower cost)</option>
+                    <option value="quality">Quality-first · H3 Max (stronger prompt adherence and aesthetics)</option>
+                  </select>
+                  <p className="text-[10px] text-slate-500">Quality-first has a higher FAL charge per second. Balanced stays selected by default; a custom workspace FAL model override takes precedence.</p>
+                </div>
+              )}
 
               {/* Voice Selection Strip */}
               <div className="space-y-2">
