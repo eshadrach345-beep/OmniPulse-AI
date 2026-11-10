@@ -54,6 +54,18 @@ assert.match(handler, /evaluateVisualReview\(review\)/, 'generated clips must pa
 assert.match(handler, /quality-certified/i, 'an unavailable visual reviewer must not be reported as a pass');
 assert.doesNotMatch(handler, /Accepted after one visual retry/, 'a clip rejected on every attempt must never be silently accepted');
 
+assert.match(handler, /resolveFalKlingResolution\(spec\.videoQuality \|\| 'balanced'\)/, 'quality-first must select the matching Kling resolution');
+assert.ok((handler.match(/spec\.videoQuality \|\| 'balanced'/g) || []).length >= 3, 'the selected quality profile must reach Kling and both FAL reference-to-video paths');
+
+const services = fs.readFileSync(new URL('../server/lib/services.ts', import.meta.url), 'utf8');
+const falReferenceAdapter = services.match(/export async function falReferenceVideoSubmit\([\s\S]*?\n}\n/);
+assert.ok(falReferenceAdapter, 'the FAL reference-to-video adapter must exist');
+assert.match(falReferenceAdapter[0], /resolveFalPromptExpansionMode\(quality, process\.env\.FAL_PROMPT_EXPANSION\)/, 'FAL reference-to-video must honor the selected prompt expansion profile');
+
+const studio = fs.readFileSync(new URL('../src/components/SeriesStudio.tsx', import.meta.url), 'utf8');
+assert.match(studio, /episode\.visualQuality/, 'the series studio must display the visual review data returned by the API');
+assert.match(studio, /Not certified/, 'an unavailable visual review must be explicitly identified as unverified');
+
 const db = fs.readFileSync(new URL('../server/lib/db.ts', import.meta.url), 'utf8');
 assert.match(db, /ADD COLUMN IF NOT EXISTS render_prompt TEXT/);
 assert.match(db, /ADD COLUMN IF NOT EXISTS visual_review JSONB/);
