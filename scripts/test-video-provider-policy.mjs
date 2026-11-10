@@ -18,7 +18,7 @@ assert.equal(policy.shouldFallbackToDeapi('auto'), true, 'auto keeps its existin
 const exhaustedBalance = new Error('fal.ai does not have enough credit for Kling 4.0.');
 assert.equal(policy.isFalCreditExhaustion(exhaustedBalance), true);
 assert.equal(policy.shouldFallbackToDeapi('fal', exhaustedBalance), true, 'fal credit exhaustion activates DeAPI even when fal was selected');
-assert.equal(policy.shouldFallbackToDeapi('deapi', exhaustedBalance), true, 'a fal credit lock can be recovered by DeAPI regardless of selected provider');
+assert.equal(policy.shouldFallbackToDeapi('deapi', exhaustedBalance), false, 'DeAPI does not need a fallback when it is already selected');
 assert.equal(policy.shouldFallbackToDeapi('fal', new Error('fal.ai rejected the API key. Check FAL_KEY.')), false, 'credential errors must not trigger a misleading credit fallback');
 
 assert.equal(policy.shouldAttemptKlingMultiShot('fal', true, 2), true);
