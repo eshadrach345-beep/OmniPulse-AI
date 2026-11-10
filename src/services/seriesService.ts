@@ -25,6 +25,19 @@ export interface EpisodeScene {
   lines: { speaker: string; text: string; half?: 1 | 2 }[];
 }
 
+export interface EpisodeVisualQuality {
+  scene: number;
+  part: number;
+  status: 'pending' | 'passed' | 'warning' | 'rejected' | 'unavailable';
+  severity: string | null;
+  confidence: string | null;
+  qualityScore: number | null;
+  promptMatchScore: number | null;
+  motionCoherenceScore: number | null;
+  issues: string[];
+  summary: string;
+}
+
 export interface Episode {
   /** Present when the script can be edited (waiting for review, or paused before any clip started). */
   editable?: { characters: string[]; scenes: EditableScene[] } | null;
@@ -51,6 +64,8 @@ export interface Episode {
   partsDone: number;
   partsTotal: number;
   sceneStates: ('done' | 'rendering' | 'waiting' | 'failed')[];
+  /** Per-clip visual review results, including clips that could not be certified. */
+  visualQuality: EpisodeVisualQuality[];
   totalSeconds: number;
   mode: 'ai' | 'paste';
   /** True when a pasted script was longer than this part and the rest is saved for the next part. */
