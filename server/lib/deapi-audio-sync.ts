@@ -14,7 +14,7 @@ export function deapiAudioSyncFrames(durationSeconds: number): number {
 export function supportsDeapiAudioSyncModel(slug: string, evidence = ''): boolean {
   const normalized = String(slug || '').toLowerCase().replace(/[^a-z0-9]/g, '');
   return /audio.?to.?video|audio.?sync|audio.?conditioned.?video|supports.?audio.?input/i.test(evidence)
-    || /^ltx23/.test(normalized);
+    || /^(ltx23|ltx25)/.test(normalized);
 }
 
 /** Only the audio types documented by DeAPI's audio-sync endpoint are accepted. */
