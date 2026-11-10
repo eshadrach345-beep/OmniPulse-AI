@@ -251,6 +251,7 @@ export async function generateAIVideoScript(params: {
   seconds?: number;
   voiceMomentum?: number;
   voiceQuality?: string;
+  videoQuality?: 'balanced' | 'quality';
 }, onStatus?: (message: string) => void): Promise<GeneratedVideo> {
   const { 
     idea, 
@@ -295,7 +296,7 @@ export async function generateAIVideoScript(params: {
   onStatus?.('Submitting your video to the render engine...');
   const falPrompt = scriptData?.falPrompt || `${idea}. Dynamic camera motion, cinematic lighting, high detail`;
   let jobId: string;
-  try { ({ jobId } = await api.post<{ jobId: string }>('/video/render', { prompt: falPrompt, seconds })); }
+  try { ({ jobId } = await api.post<{ jobId: string }>('/video/render', { prompt: falPrompt, seconds, videoQuality })); }
   catch (e) { throw new Error(`Video render step failed: ${e instanceof Error ? e.message : 'unknown error'}`); }
   const generatedVideoUrl = await pollRender(jobId, onStatus);
   const falEngineName = 'fal-ai/minimax/h3-max-turbo';
@@ -529,6 +530,7 @@ export async function renderStoryScenesParallel(
   scenes: StoryScene[],
   aspectRatio: AspectRatioType,
   onScene?: (sceneId: string, state: 'rendering' | 'done' | 'failed', message?: string) => void,
+  videoQuality: 'balanced' | 'quality' = 'balanced',
 ): Promise<SceneRenderResult[]> {
   if (!scenes.length) return [];
   const payloads = scenes.map((sc) => payloadFor(sc, aspectRatio));
@@ -537,7 +539,7 @@ export async function renderStoryScenesParallel(
   type Started = { jobs: ({ index: number; jobId: string } | { index: number; error: string })[] };
   let started: Started | undefined;
   for (let attempt = 0; attempt < 4 && !started; attempt++) {
-    try { started = await api.post<Started>('/video/render-batch', { scenes: payloads }); }
+    try { started = await api.post<Started>('/video/render-batch', { scenes: payloads, videoQuality }); }
     catch (e) {
       const busy = e instanceof ApiError && (e.code === 'RATE_LIMIT' || e.status === 429 || [502, 503, 504].includes(e.status));
       if (!busy || attempt === 3) throw new Error(e instanceof Error ? e.message : 'Could not start the render.');
@@ -569,12 +571,12 @@ export async function renderStoryScenesParallel(
 }
 
 /** Renders one scene as its own clip. Kept for single retries; whole productions use renderStoryScenesParallel. */
-export async function renderStoryScene(scene: StoryScene, aspectRatio: AspectRatioType, onStatus?: (m: string) => void): Promise<{ url: string; jobId: string }> {
+export async function renderStoryScene(scene: StoryScene, aspectRatio: AspectRatioType, onStatus?: (m: string) => void, videoQuality: 'balanced' | 'quality' = 'balanced'): Promise<{ url: string; jobId: string }> {
   const payload = payloadFor(scene, aspectRatio);
   let jobId = '';
   for (let attempt = 0; attempt < 6; attempt++) {
     try {
-      ({ jobId } = await api.post<{ jobId: string }>('/video/render', { prompt: payload.prompt, seconds: payload.seconds, aspect: payload.aspect }));
+      ({ jobId } = await api.post<{ jobId: string }>('/video/render', { prompt: payload.prompt, seconds: payload.seconds, aspect: payload.aspect, videoQuality }));
       break;
     } catch (e) {
       const busy = e instanceof ApiError && (e.code === 'RATE_LIMIT' || /too many|busy/i.test(e.message));
