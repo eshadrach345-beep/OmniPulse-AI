@@ -1017,7 +1017,7 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
                 <option value="balanced">Balanced · H3 Max Turbo (lower cost)</option>
                 <option value="quality">Quality-first · H3 Max (stronger prompt adherence and aesthetics)</option>
               </select>
-              <p className="text-[10px] text-slate-500">Quality-first uses a higher FAL charge per second. The Balanced option remains the default. A workspace-level FAL model override takes precedence.</p>
+              <p className="text-[10px] text-slate-500">Quality-first uses a higher FAL charge per second. The Balanced option remains the default. A custom workspace FAL model override takes precedence.</p>
               {videoProvider === 'auto' && <p className="text-[10px] text-amber-300/80">This profile applies when Automatic uses FAL. It does not change the selected DeAPI backup model.</p>}
             </label>
           )}
