@@ -255,7 +255,7 @@ async function pollRender(jobId: string, onStatus?: (m: string) => void): Promis
  */
 async function pollRenderWithQualityRetries(
   initialJobId: string,
-  options: { prompt: string; seconds: number; aspect: string; videoQuality: 'balanced' | 'quality'; videoProvider?: 'fal' | 'deapi' | 'auto'; videoModel?: string },
+  options: { prompt: string; seconds: number; aspect: string; videoQuality: 'balanced' | 'quality'; videoProvider?: 'fal' | 'deapi' | 'auto'; videoModel?: string; firstFrameAssetId?: string },
   onStatus?: (message: string) => void,
 ): Promise<{ url: string; jobId: string }> {
   let jobId = initialJobId;
@@ -267,7 +267,7 @@ async function pollRenderWithQualityRetries(
       if (!message.startsWith('Visual QA rejected this shot:') || attempt === 3) throw error;
       onStatus?.(`Visual QA rejected attempt ${attempt}/3. The rejected attempt was refunded; generating a fresh variation...`);
       await sleep(1200);
-      const next = await api.post<{ jobId: string }>('/video/render', options);
+      const next = await api.post<{ jobId: string }>(options.firstFrameAssetId ? '/video/animate' : '/video/render', options);
       jobId = next.jobId;
     }
   }
@@ -291,6 +291,7 @@ export async function generateAIVideoScript(params: {
   seconds?: number;
   videoProvider?: 'fal' | 'deapi' | 'auto';
   videoModel?: string;
+  firstFrameAssetId?: string;
   voiceMomentum?: number;
   voiceQuality?: string;
   videoQuality?: 'balanced' | 'quality';
@@ -310,6 +311,7 @@ export async function generateAIVideoScript(params: {
     videoQuality = 'balanced',
     videoProvider = 'fal',
     videoModel,
+    firstFrameAssetId,
   } = params;
 
   const chosenVoice = StudioAudioService.getVoice(voiceId);
@@ -339,10 +341,14 @@ export async function generateAIVideoScript(params: {
 
   // 2. Real video render through the video engine: submit job, then poll until it completes.
   onStatus?.('Submitting your video to the render engine...');
-  const falPrompt = scriptData?.falPrompt || `${idea}. Dynamic camera motion, cinematic lighting, high detail`;
+  const basePrompt = scriptData?.falPrompt || `${idea}. Dynamic camera motion, cinematic lighting, high detail`;
+  const falPrompt = firstFrameAssetId
+    ? `Begin from the exact uploaded opening-frame image. Preserve the identity, face, wardrobe, composition, objects and lighting in that image while animating the action naturally. Do not replace or reinterpret the opening subject. ${basePrompt}`
+    : basePrompt;
   let jobId: string;
-  const renderOptions = { prompt: falPrompt, seconds, aspect: aspectRatio, videoQuality, videoProvider, ...(videoProvider === 'deapi' && videoModel ? { videoModel } : {}) };
-  try { ({ jobId } = await api.post<{ jobId: string }>('/video/render', renderOptions)); }
+  const renderOptions = { prompt: falPrompt, seconds, aspect: aspectRatio, videoQuality, videoProvider, ...(videoProvider === 'deapi' && videoModel ? { videoModel } : {}), ...(firstFrameAssetId ? { firstFrameAssetId } : {}) };
+  const renderPath = firstFrameAssetId ? '/video/animate' : '/video/render';
+  try { ({ jobId } = await api.post<{ jobId: string }>(renderPath, renderOptions)); }
   catch (e) { throw new Error(`Video render step failed: ${e instanceof Error ? e.message : 'unknown error'}`); }
   const generatedRender = await pollRenderWithQualityRetries(jobId, renderOptions, onStatus);
   const generatedVideoUrl = generatedRender.url;
