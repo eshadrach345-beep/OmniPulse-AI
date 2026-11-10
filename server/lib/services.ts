@@ -806,14 +806,26 @@ export interface VisualReviewImage { name: string; bytes: Buffer; mimeType: stri
 export interface VisualReviewResult {
   passed: boolean;
   severity: 'none' | 'minor' | 'major';
+  confidence: 'high' | 'medium' | 'low';
   identityDrift: boolean;
   handAnatomyIssue: boolean;
   propConsistencyIssue: boolean;
+  promptMismatch: boolean;
+  motionCoherenceIssue: boolean;
+  visualArtifactIssue: boolean;
+  framingIssue: boolean;
+  qualityScore: number | null;
+  promptMatchScore: number | null;
+  motionCoherenceScore: number | null;
   issues: string[];
   summary: string;
 }
 
-/** Reviews sampled shot frames against the opening/reference still using Gemini vision. Returns null when vision is not configured. */
+/**
+ * Reviews a short clip against its actual render prompt and supplied visual anchors.
+ * Sparse still samples cannot prove every motion detail, so uncertain scores are explicitly
+ * marked low-confidence instead of being treated as a failure.
+ */
 export async function geminiVisualReview(
   sceneDescription: string,
   frames: VisualReviewImage[],
@@ -824,19 +836,20 @@ export async function geminiVisualReview(
   const models = [...new Set([...PREFERRED_MODELS(), ...(await discoverModels(key))])].slice(0, 2);
   const images = [
     ...referenceImages.slice(0, 2).map((image) => ({ ...image, label: `REFERENCE: ${image.name}` })),
-    ...frames.slice(0, 4).map((image, index) => ({ ...image, label: `SHOT FRAME ${index + 1} at ${Number(image.timestamp || 0).toFixed(2)} seconds` })),
+    ...frames.slice(0, 4).map((image, index) => ({ ...image, label: `SHOT FRAME ${index + 1} at ${Number(image.timestamp || 0).toFixed(2)} seconds (chronological order)` })),
   ];
   const prompt = [
-    'You are a strict visual quality-control reviewer for a photorealistic live-action video shot.',
-    'Compare the reference image(s), when supplied, with every sampled frame. Judge only visible evidence; do not invent defects.',
-    `Intended shot: ${String(sceneDescription || '').slice(0, 1400)}`,
-    'Prioritize the named lead characters and story-critical props. Compare only details that are clearly visible in the sampled frames; do not infer hidden clothing, faces, or objects.',
-    'Check whether the same named lead character keeps the same face, hair, skin tone, build and clearly visible wardrobe; check hands only when large and unobstructed; check story-critical prop shape; check major location geometry, weather and lighting continuity; note obvious ghosting, duplicated limbs or melted objects.',
-    'Background extras are not identity-locked. A changing number or arrangement of distant passengers, pedestrians, crowd members or other background extras is NOT by itself a major defect unless the scene explicitly requires a fixed count or the change visibly breaks the story. Do not count indistinct background people.',
-    'Wardrobe is a major defect only when a clearly visible named lead character changes a distinctive clothing item between comparable frames without an indicated costume change. Do not flag an item merely because it is cropped, occluded, out of frame or hard to distinguish.',
-    'Mark severity major only for a clearly visible, unmistakable lead-character identity swap; a severe and sustained anatomy defect; a story-critical prop visibly changing shape or disappearing/reappearing; or a major scene/location discontinuity. Minor or uncertain issues must not force regeneration.',
-    'Return JSON only with this schema: {"passed":boolean,"severity":"none|minor|major","identityDrift":boolean,"handAnatomyIssue":boolean,"propConsistencyIssue":boolean,"issues":string[],"summary":string}.',
-    'If the frames are too ambiguous to judge, set passed=true, severity="minor", and explain the uncertainty rather than inventing a failure.',
+    'You are the final visual quality-control director for a generated video clip. Be strict about obvious defects and conservative about uncertain evidence.',
+    'Read the exact render prompt first. Compare the chronological shot frames with the requested action, named subjects, location, visual style and camera direction. References are visual anchors, not extra scene content.',
+    `EXACT INTENDED SHOT AND RENDER DIRECTION:\n${String(sceneDescription || '').slice(0, 2600)}`,
+    'Evaluate four separate things: (1) overall visual quality: clarity, coherent composition, plausible lighting, stable geometry and professional-looking imagery; (2) prompt fidelity: whether the requested people, objects, action and setting actually appear; (3) motion coherence: whether the chronological frames show a plausible progression of the described action without freezing, teleporting, morphing or contradictory body positions; (4) continuity and technical artifacts.',
+    'Reject only clear material failures: the requested main action or subject is absent/replaced; a lead actor visibly changes identity; severe sustained anatomy damage or duplicated limbs; a story-critical prop visibly morphs/disappears; a major location jump not requested; obvious persistent ghosting/melting/flicker; unusable crop that hides the main subject/action; or clearly incoherent temporal movement.',
+    'Do not mistake a deliberate static composition, a slow camera move, a motivated cut, natural motion blur, shallow depth of field, intentional darkness, or a brief dramatic pause for a defect.',
+    'Background extras are not identity-locked. A changing number or arrangement of distant pedestrians or crowd members is not a defect unless a fixed count matters to the story.',
+    'Only mark confidence "high" when the sampled frames give clear evidence. Use "medium" or "low" when the sequence cannot be judged reliably. If motion cannot be inferred from the sparse frames, set motionCoherenceScore to null and lower confidence.',
+    'Scores are 0–100: qualityScore is overall visual usability; promptMatchScore is fidelity to the requested scene; motionCoherenceScore is temporal/action coherence (not amount of camera movement). Do not inflate scores. A score below 58 for quality, 45 for prompt match, or 38 for motion coherence is a serious concern only when confidence is high.',
+    'Return JSON only with this exact schema: {"passed":boolean,"severity":"none|minor|major","confidence":"high|medium|low","qualityScore":number|null,"promptMatchScore":number|null,"motionCoherenceScore":number|null,"identityDrift":boolean,"handAnatomyIssue":boolean,"propConsistencyIssue":boolean,"promptMismatch":boolean,"motionCoherenceIssue":boolean,"visualArtifactIssue":boolean,"framingIssue":boolean,"issues":string[],"summary":string}.',
+    'A clear material failure must set passed=false and severity="major". Minor or uncertain issues must not force regeneration. If evidence is too ambiguous, set passed=true, severity="minor", confidence="low" and explain the limitation.',
     'Images are supplied next in the exact order labelled below:',
     ...images.map((image) => image.label),
   ].join('\n');
@@ -846,6 +859,10 @@ export async function geminiVisualReview(
     parts.push({ inlineData: { mimeType: image.mimeType || 'image/jpeg', data: image.bytes.toString('base64') } });
   }
   if (parts.length < 4) return null;
+  const score = (value: unknown): number | null => {
+    const n = Number(value);
+    return value !== null && value !== undefined && Number.isFinite(n) ? Math.max(0, Math.min(100, Math.round(n))) : null;
+  };
   for (const model of models) {
     try {
       const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
@@ -853,7 +870,7 @@ export async function geminiVisualReview(
         headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
         body: JSON.stringify({
           contents: [{ role: 'user', parts }],
-          generationConfig: { responseMimeType: 'application/json', maxOutputTokens: 1200, temperature: 0.1 },
+          generationConfig: { responseMimeType: 'application/json', maxOutputTokens: 1500, temperature: 0.1 },
         }),
         signal: AbortSignal.timeout(12_000),
       });
@@ -867,16 +884,25 @@ export async function geminiVisualReview(
       const raw = (payload?.candidates?.[0]?.content?.parts || []).map((part: any) => part.text || '').join('');
       const parsed = extractJson(raw);
       const severity = ['none', 'minor', 'major'].includes(String(parsed?.severity)) ? parsed.severity : 'minor';
+      const confidence = ['high', 'medium', 'low'].includes(String(parsed?.confidence)) ? parsed.confidence : 'low';
       const identityDrift = parsed?.identityDrift === true;
       const handAnatomyIssue = parsed?.handAnatomyIssue === true;
       const propConsistencyIssue = parsed?.propConsistencyIssue === true;
+      const promptMismatch = parsed?.promptMismatch === true;
+      const motionCoherenceIssue = parsed?.motionCoherenceIssue === true;
+      const visualArtifactIssue = parsed?.visualArtifactIssue === true;
+      const framingIssue = parsed?.framingIssue === true;
+      const qualityScore = score(parsed?.qualityScore);
+      const promptMatchScore = score(parsed?.promptMatchScore);
+      const motionCoherenceScore = score(parsed?.motionCoherenceScore);
       const issues = Array.isArray(parsed?.issues) ? parsed.issues.map((issue: any) => String(issue).slice(0, 220)).slice(0, 8) : [];
       return {
-        passed: parsed?.passed === true && severity !== 'major' && !identityDrift && !handAnatomyIssue && !propConsistencyIssue,
-        severity,
-        identityDrift,
-        handAnatomyIssue,
-        propConsistencyIssue,
+        passed: parsed?.passed === true && severity !== 'major'
+          && !identityDrift && !handAnatomyIssue && !propConsistencyIssue && !promptMismatch
+          && !motionCoherenceIssue && !visualArtifactIssue && !framingIssue,
+        severity, confidence, identityDrift, handAnatomyIssue, propConsistencyIssue,
+        promptMismatch, motionCoherenceIssue, visualArtifactIssue, framingIssue,
+        qualityScore, promptMatchScore, motionCoherenceScore,
         issues,
         summary: String(parsed?.summary || issues[0] || 'Visual review completed.').slice(0, 400),
       };
