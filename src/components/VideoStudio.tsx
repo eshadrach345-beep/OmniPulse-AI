@@ -1167,7 +1167,7 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
                   <option value="balanced">Balanced · H3 Max Turbo (lower cost)</option>
                   <option value="quality">Quality-first · H3 Max (stronger prompt adherence and aesthetics)</option>
                 </select>
-                <p className="text-[10px] text-slate-500">Quality-first has a higher FAL charge per second. Balanced stays selected by default; a workspace FAL model override takes precedence.</p>
+                <p className="text-[10px] text-slate-500">Quality-first has a higher FAL charge per second. Balanced stays selected by default; a custom workspace FAL model override takes precedence.</p>
               </div>
 
               {/* Voice Selection Strip */}
