@@ -23,7 +23,12 @@ export function resolveFalVideoModel(
   configuredModel?: string,
 ): string {
   const configured = String(configuredModel || '').trim();
+  const selectedQuality = quality === 'quality' ? 'quality' : 'balanced';
   if (configured) {
+    // A workspace H3 default is not allowed to silently override the per-production
+    // quality choice. Preserve only genuinely custom workspace model overrides.
+    const configuredH3 = /^minimax\/h3-max(?:-turbo)?\/(?:text-to-video|image-to-video)$/.test(configured);
+    if (configuredH3) return DEFAULT_MODELS[task][selectedQuality];
     if (task === 'image' && configured.endsWith('/text-to-video')) {
       return configured.replace(/\/text-to-video$/, '/image-to-video');
     }
@@ -32,7 +37,7 @@ export function resolveFalVideoModel(
     }
     return configured;
   }
-  return DEFAULT_MODELS[task][quality === 'quality' ? 'quality' : 'balanced'];
+  return DEFAULT_MODELS[task][selectedQuality];
 }
 
 /** Keep an explicit workspace prompt-expansion setting, otherwise match the profile. */
