@@ -1091,7 +1091,13 @@ async function loadDeapiModelCatalogue(): Promise<any[]> {
 }
 
 /** Safe model metadata for the authenticated generator UI. No credentials or internal headers are returned. */
-export async function deapiVideoModels(): Promise<{ slug: string; name: string; description: string; supportsImageToVideo: boolean; supportsLastFrame: boolean; supportsAudioToVideo: boolean }[]> {
+export async function deapiVideoModels(): Promise<{
+  slug: string; name: string; description: string;
+  supportsTextToVideo: boolean; supportsImageToVideo: boolean; supportsLastFrame: boolean;
+  supportsAudioToVideo: boolean; supportsNativeAudio: boolean;
+  minDurationSeconds: number; maxDurationSeconds: number; durationLabel: string;
+  supportsStoryClipDurations: boolean;
+}[]> {
   const list = await loadDeapiModelCatalogue();
   return list.flatMap((item: any) => {
     const slug = String(item?.slug || '').trim();
@@ -1100,20 +1106,35 @@ export async function deapiVideoModels(): Promise<{ slug: string; name: string; 
     const info = item?.info && typeof item.info === 'object' ? item.info : {};
     const evidence = [slug, name, item?.type, item?.category, item?.task, item?.modality,
       JSON.stringify(info)].filter(Boolean).join(' ').toLowerCase();
-    if (!/(video|ltx|seedance|h3|hunyuan|wan|svd|animatediff|kling)/i.test(evidence)) return [];
+    // Veo model slugs do not necessarily contain the word "video".
+    if (!/(video|ltx|seedance|h3|hunyuan|wan|svd|animatediff|kling|veo)/i.test(evidence)) return [];
     const normalizedSlug = slug.toLowerCase().replace(/[^a-z0-9]/g, '');
     const supportsImageToVideo = /(image.?to.?video|image.?video|i2v|first_frame_image|first frame)/i.test(evidence)
-      || /^(ltx25|ltx23|seedance25|minimaxh3)/.test(normalizedSlug);
+      || /^(ltx25|ltx23|seedance25|minimaxh3|kling4)/.test(normalizedSlug);
     const supportsLastFrame = /(last_frame_image|end.?frame|last.?frame)/i.test(evidence)
-      || /^(ltx23|ltx25|minimaxh3)/.test(normalizedSlug);
+      || /^(ltx23|ltx25|minimaxh3|kling4)/.test(normalizedSlug);
     const supportsAudioToVideo = supportsDeapiAudioSyncModel(slug, evidence);
+    const supportsNativeAudio = /(native.?audio|synchronized.?audio|audio.?generation|sound.?generated|video.?and.?audio)/i.test(evidence)
+      || /^(veo31|kling4|seedance25|minimaxh3|ltx25)/.test(normalizedSlug);
+    // Public DeAPI model limits; the account's live catalogue remains authoritative for availability.
+    const duration = normalizedSlug.startsWith('veo31') ? [4, 8]
+      : normalizedSlug.startsWith('kling4') || normalizedSlug.startsWith('seedance25') ? [3, 30]
+      : normalizedSlug.startsWith('minimaxh3') ? [2.3, 10.1]
+      : [2, 10];
+    const [minDurationSeconds, maxDurationSeconds] = duration;
     return [{
-      slug,
-      name,
+      slug, name,
       description: String(item?.description || info?.description || '').slice(0, 260),
+      supportsTextToVideo: true,
       supportsImageToVideo,
       supportsLastFrame,
       supportsAudioToVideo,
+      supportsNativeAudio,
+      minDurationSeconds,
+      maxDurationSeconds,
+      durationLabel: `${minDurationSeconds}–${maxDurationSeconds}s`,
+      // OmniPulse's current story renderer requests 5- or 10-second scene clips.
+      supportsStoryClipDurations: minDurationSeconds <= 5 && maxDurationSeconds >= 10,
     }];
   }).sort((a, b) => a.name.localeCompare(b.name));
 }
