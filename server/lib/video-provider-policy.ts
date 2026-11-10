@@ -9,7 +9,7 @@ export function parseVideoProvider(value: unknown): VideoProvider {
 
 export function isFalCreditExhaustion(error: unknown): boolean {
   const message = String((error as any)?.message || error || '');
-  return /fal(?:\\.ai)?[^\\n]*(?:credit|balance|locked|insufficient)|(?:exhausted|insufficient)[^\\n]*(?:fal(?:\\.ai)?|video credits?|balance)|user is locked/i.test(message);
+  return /fal(?:\.ai)?[^\n]*(?:credit|balance|locked|insufficient)|(?:exhausted|insufficient)[^\n]*(?:fal(?:\.ai)?|video credits?|balance)|user is locked/i.test(message);
 }
 
 export function shouldFallbackToDeapi(provider: VideoProvider, error?: unknown): boolean {
