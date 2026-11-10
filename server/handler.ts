@@ -1589,12 +1589,115 @@ async function startSceneBatch(row: any, user: ReturnType<typeof toUser>, scenes
   return jobs;
 }
 
+interface DirectVideoQualityReview {
+  status: 'pending' | 'passed' | 'warning' | 'rejected' | 'unavailable';
+  severity: string | null;
+  confidence: string | null;
+  qualityScore: number | null;
+  promptMatchScore: number | null;
+  motionCoherenceScore: number | null;
+  issues: string[];
+  summary: string;
+}
+
+/**
+ * Direct video jobs use the same confidence-aware visual gate as episodic scenes.
+ * A DB claim prevents concurrent browser polls from paying for duplicate vision reviews.
+ */
+async function reviewDirectVideoJob(job: any): Promise<DirectVideoQualityReview> {
+  if (job.visual_review && typeof job.visual_review === 'object') return job.visual_review as DirectVideoQualityReview;
+
+  const claimed = await sql()`UPDATE video_jobs
+    SET visual_review_started_at = now()
+    WHERE id = ${job.id} AND user_id = ${job.user_id}
+      AND visual_review IS NULL
+      AND (visual_review_started_at IS NULL OR visual_review_started_at < now() - interval '90 seconds')
+    RETURNING id`;
+  if (!claimed.length) {
+    const rows = (await sql()`SELECT visual_review, visual_review_started_at FROM video_jobs WHERE id = ${job.id} AND user_id = ${job.user_id} LIMIT 1`) as any[];
+    if (rows[0]?.visual_review) return rows[0].visual_review as DirectVideoQualityReview;
+    return {
+      status: 'pending', severity: null, confidence: null,
+      qualityScore: null, promptMatchScore: null, motionCoherenceScore: null,
+      issues: [], summary: 'The automated visual quality review is still running.',
+    };
+  }
+
+  let result: DirectVideoQualityReview;
+  let rejected = false;
+  try {
+    if (!job.video_url || !String(job.render_prompt || '').trim()) {
+      result = {
+        status: 'unavailable', severity: null, confidence: 'low',
+        qualityScore: null, promptMatchScore: null, motionCoherenceScore: null,
+        issues: [], summary: 'This older render has no saved prompt, so it cannot be checked against the intended scene.',
+      };
+    } else {
+      const frames = await sampleVideoFrames(String(job.video_url), 4);
+      const review = await geminiVisualReview(
+        String(job.render_prompt).slice(0, 3200),
+        frames.map((frame, index) => ({ ...frame, name: `Chronological shot frame ${index + 1}` })),
+      );
+      if (!review) {
+        result = {
+          status: 'unavailable', severity: null, confidence: 'low',
+          qualityScore: null, promptMatchScore: null, motionCoherenceScore: null,
+          issues: [], summary: 'The vision reviewer was unavailable. This clip is unverified, not quality-certified.',
+        };
+      } else {
+        const decision = evaluateVisualReview(review);
+        rejected = decision.reject;
+        result = {
+          status: decision.status,
+          severity: review.severity,
+          confidence: review.confidence || 'low',
+          qualityScore: review.qualityScore ?? null,
+          promptMatchScore: review.promptMatchScore ?? null,
+          motionCoherenceScore: review.motionCoherenceScore ?? null,
+          issues: review.issues || [],
+          summary: decision.reject ? decision.reason : review.summary,
+        };
+      }
+    }
+  } catch (error: any) {
+    console.warn('Direct video visual QA unavailable:', { jobId: job.id, message: error?.message || error });
+    result = {
+      status: 'unavailable', severity: null, confidence: 'low',
+      qualityScore: null, promptMatchScore: null, motionCoherenceScore: null,
+      issues: [], summary: 'The visual inspection could not complete. This clip is unverified, not quality-certified.',
+    };
+  }
+
+  const failure = rejected ? `Visual QA rejected this shot: ${result.summary || 'The generated shot did not meet the visual quality threshold.'}`.slice(0, 300) : null;
+  await sql()`UPDATE video_jobs
+    SET visual_review = ${jsonb(result)}::jsonb,
+        status = ${rejected ? 'failed' : 'done'},
+        error = ${failure}
+    WHERE id = ${job.id} AND user_id = ${job.user_id}`;
+  return result;
+}
+
 const videoStatus: Handler = async ({ req, res, query }) => {
   const { row } = await requireAccess(req);
   const rows = (await sql()`SELECT * FROM video_jobs WHERE id=${query.get('id') || ''} AND user_id=${row.id}`) as any[];
   const j = rows[0];
   if (!j) throw new HttpError(404, 'Render job not found.');
-  json(res, 200, await refreshJob(j));
+  const current = await refreshJob(j);
+  if (current.state !== 'done' || !current.videoUrl) {
+    json(res, 200, current);
+    return;
+  }
+  const completed = { ...j, status: 'done', video_url: current.videoUrl };
+  const visualQuality = await reviewDirectVideoJob(completed);
+  if (visualQuality.status === 'pending') {
+    json(res, 200, { state: 'rendering', visualQuality });
+    return;
+  }
+  if (visualQuality.status === 'rejected') {
+    json(res, 200, { state: 'failed', error: `Visual QA rejected this shot: ${visualQuality.summary}`, visualQuality });
+    return;
+  }
+  json(res, 200, { state: 'done', videoUrl: current.videoUrl, visualQuality });
 };
 
 /** Asks the video provider how one render job is doing and saves the answer. Finished jobs are answered from the database. */
