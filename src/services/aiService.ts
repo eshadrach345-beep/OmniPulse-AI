@@ -255,7 +255,7 @@ async function pollRender(jobId: string, onStatus?: (m: string) => void): Promis
  */
 async function pollRenderWithQualityRetries(
   initialJobId: string,
-  options: { prompt: string; seconds: number; aspect: string; videoQuality: 'balanced' | 'quality' },
+  options: { prompt: string; seconds: number; aspect: string; videoQuality: 'balanced' | 'quality'; videoProvider?: 'fal' | 'deapi' | 'auto'; videoModel?: string; firstFrameAssetId?: string },
   onStatus?: (message: string) => void,
 ): Promise<{ url: string; jobId: string }> {
   let jobId = initialJobId;
@@ -267,7 +267,7 @@ async function pollRenderWithQualityRetries(
       if (!message.startsWith('Visual QA rejected this shot:') || attempt === 3) throw error;
       onStatus?.(`Visual QA rejected attempt ${attempt}/3. The rejected attempt was refunded; generating a fresh variation...`);
       await sleep(1200);
-      const next = await api.post<{ jobId: string }>('/video/render', options);
+      const next = await api.post<{ jobId: string }>(options.firstFrameAssetId ? '/video/animate' : '/video/render', options);
       jobId = next.jobId;
     }
   }
@@ -287,8 +287,11 @@ export async function generateAIVideoScript(params: {
   aiDirectorEngine?: AIDirectorEngine;
   grokHookStyle?: GrokHookStyle;
   voiceId?: string;
-  /** Length of the video in seconds: 5 or 10. */
+  /** Length of the rendered clip in seconds. DeAPI models may support up to 30 seconds. */
   seconds?: number;
+  videoProvider?: 'fal' | 'deapi' | 'auto';
+  videoModel?: string;
+  firstFrameAssetId?: string;
   voiceMomentum?: number;
   voiceQuality?: string;
   videoQuality?: 'balanced' | 'quality';
@@ -306,6 +309,9 @@ export async function generateAIVideoScript(params: {
     voiceQuality = 'AI Studio Voice',
     seconds = 5,
     videoQuality = 'balanced',
+    videoProvider = 'fal',
+    videoModel,
+    firstFrameAssetId,
   } = params;
 
   const chosenVoice = StudioAudioService.getVoice(voiceId);
@@ -335,13 +341,18 @@ export async function generateAIVideoScript(params: {
 
   // 2. Real video render through the video engine: submit job, then poll until it completes.
   onStatus?.('Submitting your video to the render engine...');
-  const falPrompt = scriptData?.falPrompt || `${idea}. Dynamic camera motion, cinematic lighting, high detail`;
+  const basePrompt = scriptData?.falPrompt || `${idea}. Dynamic camera motion, cinematic lighting, high detail`;
+  const falPrompt = firstFrameAssetId
+    ? `Begin from the exact uploaded opening-frame image. Preserve the identity, face, wardrobe, composition, objects and lighting in that image while animating the action naturally. Do not replace or reinterpret the opening subject. ${basePrompt}`
+    : basePrompt;
   let jobId: string;
-  try { ({ jobId } = await api.post<{ jobId: string }>('/video/render', { prompt: falPrompt, seconds, videoQuality })); }
+  const renderOptions = { prompt: falPrompt, seconds, aspect: aspectRatio, videoQuality, videoProvider, ...(videoProvider === 'deapi' && videoModel ? { videoModel } : {}), ...(firstFrameAssetId ? { firstFrameAssetId } : {}) };
+  const renderPath = firstFrameAssetId ? '/video/animate' : '/video/render';
+  try { ({ jobId } = await api.post<{ jobId: string }>(renderPath, renderOptions)); }
   catch (e) { throw new Error(`Video render step failed: ${e instanceof Error ? e.message : 'unknown error'}`); }
-  const generatedRender = await pollRenderWithQualityRetries(jobId, { prompt: falPrompt, seconds, aspect: '9:16', videoQuality }, onStatus);
+  const generatedRender = await pollRenderWithQualityRetries(jobId, renderOptions, onStatus);
   const generatedVideoUrl = generatedRender.url;
-  const falEngineName = 'fal-ai/minimax/h3-max-turbo';
+  const falEngineName = videoProvider === 'deapi' ? `DeAPI · ${videoModel || 'selected model'}` : 'fal-ai/minimax/h3-max-turbo';
 
   // If the AI engine generated the script, build the complete video object
   {

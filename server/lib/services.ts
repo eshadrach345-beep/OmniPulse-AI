@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import { HttpError } from './core.js';
 import { buildDeapiVideoFields, resolveDeapiSeed } from './deapi-tuning.js';
+import { deapiFramesForDuration, getDeapiFrameLimits } from './deapi-duration.js';
 import { deapiAudioMime, deapiAudioSyncFrames, supportsDeapiAudioSyncModel } from './deapi-audio-sync.js';
 import { isRecentTrendSource, normalizeTrendPublishedAt, TREND_FRESHNESS_DAYS } from './trend-freshness.js';
 import { buildTrendSearchQueries } from './trend-search-plan.js';
@@ -1025,10 +1026,14 @@ function deapiCanvas(resolution: string, aspect: string): [number, number] {
   return [width, height];
 }
 
-/** The numbers deAPI needs for a clip of `seconds` seconds. 24 frames a second, the last frame included. Nothing here may shorten a clip. */
-function deapiClip(seconds: number, model?: string) {
-  const frames = Math.min(241, Math.max(49, Math.round(seconds * 24) + 1));
-  return { frames, fps: 24, seed: Math.floor(Math.random() * 2_000_000_000), model: model || process.env.DEAPI_VIDEO_MODEL || 'Ltx2_5_22B_Dist_INT8' };
+/** Build exact frames from the selected model's published limits. Never clamp a request into a shorter paid clip. */
+function deapiClip(seconds: number, model: string, modelInfo: any) {
+  try {
+    const frameConfig = deapiFramesForDuration(seconds, model, modelInfo);
+    return { ...frameConfig, seed: Math.floor(Math.random() * 2_000_000_000), model };
+  } catch (error: any) {
+    throw new HttpError(400, String(error?.message || 'The selected DeAPI model does not support this duration.'), 'DEAPI_DURATION');
+  }
 }
 
 async function deapiParse(r: Response): Promise<string> {
@@ -1053,11 +1058,11 @@ async function deapiParse(r: Response): Promise<string> {
 export async function deapiSubmit(prompt: string, resolution: string = '480P', seconds = 5, aspect: string = '9:16', requestedModel?: string, seedOverride?: number) {
   const [width, height] = deapiCanvas(resolution, aspect);
   const selectedModel = await resolveDeapiVideoModel(requestedModel);
-  const c = deapiClip(seconds, selectedModel);
   const [modelInfo, overrides] = await Promise.all([
-    getDeapiVideoModelInfo(c.model),
+    getDeapiVideoModelInfo(selectedModel),
     Promise.resolve(deapiVideoOverrides()),
   ]);
+  const c = deapiClip(seconds, selectedModel, modelInfo);
   // The live model catalogue is authoritative. Never send controls that this model rejects.
   const body: Record<string, unknown> = {
     prompt, width, height, frames: c.frames, fps: c.fps, model: c.model,
@@ -1096,7 +1101,7 @@ export async function deapiVideoModels(): Promise<{
   supportsTextToVideo: boolean; supportsImageToVideo: boolean; supportsLastFrame: boolean;
   supportsAudioToVideo: boolean; supportsNativeAudio: boolean;
   minDurationSeconds: number; maxDurationSeconds: number; durationLabel: string;
-  supportsStoryClipDurations: boolean;
+  supportsStoryClipDurations: boolean; supportsDirectClipDurations: boolean;
 }[]> {
   const list = await loadDeapiModelCatalogue();
   return list.flatMap((item: any) => {
@@ -1116,12 +1121,12 @@ export async function deapiVideoModels(): Promise<{
     const supportsAudioToVideo = supportsDeapiAudioSyncModel(slug, evidence);
     const supportsNativeAudio = /(native.?audio|synchronized.?audio|audio.?generation|sound.?generated|video.?and.?audio)/i.test(evidence)
       || /^(veo31|kling4|seedance25|minimaxh3|ltx25)/.test(normalizedSlug);
-    // Public DeAPI model limits; the account's live catalogue remains authoritative for availability.
-    const duration = normalizedSlug.startsWith('veo31') ? [4, 8]
-      : normalizedSlug.startsWith('kling4') || normalizedSlug.startsWith('seedance25') ? [3, 30]
-      : normalizedSlug.startsWith('minimaxh3') ? [2.3, 10.1]
-      : [2, 10];
-    const [minDurationSeconds, maxDurationSeconds] = duration;
+    // Read the account's actual frame/FPS limits. Small, documented model-specific
+    // fallbacks live in deapi-duration.ts only for published models whose catalogue
+    // entries omit those limits; unknown models are not assigned guessed durations.
+    const durationLimits = getDeapiFrameLimits(slug, info);
+    const minDurationSeconds = durationLimits?.minDurationSeconds ?? 0;
+    const maxDurationSeconds = durationLimits?.maxDurationSeconds ?? 0;
     return [{
       slug, name,
       description: String(item?.description || info?.description || '').slice(0, 260),
@@ -1132,9 +1137,13 @@ export async function deapiVideoModels(): Promise<{
       supportsNativeAudio,
       minDurationSeconds,
       maxDurationSeconds,
-      durationLabel: `${minDurationSeconds}–${maxDurationSeconds}s`,
-      // OmniPulse's current story renderer requests 5- or 10-second scene clips.
-      supportsStoryClipDurations: minDurationSeconds <= 5 && maxDurationSeconds >= 10,
+      durationLabel: durationLimits
+        ? `${Math.ceil(minDurationSeconds * 10) / 10}–${Math.floor(maxDurationSeconds * 10) / 10}s`
+        : 'duration limits unavailable',
+      // OmniPulse's episodic renderer currently requests 5- or 10-second clips.
+      supportsStoryClipDurations: !!durationLimits && minDurationSeconds <= 5 && maxDurationSeconds >= 10,
+      // The direct creator can submit a single 30-second DeAPI clip when the model allows it.
+      supportsDirectClipDurations: !!durationLimits && minDurationSeconds <= 30 && maxDurationSeconds >= 30,
     }];
   }).sort((a, b) => a.name.localeCompare(b.name));
 }
@@ -1184,20 +1193,18 @@ function deapiVideoOverrides(): Record<string, unknown> {
 export async function deapiAnimate(prompt: string, firstFrame: Buffer, resolution: string = '480P', seconds = 10, aspect: string = '9:16', requestedModel?: string, lastFrame?: Buffer, seedOverride?: number) {
   const [width, height] = deapiCanvas(resolution, aspect);
   const selectedModel = await resolveDeapiVideoModel(requestedModel);
-  if (requestedModel) {
-    const selected = (await deapiVideoModels()).find((item) => item.slug === selectedModel);
-    if (selected && !selected.supportsImageToVideo) {
-      throw new HttpError(400, 'The selected deAPI model does not support image-to-video. Choose a model marked “image-to-video” or remove the opening image.', 'DEAPI_MODEL_MODE');
-    }
-    if (lastFrame && selected && !selected.supportsLastFrame) {
-      throw new HttpError(400, 'The selected deAPI model does not support a last-frame reference. Choose a model marked “start/end frame” or remove the ending frame.', 'DEAPI_LAST_FRAME_MODE');
-    }
+  const selected = (await deapiVideoModels()).find((item) => item.slug === selectedModel);
+  if (selected && !selected.supportsImageToVideo) {
+    throw new HttpError(400, 'The selected deAPI model does not support image-to-video. Choose a model marked “image-to-video” or remove the opening image.', 'DEAPI_MODEL_MODE');
   }
-  const c = deapiClip(seconds, selectedModel);
+  if (lastFrame && selected && !selected.supportsLastFrame) {
+    throw new HttpError(400, 'The selected deAPI model does not support a last-frame reference. Choose a model marked “start/end frame” or remove the ending frame.', 'DEAPI_LAST_FRAME_MODE');
+  }
   const [modelInfo, overrides] = await Promise.all([
-    getDeapiVideoModelInfo(c.model),
+    getDeapiVideoModelInfo(selectedModel),
     Promise.resolve(deapiVideoOverrides()),
   ]);
+  const c = deapiClip(seconds, selectedModel, modelInfo);
   const form = new FormData();
   form.set('model', c.model); form.set('prompt', prompt);
   form.set('width', String(width)); form.set('height', String(height));

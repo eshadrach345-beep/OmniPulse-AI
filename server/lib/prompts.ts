@@ -38,7 +38,7 @@ export function scriptPrompt(a: {
   targetPlatforms: string[] | string; directorStyle: string; hookFormula: string; voiceName: string; seconds?: number;
 }): string {
   const { idea, niche, videoType, aspectRatio, targetPlatforms, directorStyle, hookFormula, voiceName } = a;
-  const seconds = a.seconds === 10 ? 10 : 5;
+  const seconds = [5, 10, 30].includes(Number(a.seconds)) ? Number(a.seconds) : 5;
   return `You are an expert short-form video director and scriptwriter.
 Write a complete video script and visual storyboard about the idea below, to be rendered by an AI video generator and narrated by a voice actor.
 
@@ -54,7 +54,11 @@ Voice persona: ${voiceName}
 Rules:
 - Everything must be about the idea above. Do not mention OmniPulse or any product the user did not mention.
 - Do not invent statistics, testimonials or claims. Keep it truthful.
-${seconds <= 5 ? '- The whole video is 5 seconds long: write exactly 2 scenes of about 2 to 3 seconds each. Scene 1 is the hook, scene 2 the payoff. Total narration must be under 12 words.' : '- The whole video is 10 seconds long: write 3 or 4 scenes of about 2 to 4 seconds each, adding up to about 10 seconds, with a strong hook first and a clear call to action last. Total narration must be under 25 words.'}
+${seconds === 5
+    ? '- The whole video is exactly 5 seconds long: write exactly 2 scenes of about 2 to 3 seconds each. Scene 1 is the hook, scene 2 the payoff. Total narration must be under 12 words.'
+    : seconds === 10
+      ? '- The whole video is exactly 10 seconds long: write 3 or 4 scenes of about 2 to 4 seconds each, adding up to about 10 seconds, with a strong hook first and a clear payoff last. Total narration must be under 25 words.'
+      : '- The whole video is exactly 30 seconds long and is intended for one continuous native 30-second text-to-video generation. Write exactly 6 chronological scenes of about 5 seconds each (30 seconds total). Give the generator one coherent visual progression, consistent characters and wardrobe, motivated camera changes, clear scene-to-scene transitions, and a beginning, escalation, reveal and ending. Write natural spoken dialogue that fits the action and include the exact spoken words in the cinematic falPrompt. Keep total dialogue and narration around 45 to 60 words so it can be spoken clearly without rushing. Include synchronized dialogue, realistic ambience and relevant sound effects in the prompt; do not require generated subtitles or tiny readable text.'}
 - Narration and dialogue must sound like a real person with a reason to speak, not a polished template or a corporate training simulation. Use contractions, specific details and a natural mix of sentence lengths.
 - Unless the user explicitly asks for an office, interview, workplace or corporate story, do not invent meeting rooms, conference tables, coffee cups, job-interview questions or generic business small talk.
 - Never use stock exchanges such as “What's a typical work day like?”, “How's your day?”, “Let's tackle the challenges”, “grab a cup of coffee”, “let's get started”, or “tell me about your role” unless those exact ideas are essential to the brief.
@@ -65,7 +69,7 @@ Return ONLY strict valid JSON (no markdown, no code fences) in this shape:
 {
   "title": "<short punchy title for this video>",
   "conceptSummary": "<two sentence summary>",
-  "falPrompt": "<one cinematic prompt describing motion, camera, lighting and subject for the AI video generator, derived from the idea>",
+  "falPrompt": "<one cinematic prompt describing motion, camera, lighting, consistent subjects, shot progression, dialogue and sound for the AI video generator, derived from the idea>",
   "scenes": [
     {
       "sceneNumber": 1,
