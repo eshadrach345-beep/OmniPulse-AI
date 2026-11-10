@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { upload } from '@vercel/blob/client';
 import { SeriesStudio } from './SeriesStudio';
 import { AdMakerStudio } from './AdMakerStudio';
 import { StoryPlayer } from './StoryPlayer';
@@ -20,7 +21,7 @@ import {
   StudioAudioService,
 } from '../services/aiService';
 import { STUDIO_VOICES, StudioVoice } from '../data/voicesData';
-import { api } from '../services/api';
+import { ApiError, api } from '../services/api';
 import { CAMERA_OPTIONS, GENRE_OPTIONS, MOOD_OPTIONS, PRESENTATION_OPTIONS, formatSeconds } from '../data/storyOptions';
 import { 
   Play, 
@@ -59,6 +60,8 @@ import {
   Lock,
   X
 } from 'lucide-react';
+
+type VideoOpeningFrameAsset = { id: string; name: string; contentType: string; size: number };
 
 interface DeapiVideoModelOption {
   slug: string;
@@ -160,6 +163,10 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
   const [deapiModels, setDeapiModels] = useState<DeapiVideoModelOption[]>([]);
   const [selectedDeapiModel, setSelectedDeapiModel] = useState('seedance-2.5');
   const [deapiModelsLoading, setDeapiModelsLoading] = useState(true);
+  const [videoOpeningFrame, setVideoOpeningFrame] = useState<VideoOpeningFrameAsset | null>(null);
+  const [videoFrameBusy, setVideoFrameBusy] = useState(false);
+  const [videoFrameError, setVideoFrameError] = useState('');
+  const videoFrameInputRef = useRef<HTMLInputElement | null>(null);
   const [voiceGenderFilter, setVoiceGenderFilter] = useState<'all' | 'male' | 'female'>('all');
   const [voiceTypeFilter, setVoiceTypeFilter] = useState<'all' | 'commercial_ad' | 'viral_short' | 'storyteller' | 'explainer_tech' | 'conversational'>('all');
   const [voiceMomentum, setVoiceMomentum] = useState<number>(1.10); // 0.75x to 1.40x
@@ -207,6 +214,35 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
       .finally(() => { if (active) setDeapiModelsLoading(false); });
     return () => { active = false; };
   }, []);
+
+  const uploadVideoOpeningFrame = async (selection: FileList | null) => {
+    const file = selection?.[0];
+    if (!file) return;
+    const mime = file.type || (/\\.png$/i.test(file.name) ? 'image/png' : /\\.webp$/i.test(file.name) ? 'image/webp' : 'image/jpeg');
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(mime)) { setVideoFrameError('Choose a JPG, PNG or WebP image.'); return; }
+    if (file.size <= 0 || file.size > 15 * 1024 * 1024) { setVideoFrameError('The opening image must be 15 MB or smaller.'); return; }
+    const selectedModel = deapiModels.find((model) => model.slug === selectedDeapiModel);
+    if (!selectedModel?.supportsImageToVideo) { setVideoFrameError('The selected DeAPI model does not support image-to-video. Choose a model with image-to-video support.'); return; }
+
+    setVideoFrameBusy(true); setVideoFrameError('');
+    try {
+      const before = await api.get<{ assets: VideoOpeningFrameAsset[] }>('/media/list');
+      await upload('video-opening-frames/' + Date.now() + '-' + file.name.replace(/[^a-zA-Z0-9._-]/g, '_'), file, {
+        access: 'private',
+        handleUploadUrl: '/api/media/upload',
+        clientPayload: JSON.stringify({ name: file.name, type: mime, size: file.size }),
+      });
+      const after = await api.get<{ assets: VideoOpeningFrameAsset[] }>('/media/list');
+      const existing = new Set(before.assets.map((asset) => asset.id));
+      const saved = after.assets.find((asset) => !existing.has(asset.id) && asset.contentType.startsWith('image/'));
+      if (!saved) throw new Error('The upload completed, but the saved image was not found. Refresh the Media Library and try again.');
+      setVideoOpeningFrame(saved);
+    } catch (error) {
+      setVideoFrameError(error instanceof ApiError ? error.message : error instanceof Error ? error.message : 'The opening image could not be uploaded.');
+    } finally {
+      setVideoFrameBusy(false);
+    }
+  };
 
   // Ensure active video has valid videoUrl
   const currentVideoSrc = activeVideo.videoUrl || '';
@@ -472,6 +508,8 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
     e.preventDefault();
     if (!ideaPrompt.trim()) return;
     if (!selectedVoiceId) { setGenError('Please choose a voice, or tap No voice-over, before rendering.'); return; }
+    if (videoOpeningFrame && videoProvider !== 'deapi') { setGenError('Opening-frame image-to-video requires direct DeAPI selection.'); return; }
+    if (videoOpeningFrame && !deapiModels.find((model) => model.slug === selectedDeapiModel)?.supportsImageToVideo) { setGenError('The selected DeAPI model does not support image-to-video. Choose another model or remove the opening image.'); return; }
 
     setIsGenerating(true);
     setGenError(null);
@@ -490,6 +528,7 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
         seconds: selectedSeconds,
         videoProvider,
         videoModel: videoProvider === 'deapi' ? selectedDeapiModel : undefined,
+        firstFrameAssetId: videoOpeningFrame?.id,
         voiceMomentum,
         voiceQuality,
         videoQuality,
@@ -1192,6 +1231,7 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
                     const next = event.target.value as 'fal' | 'deapi' | 'auto';
                     setVideoProvider(next);
                     if (next !== 'deapi' && selectedSeconds > 10) setSelectedSeconds(10);
+                    if (next !== 'deapi') setVideoOpeningFrame(null);
                   }}
                   className="w-full rounded-lg bg-slate-950 border border-slate-800 p-2.5 text-xs text-white"
                 >
@@ -1210,6 +1250,7 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
                         const nextSlug = event.target.value;
                         setSelectedDeapiModel(nextSlug);
                         const model = deapiModels.find((item) => item.slug === nextSlug);
+                        if (videoOpeningFrame && !model?.supportsImageToVideo) setVideoOpeningFrame(null);
                         const supported = [5, 10, 15, 20, 25, 30].filter((value) => model && value >= model.minDurationSeconds && value <= model.maxDurationSeconds);
                         if (!supported.includes(selectedSeconds)) setSelectedSeconds(supported[0] || 5);
                       }}
@@ -1230,6 +1271,32 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
                   </div>
                 )}
               </div>
+
+              {videoProvider === 'deapi' && (
+                <div className="space-y-2 rounded-lg border border-slate-800 bg-slate-950/70 p-3">
+                  <div>
+                    <p className="text-xs font-semibold text-slate-200">Optional image-to-video opening frame</p>
+                    <p className="text-[10px] text-slate-500">Animate a saved JPG, PNG or WebP as the first frame of the same 30-second clip. The image is stored in your private Media Library.</p>
+                    {videoOpeningFrame && <p className="mt-1 truncate text-[10px] text-emerald-300">Selected: {videoOpeningFrame.name}</p>}
+                  </div>
+                  <input
+                    ref={videoFrameInputRef}
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    disabled={videoFrameBusy}
+                    onChange={(event) => { void uploadVideoOpeningFrame(event.target.files); event.currentTarget.value = ''; }}
+                    className="hidden"
+                  />
+                  <div className="flex flex-wrap gap-2">
+                    <button type="button" disabled={videoFrameBusy || !deapiModels.find((model) => model.slug === selectedDeapiModel)?.supportsImageToVideo} onClick={() => videoFrameInputRef.current?.click()} className="rounded-lg border border-indigo-500/40 bg-indigo-500/10 px-3 py-2 text-[11px] font-semibold text-indigo-200 disabled:opacity-40">
+                      {videoFrameBusy ? 'Uploading opening image…' : videoOpeningFrame ? 'Replace opening image' : 'Upload opening image'}
+                    </button>
+                    {videoOpeningFrame && <button type="button" onClick={() => setVideoOpeningFrame(null)} className="rounded-lg border border-slate-700 px-3 py-2 text-[11px] text-slate-300">Remove</button>}
+                  </div>
+                  {!deapiModels.find((model) => model.slug === selectedDeapiModel)?.supportsImageToVideo && <p className="text-[10px] text-amber-300">This model does not advertise image-to-video support.</p>}
+                  {videoFrameError && <p role="alert" className="text-[10px] text-rose-300">{videoFrameError}</p>}
+                </div>
+              )}
 
               {/* Video length */}
               <div className="space-y-2">
