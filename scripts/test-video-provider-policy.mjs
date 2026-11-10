@@ -12,9 +12,14 @@ assert.equal(policy.parseVideoProvider(' DEAPI '), 'deapi');
 assert.equal(policy.parseVideoProvider('auto'), 'auto');
 assert.throws(() => policy.parseVideoProvider('unknown'), /VIDEO_PROVIDER must be fal, deapi, or auto/);
 
-assert.equal(policy.shouldFallbackToDeapi('fal'), false, 'fal must never silently fall back');
+assert.equal(policy.shouldFallbackToDeapi('fal'), false, 'ordinary fal errors must not silently fall back');
 assert.equal(policy.shouldFallbackToDeapi('deapi'), false, 'deapi is already the selected provider');
-assert.equal(policy.shouldFallbackToDeapi('auto'), true, 'fallback requires explicit auto selection');
+assert.equal(policy.shouldFallbackToDeapi('auto'), true, 'auto keeps its existing fallback behaviour');
+const exhaustedBalance = new Error('fal.ai does not have enough credit for Kling 4.0.');
+assert.equal(policy.isFalCreditExhaustion(exhaustedBalance), true);
+assert.equal(policy.shouldFallbackToDeapi('fal', exhaustedBalance), true, 'fal credit exhaustion activates DeAPI even when fal was selected');
+assert.equal(policy.shouldFallbackToDeapi('deapi', exhaustedBalance), true, 'a fal credit lock can be recovered by DeAPI regardless of selected provider');
+assert.equal(policy.shouldFallbackToDeapi('fal', new Error('fal.ai rejected the API key. Check FAL_KEY.')), false, 'credential errors must not trigger a misleading credit fallback');
 
 assert.equal(policy.shouldAttemptKlingMultiShot('fal', true, 2), true);
 assert.equal(policy.shouldAttemptKlingMultiShot('auto', true, 2), true);
