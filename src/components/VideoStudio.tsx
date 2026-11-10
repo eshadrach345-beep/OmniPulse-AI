@@ -154,7 +154,7 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
   const [selectedVoiceId, setSelectedVoiceId] = useState<string>(''); // no voice is chosen for the user
   const [selectedSeconds, setSelectedSeconds] = useState<number>(5);
   const [videoQuality, setVideoQuality] = useState<'balanced' | 'quality'>('balanced');
-  const [videoProvider, setVideoProvider] = useState<'fal' | 'deapi'>('fal');
+  const [videoProvider, setVideoProvider] = useState<'fal' | 'deapi' | 'auto'>('fal');
   const [falEnabled, setFalEnabled] = useState(false);
   const [deapiEnabled, setDeapiEnabled] = useState(false);
   const [deapiModels, setDeapiModels] = useState<DeapiVideoModelOption[]>([]);
@@ -195,6 +195,7 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
         setDeapiEnabled(!!result.deapiEnabled);
         const models = Array.isArray(result.models) ? result.models : [];
         setDeapiModels(models);
+        setVideoProvider(result.provider);
         const preferred = models.find((model) => model.slug === 'seedance-2.5' && model.supportsDirectClipDurations)
           || models.find((model) => model.supportsDirectClipDurations)
           || models[0];
@@ -1188,14 +1189,15 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
                 <select
                   value={videoProvider}
                   onChange={(event) => {
-                    const next = event.target.value as 'fal' | 'deapi';
+                    const next = event.target.value as 'fal' | 'deapi' | 'auto';
                     setVideoProvider(next);
-                    if (next === 'fal' && selectedSeconds > 10) setSelectedSeconds(10);
+                    if (next !== 'deapi' && selectedSeconds > 10) setSelectedSeconds(10);
                   }}
                   className="w-full rounded-lg bg-slate-950 border border-slate-800 p-2.5 text-xs text-white"
                 >
                   {falEnabled && <option value="fal">FAL · current short-clip engine (5–10 seconds)</option>}
                   {deapiEnabled && <option value="deapi">DeAPI · direct model generation (up to 30 seconds where supported)</option>}
+                  {falEnabled && deapiEnabled && <option value="auto">Automatic · FAL first, DeAPI backup (5–10 seconds)</option>}
                   {!falEnabled && !deapiEnabled && <option value="fal">No video engine is currently connected</option>}
                 </select>
                 {videoProvider === 'deapi' && (
@@ -1259,7 +1261,7 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
                 {secondsLeft != null && <p className="text-[11px] text-slate-400">{secondsLeft} seconds of video left this month.</p>}
               </div>
 
-              {videoProvider === 'fal' && (
+              {(videoProvider === 'fal' || videoProvider === 'auto') && (
                 <div className="space-y-1.5">
                   <label className="block text-xs font-semibold text-slate-300">Video rendering quality</label>
                   <select value={videoQuality} onChange={(event) => setVideoQuality(event.target.value as 'balanced' | 'quality')} className="w-full rounded-lg bg-slate-950 border border-slate-800 p-2.5 text-xs text-white">
