@@ -16,6 +16,7 @@ import { renderComposition } from './lib/compositor.js';
 import { buildSceneKeyframePrompt, chooseSceneKeyframeReference, resolveSceneOpeningFrameUrl } from './lib/scene-keyframe.js';
 import { mergeClips, lastFrameJpeg, sampleVideoFrames } from './lib/merge.js';
 import { parseVideoProvider, shouldAttemptKlingMultiShot, shouldFallbackToDeapi, requiresKlingMultiShot } from './lib/video-provider-policy.js';
+import { evaluateVisualReview } from './lib/video-quality-gate.js';
 import { PROVIDERS, PLATFORM_IDS, Platform, isPlatform, isConfigured, redirectUri, socialPkce, socialAuthorizeUrl, exchangeSocialCode, saveSocialConnection, listSocialAccounts, removeSocialConnection, publishToPlatform, socialMetrics } from './lib/social.js';
 import { zernioConfigured, zernioConnectUrl, zernioSyncAccounts, zernioListAccounts, zernioDisconnect, zernioPublish, zernioHealth, zernioDeleteCustomer } from './lib/zernio.js';
 
@@ -2029,7 +2030,7 @@ const CHECK_EVERY_MS = 20_000;
 const MAX_STARTS_PER_STEP = 4;
 
 /** One 10 second clip of a scene, as saved in episodes.render_jobs. */
-interface PartEntry { tries: number; jobId?: string; url?: string; error?: string; checkAt?: number; retryAt?: number; keyframeUrl?: string; keyframePathname?: string; keyframeGeneratedAt?: string; keyframeReference?: string; continuityWarning?: string; visualReviewedJobId?: string; visualReviewStatus?: 'passed' | 'warning' | 'rejected' | 'unavailable'; visualReview?: { passed: boolean; severity: string; issues: string[]; summary: string } }
+interface PartEntry { tries: number; jobId?: string; url?: string; error?: string; checkAt?: number; retryAt?: number; keyframeUrl?: string; keyframePathname?: string; keyframeGeneratedAt?: string; keyframeReference?: string; continuityWarning?: string; visualReviewedJobId?: string; visualReviewStatus?: 'passed' | 'warning' | 'rejected' | 'unavailable'; visualReview?: { passed: boolean; severity: string; confidence?: string; qualityScore?: number | null; promptMatchScore?: number | null; motionCoherenceScore?: number | null; issues: string[]; summary: string } }
 /** One scene: a 10 second scene has one clip, a 20 second scene has two that follow each other. */
 interface RenderEntry { index: number; parts: PartEntry[] }
 
@@ -2074,6 +2075,10 @@ function episodeView(e: any) {
       scene: entry.index + 1, part: index + 1,
       status: part.visualReviewStatus || 'pending',
       severity: part.visualReview?.severity || null,
+      confidence: part.visualReview?.confidence || null,
+      qualityScore: part.visualReview?.qualityScore ?? null,
+      promptMatchScore: part.visualReview?.promptMatchScore ?? null,
+      motionCoherenceScore: part.visualReview?.motionCoherenceScore ?? null,
       issues: part.visualReview?.issues || [],
       summary: part.visualReview?.summary || part.continuityWarning || '',
     }))),
@@ -2445,11 +2450,11 @@ async function stageRender(row: any, user: ReturnType<typeof toUser>, ep: any): 
     try {
       const st = await refreshJob(j);
       if (st.state === 'done' && st.videoUrl) {
-        // Review three sampled frames before accepting a generated shot. A clear identity,
-        // hand-anatomy or prop-continuity defect gets a bounded new-seed retry.
+        // Review four chronological frames against the exact render prompt and any
+        // continuity anchor before this paid clip can enter the final edit.
         if (p.visualReviewedJobId !== p.jobId) {
           try {
-            const sampled = await sampleVideoFrames(st.videoUrl, 3);
+            const sampled = await sampleVideoFrames(st.videoUrl, 4);
             const reviewReferences: { name: string; bytes: Buffer; mimeType: string }[] = [];
             let referenceUrl = /^https:\/\//i.test(String(p.keyframeUrl || '')) ? String(p.keyframeUrl) : '';
             if (!referenceUrl && p.keyframePathname && process.env.BLOB_READ_WRITE_TOKEN) {
@@ -2461,51 +2466,88 @@ async function stageRender(row: any, user: ReturnType<typeof toUser>, ep: any): 
               const referenceResponse = await fetch(referenceUrl, { signal: AbortSignal.timeout(8_000) });
               if (referenceResponse.ok) {
                 const referenceBytes = Buffer.from(await referenceResponse.arrayBuffer());
-                if (referenceBytes.length > 0 && referenceBytes.length <= 6 * 1024 * 1024) reviewReferences.push({ name: 'Saved scene opening keyframe', bytes: referenceBytes, mimeType: 'image/jpeg' });
+                if (referenceBytes.length > 0 && referenceBytes.length <= 6 * 1024 * 1024) {
+                  reviewReferences.push({ name: 'Saved scene opening keyframe', bytes: referenceBytes, mimeType: 'image/jpeg' });
+                }
               }
             }
+
             const scene = scenes[en.index] || {};
+            const partIndex = en.parts.indexOf(p);
+            const previousClipUrl = partIndex > 0
+              ? en.parts[partIndex - 1]?.url
+              : (scene.continuesPrevious === true || scene.referencePrevious === true)
+                ? entries[en.index - 1]?.parts.slice(-1)[0]?.url
+                : undefined;
+            if (previousClipUrl && reviewReferences.length < 2) {
+              try {
+                const previousFrame = await lastFrameJpeg(previousClipUrl);
+                if (previousFrame.length > 0 && previousFrame.length <= 6 * 1024 * 1024) {
+                  reviewReferences.push({ name: 'Previous scene final frame for continuity comparison', bytes: previousFrame, mimeType: 'image/jpeg' });
+                }
+              } catch (continuityError: any) {
+                console.warn('Previous-scene continuity reference could not be sampled:', continuityError?.message || continuityError);
+              }
+            }
+
             const cast = Array.isArray(ep.storyboard_json?.characters) ? ep.storyboard_json.characters : [];
+            const exactPartPrompt = scene.parts?.[partIndex]?.prompt || '';
             const sceneDescription = [
-              scene.visualPrompt || '',
-              scene.location ? `Location: ${scene.location}` : '',
-              (scene.lines || []).map((line: any) => `Character ${line.speaker}: ${line.text}`).join('; '),
+              'EXACT RENDER PROMPT: ' + exactPartPrompt,
+              'STORYBOARD VISUAL INTENT: ' + (scene.visualPrompt || ''),
+              scene.secondHalfAction ? 'NEXT PHYSICAL ACTION: ' + scene.secondHalfAction : '',
+              scene.location ? `LOCATION: ${scene.location}` : '',
+              (scene.lines || []).map((line: any) => `CHARACTER ${line.speaker}: ${line.text}`).join('; '),
               cast.map((character: any) => `${character.name}: ${character.description || ''}`).join('; '),
-            ].filter(Boolean).join('\n').slice(0, 2200);
-            const reviewFrames = sampled.map((frame, index) => ({ ...frame, name: `Shot frame ${index + 1}` }));
+            ].filter(Boolean).join('\n').slice(0, 3200);
+            const reviewFrames = sampled.map((frame, index) => ({ ...frame, name: `Chronological shot frame ${index + 1}` }));
             const review = await geminiVisualReview(sceneDescription, reviewFrames, reviewReferences);
             p.visualReviewedJobId = String(p.jobId || '');
             if (review) {
-              p.visualReviewStatus = review.passed ? 'passed' : review.severity === 'major' ? 'rejected' : 'warning';
-              p.visualReview = { passed: review.passed, severity: review.severity, issues: review.issues, summary: review.summary };
-              if (!review.passed && review.severity === 'major') {
-                const reason = review.summary || review.issues[0] || 'Major visual continuity defect detected.';
-                if (p.tries < 2) {
-                  // Allow one targeted regeneration for an unmistakable major defect.
-                  // A second rejection becomes a visible warning rather than an endless QA loop.
-                  await sql()`UPDATE video_jobs SET status = 'failed', error = ${('Visual QA rejected this shot: ' + reason).slice(0, 300)}
-                    WHERE id = ${p.jobId} AND user_id = ${row.id}`;
-                  delete p.jobId;
-                  delete p.url;
-                  p.error = `Visual QA rejected this shot: ${reason}`.slice(0, 300);
+              const decision = evaluateVisualReview(review);
+              p.visualReviewStatus = decision.status;
+              p.visualReview = {
+                passed: review.passed,
+                severity: review.severity,
+                confidence: review.confidence,
+                qualityScore: review.qualityScore,
+                promptMatchScore: review.promptMatchScore,
+                motionCoherenceScore: review.motionCoherenceScore,
+                issues: review.issues,
+                summary: decision.reject ? decision.reason : review.summary,
+              };
+              if (decision.reject) {
+                const reason = decision.reason || 'Visual quality did not meet the minimum standard.';
+                // A rejected output is not accepted as a finished clip. Mark its provider
+                // job failed first so the usage calculation refunds the rejected attempt.
+                await sql()`UPDATE video_jobs SET status = 'failed', error = ${('Visual QA rejected this shot: ' + reason).slice(0, 300)}
+                  WHERE id = ${p.jobId} AND user_id = ${row.id}`;
+                const rejectedJobId = p.jobId;
+                delete p.jobId;
+                delete p.url;
+                delete p.checkAt;
+                p.error = `Visual QA rejected this shot: ${reason}`.slice(0, 300);
+                if (p.tries < MAX_PART_TRIES) {
                   p.retryAt = Date.now() + 10_000;
-                  console.warn('Visual QA rejected generated scene; retrying once with a new seed:', { episodeId: ep.id, scene: en.index + 1, part: en.parts.indexOf(p) + 1, attempt: p.tries, reason });
-                  await save();
-                  continue;
+                  console.warn('Visual QA rejected generated scene; retrying with a new seed:', { episodeId: ep.id, scene: en.index + 1, part: partIndex + 1, attempt: p.tries, rejectedJobId, reason });
+                } else {
+                  delete p.retryAt;
+                  console.error('Visual QA rejected every generated attempt; scene will stop instead of delivering a known-bad clip:', { episodeId: ep.id, scene: en.index + 1, part: partIndex + 1, attempts: p.tries, rejectedJobId, reason });
                 }
-                p.visualReviewStatus = 'warning';
-                p.visualReview = { ...p.visualReview, passed: false, severity: 'major', summary: `Accepted after one visual retry. Review warning: ${reason}` };
-                console.warn('Visual QA still found issues after one retry; keeping the playable shot and showing a warning:', { episodeId: ep.id, scene: en.index + 1, part: en.parts.indexOf(p) + 1, reason });
+                await save();
+                continue;
               }
             } else {
-              p.visualReviewStatus = 'unavailable';
-              p.visualReview = { passed: true, severity: 'minor', issues: [], summary: 'Vision review unavailable; shot was not blocked.' };
+              const unavailable = evaluateVisualReview(null);
+              p.visualReviewStatus = unavailable.status;
+              p.visualReview = { passed: false, severity: 'minor', confidence: 'low', qualityScore: null, promptMatchScore: null, motionCoherenceScore: null, issues: [], summary: unavailable.reason };
             }
           } catch (error: any) {
             p.visualReviewedJobId = String(p.jobId || '');
-            p.visualReviewStatus = 'unavailable';
-            p.visualReview = { passed: true, severity: 'minor', issues: [], summary: 'Visual inspection could not run; shot was not blocked.' };
-            console.warn('Visual QA unavailable for generated scene:', error?.message || error);
+            const unavailable = evaluateVisualReview(null);
+            p.visualReviewStatus = unavailable.status;
+            p.visualReview = { passed: false, severity: 'minor', confidence: 'low', qualityScore: null, promptMatchScore: null, motionCoherenceScore: null, issues: [], summary: unavailable.reason };
+            console.warn('Visual QA unavailable for generated scene; clip is not quality-certified:', error?.message || error);
           }
         }
         p.url = st.videoUrl;
