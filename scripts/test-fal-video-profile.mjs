@@ -34,4 +34,9 @@ assert.equal(profile.resolveFalPromptExpansionMode('quality', 'disabled'), 'disa
 assert.equal(profile.resolveFalPromptExpansionMode('balanced', 'quality'), 'quality');
 assert.equal(profile.resolveFalPromptExpansionMode('quality', 'unknown-value'), 'quality');
 
+assert.equal(profile.resolveFalKlingResolution(), '720p');
+assert.equal(profile.resolveFalKlingResolution('balanced'), '720p');
+assert.equal(profile.resolveFalKlingResolution('quality'), '1080p');
+
+
 console.log('FAL video profile tests passed (balanced Turbo defaults, quality-first H3 Max, custom model precedence and prompt expansion).');

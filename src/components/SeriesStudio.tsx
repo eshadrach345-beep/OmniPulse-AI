@@ -695,6 +695,46 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
         })()}
         {episode && episode.notes.length > 0 && <div className="space-y-1">{episode.notes.map((n) => <p key={n} className="text-[11px] text-amber-300">{n}</p>)}</div>}
 
+        {episode && episode.visualQuality.length > 0 && (() => {
+          const reports = episode.visualQuality;
+          const count = (status: string) => reports.filter((report) => report.status === status).length;
+          const attention = reports.filter((report) => ['warning', 'unavailable', 'rejected'].includes(report.status));
+          return (
+            <section aria-label="Clip quality review" className="rounded-xl border border-slate-800 bg-slate-950/70 p-3 space-y-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-xs font-semibold text-slate-200">Automated clip quality review</p>
+                <p className="text-[10px] text-slate-400">{count('passed')} passed · {count('warning')} warnings · {count('unavailable')} not certified · {count('pending')} pending</p>
+              </div>
+              {attention.length > 0 ? (
+                <div className="space-y-2">
+                  {attention.map((report) => (
+                    <div key={`${report.scene}-${report.part}`} className="rounded-lg border border-slate-800 bg-slate-900/70 p-2">
+                      <div className="flex items-center gap-2 text-[10px] font-semibold text-slate-200">
+                        {report.status === 'warning' || report.status === 'rejected'
+                          ? <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-300" />
+                          : <Clock className="h-3.5 w-3.5 shrink-0 text-slate-400" />}
+                        Scene {report.scene}, clip {report.part} · {report.status === 'unavailable' ? 'Not certified' : report.status === 'rejected' ? 'Rejected' : 'Needs attention'}
+                      </div>
+                      {report.summary && <p className="mt-1 text-[10px] leading-relaxed text-slate-400">{report.summary}</p>}
+                      {(report.qualityScore !== null || report.promptMatchScore !== null || report.motionCoherenceScore !== null) && (
+                        <p className="mt-1 text-[9px] text-slate-500">
+                          {report.qualityScore !== null ? `Visual ${report.qualityScore}/100` : ''}
+                          {report.promptMatchScore !== null ? ` · Prompt ${report.promptMatchScore}/100` : ''}
+                          {report.motionCoherenceScore !== null ? ` · Motion ${report.motionCoherenceScore}/100` : ''}
+                        </p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ) : count('pending') > 0 ? (
+                <p className="text-[10px] text-slate-500">Visual checks are still running. Clips marked “not certified” are unverified, not quality-approved.</p>
+              ) : (
+                <p className="text-[10px] text-slate-500">All finished clips passed the available automated visual checks. This is an automated review, not a guarantee of cinematic quality.</p>
+              )}
+            </section>
+          );
+        })()}
+
         {episode && episode.scenes.length > 0 && (
           <ol className="space-y-2">
             {episode.scenes.map((s, i) => {
@@ -1014,10 +1054,10 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
             <label className="block space-y-1 border-t border-slate-800 pt-3">
               <span className="text-[11px] font-medium text-slate-300">FAL rendering quality</span>
               <select value={videoQuality} onChange={(event) => setVideoQuality(event.target.value as 'balanced' | 'quality')} className={selectCls}>
-                <option value="balanced">Balanced · H3 Max Turbo (lower cost)</option>
-                <option value="quality">Quality-first · H3 Max (stronger prompt adherence and aesthetics)</option>
+                <option value="balanced">Balanced · Kling 720p / H3 Max Turbo</option>
+                <option value="quality">Quality-first · Kling 1080p / H3 Max</option>
               </select>
-              <p className="text-[10px] text-slate-500">Quality-first uses a higher FAL charge per second. The Balanced option remains the default. A custom workspace FAL model override takes precedence.</p>
+              <p className="text-[10px] text-slate-500">Quality-first uses more FAL credits: Kling multi-shot requests 1080p, H3 text/image video uses H3 Max, and H3 reference shots use quality-mode prompt expansion. Balanced stays lower-cost. Custom workspace model overrides can still change H3 text/image requests.</p>
               {videoProvider === 'auto' && <p className="text-[10px] text-amber-300/80">This profile applies when Automatic uses FAL. It does not change the selected DeAPI backup model.</p>}
             </label>
           )}
@@ -1080,10 +1120,10 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
               <label className="block space-y-1 border-t border-slate-800 pt-3">
                 <span className="text-[11px] font-medium text-slate-300">FAL rendering quality</span>
                 <select value={videoQuality} onChange={(event) => setVideoQuality(event.target.value as 'balanced' | 'quality')} className={selectCls}>
-                  <option value="balanced">Balanced · H3 Max Turbo (lower cost)</option>
-                  <option value="quality">Quality-first · H3 Max (stronger prompt adherence and aesthetics)</option>
+                  <option value="balanced">Balanced · Kling 720p / H3 Max Turbo</option>
+                <option value="quality">Quality-first · Kling 1080p / H3 Max</option>
                 </select>
-                <p className="text-[10px] text-slate-500">Quality-first uses a higher FAL charge per second. Balanced remains the default. Custom workspace FAL model overrides take precedence.</p>
+                <p className="text-[10px] text-slate-500">Quality-first uses more FAL credits: Kling multi-shot requests 1080p, H3 text/image video uses H3 Max, and H3 reference shots use quality-mode prompt expansion. Balanced stays lower-cost. Custom workspace model overrides can still change H3 text/image requests.</p>
                 {videoProvider === 'auto' && <p className="text-[10px] text-amber-300/80">This applies to FAL only; the DeAPI backup uses its selected model.</p>}
               </label>
             )}

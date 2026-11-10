@@ -1513,7 +1513,7 @@ export async function falGenerateCharacterReference(name: string, role: string, 
 }
 
 /** H3 Max reference-to-video. Reference images preserve cast identity; image_url optionally fixes the first frame. */
-export async function falReferenceVideoSubmit(prompt: string, referenceImageUrls: string[], resolution: '480P' | '768P' | '1080P' = '480P', seconds = 10, aspect = '9:16', imageUrl?: string) {
+export async function falReferenceVideoSubmit(prompt: string, referenceImageUrls: string[], resolution: '480P' | '768P' | '1080P' = '480P', seconds = 10, aspect = '9:16', imageUrl?: string, quality: FalVideoQuality = 'balanced') {
   const refs = referenceImageUrls.filter((u) => /^https:\/\//i.test(String(u))).slice(0, 4);
   if (!refs.length) throw new HttpError(400, 'At least one valid character reference image is required.');
   const model = 'minimax/h3-max/reference-to-video';
@@ -1524,7 +1524,7 @@ export async function falReferenceVideoSubmit(prompt: string, referenceImageUrls
     duration: seconds,
     resolution,
     aspect_ratio: aspect,
-    prompt_expansion_mode: process.env.FAL_PROMPT_EXPANSION || 'balanced',
+    prompt_expansion_mode: resolveFalPromptExpansionMode(quality, process.env.FAL_PROMPT_EXPANSION),
     enable_safety_checker: true,
   };
   let r: Response;
@@ -1547,7 +1547,7 @@ export async function falReferenceVideoSubmit(prompt: string, referenceImageUrls
 export async function falKlingReferenceSubmit(
   prompt: string,
   referenceImageUrls: string[],
-  resolution: '720p' | '1080p' = '720p',
+  resolution: '720p' | '1080p' = '1080p',
   seconds = 10,
   aspect = '9:16',
   startImageUrl?: string,

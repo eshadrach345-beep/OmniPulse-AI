@@ -1,6 +1,13 @@
 export type FalVideoTask = 'text' | 'image';
 export type FalVideoQuality = 'balanced' | 'quality';
 
+export type FalKlingResolution = '720p' | '1080p';
+
+/** Keep the lower-cost default, but honor an explicit quality-first choice on Kling multi-shot renders. */
+export function resolveFalKlingResolution(quality: FalVideoQuality = 'balanced'): FalKlingResolution {
+  return quality === 'quality' ? '1080p' : '720p';
+}
+
 const DEFAULT_MODELS: Record<FalVideoTask, Record<FalVideoQuality, string>> = {
   text: {
     balanced: 'minimax/h3-max-turbo/text-to-video',

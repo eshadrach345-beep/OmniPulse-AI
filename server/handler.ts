@@ -16,6 +16,7 @@ import { renderComposition } from './lib/compositor.js';
 import { buildSceneKeyframePrompt, chooseSceneKeyframeReference, resolveSceneOpeningFrameUrl } from './lib/scene-keyframe.js';
 import { mergeClips, lastFrameJpeg, sampleVideoFrames } from './lib/merge.js';
 import { parseVideoProvider, shouldAttemptKlingMultiShot, shouldFallbackToDeapi, requiresKlingMultiShot } from './lib/video-provider-policy.js';
+import { resolveFalKlingResolution } from './lib/fal-video-profile.js';
 import { evaluateVisualReview } from './lib/video-quality-gate.js';
 import { PROVIDERS, PLATFORM_IDS, Platform, isPlatform, isConfigured, redirectUri, socialPkce, socialAuthorizeUrl, exchangeSocialCode, saveSocialConnection, listSocialAccounts, removeSocialConnection, publishToPlatform, socialMetrics } from './lib/social.js';
 import { zernioConfigured, zernioConnectUrl, zernioSyncAccounts, zernioListAccounts, zernioDisconnect, zernioPublish, zernioHealth, zernioDeleteCustomer } from './lib/zernio.js';
@@ -2417,7 +2418,7 @@ async function startPart(row: any, user: ReturnType<typeof toUser>, spec: { prom
     const globalPrompt = [imageGuide, videoGuide, openingGuide, spec.commercial ? 'Premium product-led brand commercial. Treat supplied brand/product references as the exact subject design. Keep the same package, device geometry, materials, colors, location and lighting consistent across the two shots. This is a polished advert, not a collage or a phone screenshot.' : 'Premium vertical serialized live-action drama. Keep character identities, location layout, wardrobe and props consistent through the entire multi-shot clip.'].filter(Boolean).join(' ');
     try {
       const j = await falKlingReferenceSubmit(
-        globalPrompt, refs.map((x) => x.url), '720p', PART_SECONDS, spec.aspect,
+        globalPrompt, refs.map((x) => x.url), resolveFalKlingResolution(spec.videoQuality || 'balanced'), PART_SECONDS, spec.aspect,
         spec.startImageUrl, spec.prevUrl ? [spec.prevUrl] : [], spec.multiPrompt,
       );
       job = { statusUrl: j.statusUrl, responseUrl: j.responseUrl };
@@ -2451,7 +2452,7 @@ async function startPart(row: any, user: ReturnType<typeof toUser>, spec: { prom
         const refs = (spec.referenceImages || []).filter((x) => /^https:\/\//i.test(x.url)).slice(0, 4);
         const prompt = refs.length ? `${refs.map((x, i) => `Reference image ${i + 1} is ${x.name}. Preserve its relevant identity or environment details exactly; do not redesign them. `).join('')}${spec.prompt}` : spec.prompt;
         const j = refs.length
-          ? await falReferenceVideoSubmit(prompt, refs.map((x) => x.url), reso, PART_SECONDS, spec.aspect, imageUrl)
+          ? await falReferenceVideoSubmit(prompt, refs.map((x) => x.url), reso, PART_SECONDS, spec.aspect, imageUrl, spec.videoQuality || 'balanced')
           : await falContinueSubmit(spec.prompt, imageUrl, reso, PART_SECONDS, spec.aspect, spec.videoQuality || 'balanced');
         job = { statusUrl: j.statusUrl, responseUrl: j.responseUrl };
       } catch (e: any) {
@@ -2468,7 +2469,7 @@ async function startPart(row: any, user: ReturnType<typeof toUser>, spec: { prom
     if (refs.length && provider !== 'deapi') {
       const prompt = `${refs.map((x, i) => `Image ${i + 1} is ${x.name}, the established cast member. Preserve this exact identity and wardrobe. `).join('')}${spec.prompt}`;
       try {
-        const j = await falReferenceVideoSubmit(prompt, refs.map((x) => x.url), reso, PART_SECONDS, spec.aspect);
+        const j = await falReferenceVideoSubmit(prompt, refs.map((x) => x.url), reso, PART_SECONDS, spec.aspect, undefined, spec.videoQuality || 'balanced');
         job = { statusUrl: j.statusUrl, responseUrl: j.responseUrl };
       } catch (e: any) {
         if (provider === 'auto' && lookupEnv('DEAPI_API_KEY')) {
