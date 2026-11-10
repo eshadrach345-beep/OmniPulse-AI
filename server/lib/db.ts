@@ -133,6 +133,9 @@ export function ensureSchema(): Promise<void> {
       await q`ALTER TABLE video_jobs ADD COLUMN IF NOT EXISTS seconds INT NOT NULL DEFAULT 5`;
       await q`ALTER TABLE video_jobs ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'plan'`;
       await q`ALTER TABLE video_jobs ADD COLUMN IF NOT EXISTS blob_pathname TEXT`;
+      await q`ALTER TABLE video_jobs ADD COLUMN IF NOT EXISTS render_prompt TEXT`;
+      await q`ALTER TABLE video_jobs ADD COLUMN IF NOT EXISTS visual_review JSONB`;
+      await q`ALTER TABLE video_jobs ADD COLUMN IF NOT EXISTS visual_review_started_at TIMESTAMPTZ`;
       await q`CREATE TABLE IF NOT EXISTS trial_cards (
         card_hash TEXT PRIMARY KEY,
         user_id TEXT NOT NULL,

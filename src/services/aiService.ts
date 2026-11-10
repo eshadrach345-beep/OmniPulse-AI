@@ -218,20 +218,60 @@ export function placeholderThumb(label: string): string {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+interface RenderVisualQuality {
+  status?: 'pending' | 'passed' | 'warning' | 'rejected' | 'unavailable';
+  summary?: string;
+  qualityScore?: number | null;
+  promptMatchScore?: number | null;
+  motionCoherenceScore?: number | null;
+}
+
 async function pollRender(jobId: string, onStatus?: (m: string) => void): Promise<string> {
   const started = Date.now();
   let hiccups = 0;
   while (Date.now() - started < 8 * 60_000) {
     await sleep(5000);
-    let s: { state: 'queued' | 'rendering' | 'done' | 'failed'; videoUrl?: string; error?: string };
-    try { s = await api.get<{ state: 'queued' | 'rendering' | 'done' | 'failed'; videoUrl?: string; error?: string }>(`/video/status?id=${encodeURIComponent(jobId)}`); hiccups = 0; }
+    let s: { state: 'queued' | 'rendering' | 'done' | 'failed'; videoUrl?: string; error?: string; visualQuality?: RenderVisualQuality };
+    try { s = await api.get<{ state: 'queued' | 'rendering' | 'done' | 'failed'; videoUrl?: string; error?: string; visualQuality?: RenderVisualQuality }>(`/video/status?id=${encodeURIComponent(jobId)}`); hiccups = 0; }
     catch (e) { if (++hiccups > 6) throw e; continue; }
-    if (s.state === 'done' && s.videoUrl) return s.videoUrl;
+    if (s.state === 'done' && s.videoUrl) {
+      if (s.visualQuality?.status === 'unavailable') onStatus?.('Video rendered, but its visual review was unavailable. It is marked unverified, not quality-certified.');
+      else if (s.visualQuality?.status === 'warning') onStatus?.(`Visual review warning: ${s.visualQuality.summary || 'A minor issue was detected.'}`);
+      else if (s.visualQuality?.status === 'passed') onStatus?.('Visual quality review passed.');
+      return s.videoUrl;
+    }
     if (s.state === 'failed') throw new Error(s.error || 'The video render failed. Please try again.');
     const secs = Math.round((Date.now() - started) / 1000);
-    onStatus?.(s.state === 'queued' ? `Waiting in the render queue... (${secs}s)` : `Rendering your video... (${secs}s)`);
+    onStatus?.(s.visualQuality?.status === 'pending'
+      ? 'Checking the generated video for visual quality and prompt accuracy...'
+      : s.state === 'queued' ? `Waiting in the render queue... (${secs}s)` : `Rendering your video... (${secs}s)`);
   }
   throw new Error('Rendering is taking longer than expected. Please try again in a few minutes.');
+}
+
+/**
+ * A clip rejected by visual QA is already marked failed and refunded by the API.
+ * Retry only that case, with a fresh provider job, at most three total attempts.
+ */
+async function pollRenderWithQualityRetries(
+  initialJobId: string,
+  options: { prompt: string; seconds: number; aspect: string; videoQuality: 'balanced' | 'quality' },
+  onStatus?: (message: string) => void,
+): Promise<{ url: string; jobId: string }> {
+  let jobId = initialJobId;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      return { url: await pollRender(jobId, onStatus), jobId };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error || '');
+      if (!message.startsWith('Visual QA rejected this shot:') || attempt === 3) throw error;
+      onStatus?.(`Visual QA rejected attempt ${attempt}/3. The rejected attempt was refunded; generating a fresh variation...`);
+      await sleep(1200);
+      const next = await api.post<{ jobId: string }>('/video/render', options);
+      jobId = next.jobId;
+    }
+  }
+  throw new Error('The video could not pass visual quality review after three attempts. Rejected attempts were refunded.');
 }
 
 
@@ -299,7 +339,8 @@ export async function generateAIVideoScript(params: {
   let jobId: string;
   try { ({ jobId } = await api.post<{ jobId: string }>('/video/render', { prompt: falPrompt, seconds, videoQuality })); }
   catch (e) { throw new Error(`Video render step failed: ${e instanceof Error ? e.message : 'unknown error'}`); }
-  const generatedVideoUrl = await pollRender(jobId, onStatus);
+  const generatedRender = await pollRenderWithQualityRetries(jobId, { prompt: falPrompt, seconds, aspect: '9:16', videoQuality }, onStatus);
+  const generatedVideoUrl = generatedRender.url;
   const falEngineName = 'fal-ai/minimax/h3-max-turbo';
 
   // If the AI engine generated the script, build the complete video object
@@ -560,9 +601,9 @@ export async function renderStoryScenesParallel(
     }
     onScene?.(sc.id, 'rendering');
     try {
-      const url = await pollRender(job.jobId, (m) => onScene?.(sc.id, 'rendering', m));
+      const rendered = await pollRenderWithQualityRetries(job.jobId, { prompt: payloads[i].prompt, seconds: payloads[i].seconds, aspect: payloads[i].aspect, videoQuality }, (m) => onScene?.(sc.id, 'rendering', m));
       onScene?.(sc.id, 'done');
-      return { id: sc.id, ok: true, url, jobId: job.jobId };
+      return { id: sc.id, ok: true, url: rendered.url, jobId: rendered.jobId };
     } catch (e) {
       const error = e instanceof Error ? e.message : 'This scene failed.';
       onScene?.(sc.id, 'failed', error);
@@ -586,7 +627,7 @@ export async function renderStoryScene(scene: StoryScene, aspectRatio: AspectRat
     }
   }
   if (!jobId) throw new Error('The render did not start. Please try again.');
-  return { url: await pollRender(jobId, onStatus), jobId };
+  return pollRenderWithQualityRetries(jobId, { prompt: payload.prompt, seconds: payload.seconds, aspect: payload.aspect, videoQuality }, onStatus);
 }
 
 export function buildStoryVideo(draft: StoryDraft, clips: Record<string, { url: string; jobId: string }>, o: { idea: string; aspectRatio: AspectRatioType; nicheName: string; targetPlatforms: PlatformId[] }): GeneratedVideo {

@@ -116,10 +116,18 @@ export const AdMakerStudio: React.FC<Props> = ({ nicheName, onClose, onSaveNewVi
       let videoUrl = '';
       while (Date.now() - started < 8 * 60_000) {
         await wait(4500);
-        const s = await api.get<{ state: string; videoUrl?: string; error?: string }>(`/video/status?id=${encodeURIComponent(r.jobId)}`);
-        if (s.state === 'done' && s.videoUrl) { videoUrl = s.videoUrl; break; }
+        const s = await api.get<{ state: string; videoUrl?: string; error?: string; visualQuality?: { status?: string; summary?: string } }>(`/video/status?id=${encodeURIComponent(r.jobId)}`);
+        if (s.state === 'done' && s.videoUrl) {
+          videoUrl = s.videoUrl;
+          if (s.visualQuality?.status === 'unavailable') setStatus('Ad rendered, but automated visual review was unavailable. The result is unverified.');
+          else if (s.visualQuality?.status === 'warning') setStatus(`Ad rendered with a visual review warning: ${s.visualQuality.summary || 'A minor issue was detected.'}`);
+          else if (s.visualQuality?.status === 'passed') setStatus('Ad passed the automated visual quality review.');
+          break;
+        }
         if (s.state === 'failed') throw new Error(s.error || 'The ad video could not be rendered.');
-        setStatus(s.state === 'queued' ? 'Waiting for the image-to-video engine...' : 'Animating your product image...');
+        setStatus(s.visualQuality?.status === 'pending'
+          ? 'Checking the ad for visual quality and prompt accuracy...'
+          : s.state === 'queued' ? 'Waiting for the image-to-video engine...' : 'Animating your product image...');
       }
       if (!videoUrl) throw new Error('The render is taking longer than expected. Please try again.');
       const title = concept?.title || `${brand || product} — Brand Ad`;

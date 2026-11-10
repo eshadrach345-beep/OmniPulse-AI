@@ -53,5 +53,23 @@ assert.match(handler, /if \(p\.tries < MAX_PART_TRIES\)/, 'visual QA retry budge
 assert.match(handler, /evaluateVisualReview\(review\)/, 'generated clips must pass through the central visual quality decision');
 assert.match(handler, /quality-certified/i, 'an unavailable visual reviewer must not be reported as a pass');
 assert.doesNotMatch(handler, /Accepted after one visual retry/, 'a clip rejected on every attempt must never be silently accepted');
+
+const db = fs.readFileSync(new URL('../server/lib/db.ts', import.meta.url), 'utf8');
+assert.match(db, /ADD COLUMN IF NOT EXISTS render_prompt TEXT/);
+assert.match(db, /ADD COLUMN IF NOT EXISTS visual_review JSONB/);
+assert.match(db, /ADD COLUMN IF NOT EXISTS visual_review_started_at TIMESTAMPTZ/);
+
+assert.match(handler, /async function reviewDirectVideoJob\(job: any\)/, 'single-video and ad renders must use the same visual review gate');
+assert.match(handler, /SET visual_review_started_at = now\(\)[\s\S]*?visual_review_started_at < now\(\) - interval '90 seconds'/, 'direct video review must claim a DB lock to prevent duplicate paid vision reviews');
+assert.match(handler, /sampleVideoFrames\(String\(job\.video_url\), 4\)/, 'direct video review must sample four chronological frames');
+assert.match(handler, /SET visual_review = \$\{jsonb\(result\)\}::jsonb,[\s\S]*?status = \$\{rejected \? 'failed' : 'done'\}/, 'direct rejections must be persisted and marked failed for usage refunds');
+assert.match(handler, /render_prompt\) VALUES \(\$\{id\}, \$\{row\.id\}, \$\{job\.statusUrl\}, \$\{job\.responseUrl\}, \$\{seconds\}, \$\{source\}, \$\{prompt\}\)/, 'direct renders must save the exact prompt that will be reviewed');
+assert.match(handler, /videoStatus:[\s\S]*?reviewDirectVideoJob\(completed\)/, 'status polling must not reveal a finished direct clip before visual review');
+
+const client = fs.readFileSync(new URL('../src/services/aiService.ts', import.meta.url), 'utf8');
+assert.match(client, /for \(let attempt = 1; attempt <= 3; attempt\+\+\)/, 'single clip quality rejection retries must be bounded to three total jobs');
+assert.match(client, /message\.startsWith\('Visual QA rejected this shot:'\)/, 'only quality-rejected renders should auto-retry');
+assert.match(client, /rejected attempt was refunded; generating a fresh variation/);
+console.log('Direct video quality review tests passed (persistent prompt review, duplicate-call lock, usage refund and bounded client retries).');
 assert.match(handler, /UPDATE video_jobs SET status = 'failed'[\s\S]*?delete p\.jobId/, 'a rejected paid provider job must be failed before the episode releases it');
 console.log('Visual quality gate tests passed (major defects, confidence-aware scores, warnings, unavailable review, bounded retries and billing refund).');

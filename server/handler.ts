@@ -613,7 +613,7 @@ const adImageRender: Handler = async ({ req, res, body }) => {
   const videoQuality: 'balanced' | 'quality' = str(body.videoQuality, 20) === 'quality' ? 'quality' : 'balanced';
   const job = await falImageVideoSubmit(imageUrl, prompt, seconds, aspect, PLANS[user.tier]?.resolution || '480P', targetAudioUrl, videoQuality);
   const id = newId('job');
-  await sql()`INSERT INTO video_jobs (id, user_id, status_url, response_url, seconds, source) VALUES (${id}, ${row.id}, ${job.statusUrl}, ${job.responseUrl}, ${seconds}, ${source})`;
+  await sql()`INSERT INTO video_jobs (id, user_id, status_url, response_url, seconds, source, render_prompt) VALUES (${id}, ${row.id}, ${job.statusUrl}, ${job.responseUrl}, ${seconds}, ${source}, ${prompt})`;
   json(res, 200, { jobId: id });
 };
 
@@ -1515,7 +1515,7 @@ const videoRender: Handler = async ({ req, res, body }) => {
   const videoQuality: 'balanced' | 'quality' = str(body.videoQuality, 20) === 'quality' ? 'quality' : 'balanced';
   const job = await submitToProvider(prompt, PLANS[user.tier]?.resolution || '480P', seconds, aspect, undefined, undefined, undefined, undefined, videoQuality);
   const id = newId('job');
-  await sql()`INSERT INTO video_jobs (id, user_id, status_url, response_url, seconds, source) VALUES (${id}, ${row.id}, ${job.statusUrl}, ${job.responseUrl}, ${seconds}, ${source})`;
+  await sql()`INSERT INTO video_jobs (id, user_id, status_url, response_url, seconds, source, render_prompt) VALUES (${id}, ${row.id}, ${job.statusUrl}, ${job.responseUrl}, ${seconds}, ${source}, ${prompt})`;
   json(res, 200, { jobId: id });
 };
 
@@ -1572,7 +1572,7 @@ async function startSceneBatch(row: any, user: ReturnType<typeof toUser>, scenes
   const results = await Promise.all(scenes.map(async (s, i) => {
     try {
       const job = await submitToProvider(s.prompt, reso, s.seconds, s.aspect, undefined, undefined, undefined, undefined, videoQuality);
-      return { index: s.index, ok: true as const, job, source: sources[i], seconds: s.seconds };
+      return { index: s.index, prompt: s.prompt, ok: true as const, job, source: sources[i], seconds: s.seconds };
     } catch (e: any) {
       console.error(`batch scene ${s.index + 1} failed to start:`, e?.message);
       return { index: s.index, ok: false as const, error: String(e?.message || 'The video engine could not start this scene.').slice(0, 300) };
@@ -1583,10 +1583,98 @@ async function startSceneBatch(row: any, user: ReturnType<typeof toUser>, scenes
   for (const r of results) {
     if (!r.ok) { jobs.push({ index: r.index, error: r.error }); continue; }
     const id = newId('job');
-    await sql()`INSERT INTO video_jobs (id, user_id, status_url, response_url, seconds, source) VALUES (${id}, ${row.id}, ${r.job.statusUrl}, ${r.job.responseUrl}, ${r.seconds}, ${r.source})`;
+    await sql()`INSERT INTO video_jobs (id, user_id, status_url, response_url, seconds, source, render_prompt) VALUES (${id}, ${row.id}, ${r.job.statusUrl}, ${r.job.responseUrl}, ${r.seconds}, ${r.source}, ${r.prompt})`;
     jobs.push({ index: r.index, jobId: id });
   }
   return jobs;
+}
+
+interface DirectVideoQualityReview {
+  status: 'pending' | 'passed' | 'warning' | 'rejected' | 'unavailable';
+  severity: string | null;
+  confidence: string | null;
+  qualityScore: number | null;
+  promptMatchScore: number | null;
+  motionCoherenceScore: number | null;
+  issues: string[];
+  summary: string;
+}
+
+/**
+ * Direct video jobs use the same confidence-aware visual gate as episodic scenes.
+ * A DB claim prevents concurrent browser polls from paying for duplicate vision reviews.
+ */
+async function reviewDirectVideoJob(job: any): Promise<DirectVideoQualityReview> {
+  if (job.visual_review && typeof job.visual_review === 'object') return job.visual_review as DirectVideoQualityReview;
+
+  const claimed = await sql()`UPDATE video_jobs
+    SET visual_review_started_at = now()
+    WHERE id = ${job.id} AND user_id = ${job.user_id}
+      AND visual_review IS NULL
+      AND (visual_review_started_at IS NULL OR visual_review_started_at < now() - interval '90 seconds')
+    RETURNING id`;
+  if (!claimed.length) {
+    const rows = (await sql()`SELECT visual_review, visual_review_started_at FROM video_jobs WHERE id = ${job.id} AND user_id = ${job.user_id} LIMIT 1`) as any[];
+    if (rows[0]?.visual_review) return rows[0].visual_review as DirectVideoQualityReview;
+    return {
+      status: 'pending', severity: null, confidence: null,
+      qualityScore: null, promptMatchScore: null, motionCoherenceScore: null,
+      issues: [], summary: 'The automated visual quality review is still running.',
+    };
+  }
+
+  let result: DirectVideoQualityReview;
+  let rejected = false;
+  try {
+    if (!job.video_url || !String(job.render_prompt || '').trim()) {
+      result = {
+        status: 'unavailable', severity: null, confidence: 'low',
+        qualityScore: null, promptMatchScore: null, motionCoherenceScore: null,
+        issues: [], summary: 'This older render has no saved prompt, so it cannot be checked against the intended scene.',
+      };
+    } else {
+      const frames = await sampleVideoFrames(String(job.video_url), 4);
+      const review = await geminiVisualReview(
+        String(job.render_prompt).slice(0, 3200),
+        frames.map((frame, index) => ({ ...frame, name: `Chronological shot frame ${index + 1}` })),
+      );
+      if (!review) {
+        result = {
+          status: 'unavailable', severity: null, confidence: 'low',
+          qualityScore: null, promptMatchScore: null, motionCoherenceScore: null,
+          issues: [], summary: 'The vision reviewer was unavailable. This clip is unverified, not quality-certified.',
+        };
+      } else {
+        const decision = evaluateVisualReview(review);
+        rejected = decision.reject;
+        result = {
+          status: decision.status,
+          severity: review.severity,
+          confidence: review.confidence || 'low',
+          qualityScore: review.qualityScore ?? null,
+          promptMatchScore: review.promptMatchScore ?? null,
+          motionCoherenceScore: review.motionCoherenceScore ?? null,
+          issues: review.issues || [],
+          summary: decision.reject ? decision.reason : review.summary,
+        };
+      }
+    }
+  } catch (error: any) {
+    console.warn('Direct video visual QA unavailable:', { jobId: job.id, message: error?.message || error });
+    result = {
+      status: 'unavailable', severity: null, confidence: 'low',
+      qualityScore: null, promptMatchScore: null, motionCoherenceScore: null,
+      issues: [], summary: 'The visual inspection could not complete. This clip is unverified, not quality-certified.',
+    };
+  }
+
+  const failure = rejected ? `Visual QA rejected this shot: ${result.summary || 'The generated shot did not meet the visual quality threshold.'}`.slice(0, 300) : null;
+  await sql()`UPDATE video_jobs
+    SET visual_review = ${jsonb(result)}::jsonb,
+        status = ${rejected ? 'failed' : 'done'},
+        error = ${failure}
+    WHERE id = ${job.id} AND user_id = ${job.user_id}`;
+  return result;
 }
 
 const videoStatus: Handler = async ({ req, res, query }) => {
@@ -1594,7 +1682,22 @@ const videoStatus: Handler = async ({ req, res, query }) => {
   const rows = (await sql()`SELECT * FROM video_jobs WHERE id=${query.get('id') || ''} AND user_id=${row.id}`) as any[];
   const j = rows[0];
   if (!j) throw new HttpError(404, 'Render job not found.');
-  json(res, 200, await refreshJob(j));
+  const current = await refreshJob(j);
+  if (current.state !== 'done' || !current.videoUrl) {
+    json(res, 200, current);
+    return;
+  }
+  const completed = { ...j, status: 'done', video_url: current.videoUrl };
+  const visualQuality = await reviewDirectVideoJob(completed);
+  if (visualQuality.status === 'pending') {
+    json(res, 200, { state: 'rendering', visualQuality });
+    return;
+  }
+  if (visualQuality.status === 'rejected') {
+    json(res, 200, { state: 'failed', error: `Visual QA rejected this shot: ${visualQuality.summary}`, visualQuality });
+    return;
+  }
+  json(res, 200, { state: 'done', videoUrl: current.videoUrl, visualQuality });
 };
 
 /** Asks the video provider how one render job is doing and saves the answer. Finished jobs are answered from the database. */
@@ -2376,7 +2479,7 @@ async function startPart(row: any, user: ReturnType<typeof toUser>, spec: { prom
     } else job = await submitToProvider(deapiPrompt, reso, PART_SECONDS, spec.aspect, deapiMultiPrompt, spec.videoModel, spec.videoProvider, spec.seed, spec.videoQuality || 'balanced');
   }
   const id = newId('job');
-  await sql()`INSERT INTO video_jobs (id, user_id, status_url, response_url, seconds, source) VALUES (${id}, ${row.id}, ${job.statusUrl}, ${job.responseUrl}, ${PART_SECONDS}, ${source})`;
+  await sql()`INSERT INTO video_jobs (id, user_id, status_url, response_url, seconds, source, render_prompt) VALUES (${id}, ${row.id}, ${job.statusUrl}, ${job.responseUrl}, ${PART_SECONDS}, ${source}, ${spec.prompt})`;
   return { jobId: id };
 }
 
