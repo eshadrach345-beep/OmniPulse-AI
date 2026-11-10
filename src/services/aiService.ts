@@ -257,11 +257,11 @@ async function pollRenderWithQualityRetries(
   initialJobId: string,
   options: { prompt: string; seconds: number; aspect: string; videoQuality: 'balanced' | 'quality' },
   onStatus?: (message: string) => void,
-): Promise<string> {
+): Promise<{ url: string; jobId: string }> {
   let jobId = initialJobId;
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {
-      return await pollRender(jobId, onStatus);
+      return { url: await pollRender(jobId, onStatus), jobId };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error || '');
       if (!message.startsWith('Visual QA rejected this shot:') || attempt === 3) throw error;
@@ -339,7 +339,8 @@ export async function generateAIVideoScript(params: {
   let jobId: string;
   try { ({ jobId } = await api.post<{ jobId: string }>('/video/render', { prompt: falPrompt, seconds, videoQuality })); }
   catch (e) { throw new Error(`Video render step failed: ${e instanceof Error ? e.message : 'unknown error'}`); }
-  const generatedVideoUrl = await pollRenderWithQualityRetries(jobId, { prompt: falPrompt, seconds, aspect: '9:16', videoQuality }, onStatus);
+  const generatedRender = await pollRenderWithQualityRetries(jobId, { prompt: falPrompt, seconds, aspect: '9:16', videoQuality }, onStatus);
+  const generatedVideoUrl = generatedRender.url;
   const falEngineName = 'fal-ai/minimax/h3-max-turbo';
 
   // If the AI engine generated the script, build the complete video object
@@ -600,9 +601,9 @@ export async function renderStoryScenesParallel(
     }
     onScene?.(sc.id, 'rendering');
     try {
-      const url = await pollRenderWithQualityRetries(job.jobId, { prompt: payloads[index].prompt, seconds: payloads[index].seconds, aspect: payloads[index].aspect, videoQuality }, (m) => onScene?.(sc.id, 'rendering', m));
+      const rendered = await pollRenderWithQualityRetries(job.jobId, { prompt: payloads[i].prompt, seconds: payloads[i].seconds, aspect: payloads[i].aspect, videoQuality }, (m) => onScene?.(sc.id, 'rendering', m));
       onScene?.(sc.id, 'done');
-      return { id: sc.id, ok: true, url, jobId: job.jobId };
+      return { id: sc.id, ok: true, url: rendered.url, jobId: rendered.jobId };
     } catch (e) {
       const error = e instanceof Error ? e.message : 'This scene failed.';
       onScene?.(sc.id, 'failed', error);
@@ -626,7 +627,7 @@ export async function renderStoryScene(scene: StoryScene, aspectRatio: AspectRat
     }
   }
   if (!jobId) throw new Error('The render did not start. Please try again.');
-  return { url: await pollRenderWithQualityRetries(jobId, { prompt: payload.prompt, seconds: payload.seconds, aspect: payload.aspect, videoQuality }, onStatus), jobId };
+  return pollRenderWithQualityRetries(jobId, { prompt: payload.prompt, seconds: payload.seconds, aspect: payload.aspect, videoQuality }, onStatus);
 }
 
 export function buildStoryVideo(draft: StoryDraft, clips: Record<string, { url: string; jobId: string }>, o: { idea: string; aspectRatio: AspectRatioType; nicheName: string; targetPlatforms: PlatformId[] }): GeneratedVideo {
