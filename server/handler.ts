@@ -1489,7 +1489,13 @@ async function submitToProvider(prompt: string, reso: '480P' | '768P' | '1080P',
   const viaDeapi = async () => { const deapiPrompt = multiPrompt?.length ? `${prompt} ${toNativeMultiShotPrompt(multiPrompt)}` : prompt; const j = await deapiSubmit(deapiPrompt, reso, seconds, aspect, videoModel, seedOverride); return { statusUrl: `deapi:${j.requestId}`, responseUrl: 'deapi' }; };
   const viaFal = async () => { const j = await falSubmit(prompt, reso, seconds, aspect, videoQuality); return { statusUrl: j.statusUrl, responseUrl: j.responseUrl }; };
   if (provider === 'deapi') return viaDeapi();
-  if (provider === 'fal') return viaFal();
+  if (provider === 'fal') {
+    try { return await viaFal(); } catch (e: any) {
+      if (!shouldFallbackToDeapi(provider, e) || !lookupEnv('DEAPI_API_KEY')) throw e;
+      console.warn('fal.ai credits exhausted; using configured deAPI backup:', e?.message);
+      return viaDeapi();
+    }
+  }
   // Automatic failover is opt-in: VIDEO_PROVIDER=auto. fal/deapi selections are strict.
   try { return await viaFal(); } catch (e: any) {
     if (!lookupEnv('DEAPI_API_KEY')) throw e;
@@ -2423,10 +2429,35 @@ async function startPart(row: any, user: ReturnType<typeof toUser>, spec: { prom
       );
       job = { statusUrl: j.statusUrl, responseUrl: j.responseUrl };
     } catch (e: any) {
-      // A multi-shot storyboard is a production requirement, not a suggestion. Never silently
-      // replace it with a single-shot model: that changes the edit and wastes the creator's seconds.
-      console.error('Kling multi-shot render failed; preserving the requested shot plan:', e?.message);
-      throw e;
+      // Keep the native Kling multi-shot route when it is available. If fal is locked for
+      // exhausted credit, use the configured DeAPI backup rather than stopping the episode.
+      if (shouldFallbackToDeapi(provider, e) && lookupEnv('DEAPI_API_KEY')) {
+        console.warn('Kling multi-shot unavailable; falling back to DeAPI:', e?.message);
+        let anchorFrame: Buffer | undefined;
+        try {
+          if (spec.prevUrl) anchorFrame = await lastFrameJpeg(spec.prevUrl);
+          else {
+            const anchorUrl = spec.startImageUrl || refs[0]?.url;
+            if (anchorUrl && /^https:\/\//i.test(anchorUrl)) {
+              const anchorResponse = await fetch(anchorUrl, { signal: AbortSignal.timeout(15_000) });
+              if (anchorResponse.ok) {
+                anchorFrame = Buffer.from(await anchorResponse.arrayBuffer());
+                if (anchorFrame.length > 15 * 1024 * 1024) anchorFrame = undefined;
+              }
+            }
+          }
+        } catch (fallbackAnchorError: any) {
+          console.warn('DeAPI fallback could not load a visual anchor; continuing with prompt-only generation:', fallbackAnchorError?.message);
+        }
+        const j = anchorFrame
+          ? await deapiAnimate(deapiAnimationPrompt, anchorFrame, reso, PART_SECONDS, spec.aspect, spec.videoModel, spec.lastFrame, spec.seed)
+          : await deapiSubmit(deapiAnimationPrompt, reso, PART_SECONDS, spec.aspect, spec.videoModel, spec.seed);
+        job = { statusUrl: `deapi:${j.requestId}`, responseUrl: 'deapi' };
+      } else {
+        // Do not silently replace a requested multi-shot edit for unrelated provider errors.
+        console.error('Kling multi-shot render failed; preserving the requested shot plan:', e?.message);
+        throw e;
+      }
     }
   } else if (requiresKlingMultiShot(provider, spec.multiPrompt?.length || 0)) {
     throw new HttpError(424, 'This scene requires Kling multi-shot rendering. Configure FAL_KEY and select fal or auto; the scene was not downgraded to a single-shot model.', 'MULTISHOT_PROVIDER_REQUIRED');
@@ -2457,7 +2488,7 @@ async function startPart(row: any, user: ReturnType<typeof toUser>, spec: { prom
         job = { statusUrl: j.statusUrl, responseUrl: j.responseUrl };
       } catch (e: any) {
         if (e instanceof RateLimited) throw e;
-        if (shouldFallbackToDeapi(provider) && lookupEnv('DEAPI_API_KEY')) {
+        if (shouldFallbackToDeapi(provider, e) && lookupEnv('DEAPI_API_KEY')) {
           const j = await deapiAnimate(deapiPrompt, frame, reso, PART_SECONDS, spec.aspect, spec.videoModel, spec.lastFrame, spec.seed);
           job = { statusUrl: `deapi:${j.requestId}`, responseUrl: 'deapi' };
         } else throw e;
@@ -2472,7 +2503,7 @@ async function startPart(row: any, user: ReturnType<typeof toUser>, spec: { prom
         const j = await falReferenceVideoSubmit(prompt, refs.map((x) => x.url), reso, PART_SECONDS, spec.aspect, undefined, spec.videoQuality || 'balanced');
         job = { statusUrl: j.statusUrl, responseUrl: j.responseUrl };
       } catch (e: any) {
-        if (provider === 'auto' && lookupEnv('DEAPI_API_KEY')) {
+        if (shouldFallbackToDeapi(provider, e) && lookupEnv('DEAPI_API_KEY')) {
           const j = await deapiSubmit(deapiPrompt, reso, PART_SECONDS, spec.aspect, spec.videoModel, spec.seed);
           job = { statusUrl: `deapi:${j.requestId}`, responseUrl: 'deapi' };
         } else throw e;
