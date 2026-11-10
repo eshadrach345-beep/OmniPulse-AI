@@ -18,12 +18,11 @@ const finite = (value: unknown): number | null => {
  * frame limits. Live /models metadata always takes precedence.
  */
 const DOCUMENTED_LIMITS: Record<string, { minFrames: number; maxFrames: number; fps: number; frameOffset: number }> = {
+  // DeAPI's published Seedance 2.5 specification: 97–721 frames at 24 FPS (4–30 seconds).
   seedance25: { minFrames: 97, maxFrames: 721, fps: 24, frameOffset: 1 },
-  kling4: { minFrames: 73, maxFrames: 721, fps: 24, frameOffset: 1 },
+  // Published model-page limits; live account catalogue data always takes precedence.
   minimaxh3: { minFrames: 96, maxFrames: 360, fps: 24, frameOffset: 0 },
-  ltx25: { minFrames: 49, maxFrames: 241, fps: 24, frameOffset: 1 },
   ltx23: { minFrames: 49, maxFrames: 241, fps: 24, frameOffset: 1 },
-  veo31: { minFrames: 97, maxFrames: 193, fps: 24, frameOffset: 1 },
   ltxvideo13b: { minFrames: 30, maxFrames: 120, fps: 30, frameOffset: 0 },
 };
 
