@@ -1215,14 +1215,16 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
                     >
                       {deapiModelsLoading && <option value={selectedDeapiModel}>Loading DeAPI models…</option>}
                       {!deapiModelsLoading && deapiModels.length === 0 && <option value={selectedDeapiModel}>No models returned by DeAPI</option>}
-                      {deapiModels.map((model) => <option key={model.slug} value={model.slug}>{model.name}{model.supportsNativeAudio ? ' · native audio' : ''} · {model.durationLabel}</option>)}
+                      {!deapiModelsLoading && deapiModels.length > 0 && !deapiModels.some((model) => model.supportsDirectClipDurations) && <option value={selectedDeapiModel}>No connected model supports 30 seconds</option>}
+                      {deapiModels.filter((model) => model.supportsDirectClipDurations).map((model) => <option key={model.slug} value={model.slug}>{model.name}{model.supportsNativeAudio ? ' · native audio' : ''} · {model.durationLabel}</option>)}
                     </select>
                     {deapiModels.find((model) => model.slug === selectedDeapiModel) && (
                       <p className="text-[10px] text-slate-400">
                         {deapiModels.find((model) => model.slug === selectedDeapiModel)?.description || 'Model availability and duration limits are read from your connected DeAPI catalogue.'}
                       </p>
                     )}
-                    {deapiModelsLoading === false && !deapiEnabled && <p className="text-[10px] text-amber-300">Add DEAPI_API_KEY to your Vercel environment and redeploy to enable DeAPI.</p>}
+                    {!deapiModelsLoading && deapiEnabled && !deapiModels.some((model) => model.supportsDirectClipDurations) && <p className="text-[10px] text-amber-300">Your connected DeAPI account currently has no model with a documented 30-second limit. Check your model access or use a short-clip model elsewhere in OmniPulse.</p>}
+                    {!deapiModelsLoading && !deapiEnabled && <p className="text-[10px] text-amber-300">Add DEAPI_API_KEY to your Vercel environment and redeploy to enable DeAPI.</p>}
                   </div>
                 )}
               </div>
