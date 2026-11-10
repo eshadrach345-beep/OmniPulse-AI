@@ -610,7 +610,8 @@ const adImageRender: Handler = async ({ req, res, body }) => {
     const audio = await synthesize(voiceover, voiceGender === 'male' ? 'am_adam' : 'af_heart', voiceGender);
     targetAudioUrl = `data:${audio.type};base64,${audio.audio.toString('base64')}`;
   }
-  const job = await falImageVideoSubmit(imageUrl, prompt, seconds, aspect, PLANS[user.tier]?.resolution || '480P', targetAudioUrl);
+  const videoQuality: 'balanced' | 'quality' = str(body.videoQuality, 20) === 'quality' ? 'quality' : 'balanced';
+  const job = await falImageVideoSubmit(imageUrl, prompt, seconds, aspect, PLANS[user.tier]?.resolution || '480P', targetAudioUrl, videoQuality);
   const id = newId('job');
   await sql()`INSERT INTO video_jobs (id, user_id, status_url, response_url, seconds, source) VALUES (${id}, ${row.id}, ${job.statusUrl}, ${job.responseUrl}, ${seconds}, ${source})`;
   json(res, 200, { jobId: id });
@@ -1511,7 +1512,8 @@ const videoRender: Handler = async ({ req, res, body }) => {
     else throw new HttpError(403, planLeft + bonus > 0 ? `You have ${planLeft + bonus} seconds of video left, so a ${seconds} second video will not fit. Choose a shorter length or buy more seconds.` : `You've used all your video seconds for this month. Buy extra seconds or upgrade your plan.`, 'LIMIT');
   }
   await rateLimit(`render:${row.id}`, 80, 3600);
-  const job = await submitToProvider(prompt, PLANS[user.tier]?.resolution || '480P', seconds, aspect);
+  const videoQuality: 'balanced' | 'quality' = str(body.videoQuality, 20) === 'quality' ? 'quality' : 'balanced';
+  const job = await submitToProvider(prompt, PLANS[user.tier]?.resolution || '480P', seconds, aspect, undefined, undefined, undefined, undefined, videoQuality);
   const id = newId('job');
   await sql()`INSERT INTO video_jobs (id, user_id, status_url, response_url, seconds, source) VALUES (${id}, ${row.id}, ${job.statusUrl}, ${job.responseUrl}, ${seconds}, ${source})`;
   json(res, 200, { jobId: id });
@@ -1541,7 +1543,8 @@ const videoRenderBatch: Handler = async ({ req, res, body }) => {
   }));
   const bad = scenes.find((s) => s.prompt.length < 5);
   if (bad) throw new HttpError(400, `Scene ${bad.index + 1} has no picture description.`);
-  const jobs = await startSceneBatch(row, user, scenes);
+  const videoQuality: 'balanced' | 'quality' = str(body.videoQuality, 20) === 'quality' ? 'quality' : 'balanced';
+  const jobs = await startSceneBatch(row, user, scenes, videoQuality);
   json(res, 200, { jobs, accepted: jobs.filter((j) => 'jobId' in j).length, failed: jobs.filter((j) => 'error' in j).length });
 };
 
@@ -1552,7 +1555,7 @@ type BatchJob = { index: number; jobId: string } | { index: number; error: strin
  * Checks the allowance once for the whole batch, sends every scene to the video provider at the same time (Promise.all),
  * and records the accepted scenes in video_jobs. Shared by the single-video flow and the series worker.
  */
-async function startSceneBatch(row: any, user: ReturnType<typeof toUser>, scenes: BatchScene[]): Promise<BatchJob[]> {
+async function startSceneBatch(row: any, user: ReturnType<typeof toUser>, scenes: BatchScene[], videoQuality: 'balanced' | 'quality' = 'balanced'): Promise<BatchJob[]> {
   // Allowance: plan seconds are used first, then bought top-up seconds, exactly like single renders.
   const total = scenes.reduce((t, s) => t + s.seconds, 0);
   const used = (await sql()`SELECT COALESCE(sum(seconds), 0)::int AS secs FROM video_jobs WHERE user_id=${row.id} AND source = 'plan' AND status <> 'failed' AND created_at >= date_trunc('month', now())`) as any[];
@@ -1568,7 +1571,7 @@ async function startSceneBatch(row: any, user: ReturnType<typeof toUser>, scenes
 
   const results = await Promise.all(scenes.map(async (s, i) => {
     try {
-      const job = await submitToProvider(s.prompt, reso, s.seconds, s.aspect);
+      const job = await submitToProvider(s.prompt, reso, s.seconds, s.aspect, undefined, undefined, undefined, undefined, videoQuality);
       return { index: s.index, ok: true as const, job, source: sources[i], seconds: s.seconds };
     } catch (e: any) {
       console.error(`batch scene ${s.index + 1} failed to start:`, e?.message);
