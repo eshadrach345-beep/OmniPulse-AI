@@ -19,8 +19,10 @@ const finite = (value: unknown): number | null => {
 const DOCUMENTED_LIMITS: Record<string, { minFrames: number; maxFrames: number; fps: number }> = {
   seedance25: { minFrames: 97, maxFrames: 721, fps: 24 },
   kling4: { minFrames: 73, maxFrames: 721, fps: 24 },
-  minimaxh3: { minFrames: 56, maxFrames: 243, fps: 24 },
+  minimaxh3: { minFrames: 96, maxFrames: 360, fps: 24 },
+  ltx25: { minFrames: 49, maxFrames: 241, fps: 24 },
   ltx23: { minFrames: 49, maxFrames: 241, fps: 24 },
+  veo31: { minFrames: 97, maxFrames: 193, fps: 24 },
   ltxvideo13b: { minFrames: 30, maxFrames: 120, fps: 30 },
 };
 
