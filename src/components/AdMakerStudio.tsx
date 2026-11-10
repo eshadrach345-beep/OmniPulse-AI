@@ -49,6 +49,7 @@ export const AdMakerStudio: React.FC<Props> = ({ nicheName, onClose, onSaveNewVi
   const [brief, setBrief] = useState('');
   const [aspect, setAspect] = useState<AspectRatioType>('9:16');
   const [seconds, setSeconds] = useState<5 | 10>(5);
+  const [videoQuality, setVideoQuality] = useState<'balanced' | 'quality'>('balanced');
   const [preview, setPreview] = useState('');
   const [selectedImage, setSelectedImage] = useState('');
   const [concepts, setConcepts] = useState<Concept[]>([]);
@@ -110,7 +111,7 @@ export const AdMakerStudio: React.FC<Props> = ({ nicheName, onClose, onSaveNewVi
     ].filter(Boolean).join(' ');
     setBusy('render'); setError(''); setStatus('Submitting your image to the video engine...');
     try {
-      const r = await api.post<{ jobId: string }>('/ad/render-image', { imageUrl: selectedImage, prompt, seconds, aspect, voiceover, voiceGender });
+      const r = await api.post<{ jobId: string }>('/ad/render-image', { imageUrl: selectedImage, prompt, seconds, aspect, voiceover, voiceGender, videoQuality });
       const started = Date.now();
       let videoUrl = '';
       while (Date.now() - started < 8 * 60_000) {
@@ -157,6 +158,7 @@ export const AdMakerStudio: React.FC<Props> = ({ nicheName, onClose, onSaveNewVi
               <div><label className="block text-xs text-slate-300 mb-1">Format</label><select value={aspect} onChange={e=>setAspect(e.target.value as AspectRatioType)} className="w-full rounded-lg bg-slate-900 border border-slate-700 p-2.5 text-sm text-white"><option value="9:16">Vertical 9:16</option><option value="16:9">Landscape 16:9</option><option value="1:1">Square 1:1</option></select></div>
               <div><label className="block text-xs text-slate-300 mb-1">Ad length</label><select value={seconds} onChange={e=>setSeconds(Number(e.target.value) as 5|10)} className="w-full rounded-lg bg-slate-900 border border-slate-700 p-2.5 text-sm text-white"><option value={5}>5 seconds</option><option value={10}>10 seconds</option></select></div>
             </div>
+            <div><label className="block text-xs text-slate-300 mb-1">Video rendering quality</label><select value={videoQuality} onChange={e=>setVideoQuality(e.target.value as 'balanced'|'quality')} className="w-full rounded-lg bg-slate-900 border border-slate-700 p-2.5 text-sm text-white"><option value="balanced">Balanced · H3 Max Turbo (lower cost)</option><option value="quality">Quality-first · H3 Max (higher provider cost)</option></select><p className="text-[10px] text-slate-500 mt-1">Quality-first costs more per second on FAL. Balanced stays selected by default; a workspace model override takes precedence.</p></div>
             <button onClick={suggest} disabled={!!busy} className="w-full flex items-center justify-center gap-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 px-4 py-3 text-sm font-bold text-white"><Sparkles className="w-4 h-4" />{busy==='ideas' ? 'Creating concepts...' : 'Suggest 3 ad concepts'}</button>
           </div>
           <div className="space-y-3">
