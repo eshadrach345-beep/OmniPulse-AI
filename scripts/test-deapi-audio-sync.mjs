@@ -18,6 +18,7 @@ assert.equal(helpers.deapiAudioSyncFrames(11), 265);
 assert.throws(() => helpers.deapiAudioSyncFrames(0.5), RangeError);
 assert.throws(() => helpers.deapiAudioSyncFrames(12), RangeError);
 assert.equal(helpers.supportsDeapiAudioSyncModel('Ltx2_3_22B_Dist_INT8'), true);
+assert.equal(helpers.supportsDeapiAudioSyncModel('Ltx2_5_22B_Dist_INT8'), true);
 assert.equal(helpers.supportsDeapiAudioSyncModel('SomeModel', 'supports_audio_input: true'), true);
 assert.equal(helpers.supportsDeapiAudioSyncModel('H3_Max', 'text-to-video only'), false);
 assert.deepEqual(helpers.deapiAudioMime('audio/mpeg', 'speech.mp3'), { type: 'audio/mpeg', extension: 'mp3' });

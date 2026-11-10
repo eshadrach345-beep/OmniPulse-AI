@@ -216,7 +216,7 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
   const [videoQuality, setVideoQuality] = useState<'balanced' | 'quality'>('balanced');
   const [falEnabled, setFalEnabled] = useState(false);
   const [deapiEnabled, setDeapiEnabled] = useState(false);
-  const [videoModels, setVideoModels] = useState<{ slug: string; name: string; description: string; supportsImageToVideo: boolean; supportsLastFrame: boolean }[]>([]);
+  const [videoModels, setVideoModels] = useState<{ slug: string; name: string; description: string; supportsTextToVideo: boolean; supportsImageToVideo: boolean; supportsLastFrame: boolean; supportsAudioToVideo: boolean; supportsNativeAudio: boolean; minDurationSeconds: number; maxDurationSeconds: number; durationLabel: string; supportsStoryClipDurations: boolean }[]>([]);
   const [videoModel, setVideoModel] = useState('Ltx2_5_22B_Dist_INT8');
   const [videoModelsLoading, setVideoModelsLoading] = useState(true);
   const [videoModelsError, setVideoModelsError] = useState('');
@@ -315,7 +315,7 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
 
   useEffect(() => {
     let active = true;
-    api.get<{ provider: 'fal' | 'deapi' | 'auto'; models: { slug: string; name: string; description: string; supportsImageToVideo: boolean; supportsLastFrame: boolean }[]; falEnabled: boolean; deapiEnabled: boolean; availableProviders: string[] }>('/video/models')
+    api.get<{ provider: 'fal' | 'deapi' | 'auto'; models: { slug: string; name: string; description: string; supportsTextToVideo: boolean; supportsImageToVideo: boolean; supportsLastFrame: boolean; supportsAudioToVideo: boolean; supportsNativeAudio: boolean; minDurationSeconds: number; maxDurationSeconds: number; durationLabel: string; supportsStoryClipDurations: boolean }[]; falEnabled: boolean; deapiEnabled: boolean; availableProviders: string[] }>('/video/models')
       .then((result) => {
         if (!active) return;
         setFalEnabled(result.falEnabled);
@@ -323,7 +323,7 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
         const defaultChoice = result.availableProviders.includes(result.provider) ? result.provider : (result.falEnabled ? 'fal' : result.deapiEnabled ? 'deapi' : result.provider);
         setVideoProvider(defaultChoice as 'fal' | 'deapi' | 'auto');
         setVideoModels(result.models || []);
-        if (result.models?.length && !result.models.some((model) => model.slug === videoModel)) setVideoModel(result.models[0].slug);
+        if (result.models?.length && !result.models.some((model) => model.slug === videoModel)) setVideoModel((result.models.find((model) => model.supportsStoryClipDurations) || result.models[0]).slug);
         setVideoModelsError('');
       })
       .catch((error) => { if (active) setVideoModelsError(error instanceof Error ? error.message : 'The video model list is unavailable.'); })
@@ -1067,9 +1067,11 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
               <select value={videoModel} onChange={(event) => setVideoModel(event.target.value)} disabled={videoModelsLoading || videoModels.length === 0} className={selectCls}>
                 {videoModelsLoading && <option value={videoModel}>Loading available deAPI models…</option>}
                 {!videoModelsLoading && videoModels.length === 0 && <option value={videoModel}>No video models returned</option>}
-                {videoModels.map((model) => <option key={model.slug} value={model.slug}>{model.name}{model.supportsImageToVideo ? ' · image-to-video' : ''}</option>)}
+                {videoModels.map((model) => <option key={model.slug} value={model.slug} disabled={!model.supportsStoryClipDurations}>{model.name}{model.supportsImageToVideo ? ' · image-to-video' : ''}{model.supportsNativeAudio ? ' · native audio' : ''}{model.supportsStoryClipDurations ? '' : ' · incompatible clip length'}</option>)}
               </select>
               {videoModels.find((model) => model.slug === videoModel)?.description && <p className="text-[10px] text-slate-500">{videoModels.find((model) => model.slug === videoModel)?.description}</p>}
+              {videoModels.find((model) => model.slug === videoModel) && (() => { const model = videoModels.find((item) => item.slug === videoModel)!; return <div className="flex flex-wrap gap-1.5 text-[9px]"><span className="rounded border border-slate-700 px-2 py-1 text-slate-300">Text-to-video</span>{model.supportsImageToVideo && <span className="rounded border border-slate-700 px-2 py-1 text-slate-300">Image-to-video</span>}{model.supportsLastFrame && <span className="rounded border border-slate-700 px-2 py-1 text-slate-300">Start + end frame</span>}{model.supportsAudioToVideo && <span className="rounded border border-slate-700 px-2 py-1 text-slate-300">Audio-conditioned video</span>}{model.supportsNativeAudio && <span className="rounded border border-slate-700 px-2 py-1 text-slate-300">Generates sound</span>}<span className="rounded border border-slate-700 px-2 py-1 text-slate-300">{model.durationLabel}</span></div>; })()}
+              {videoModels.find((model) => model.slug === videoModel) && !videoModels.find((model) => model.slug === videoModel)?.supportsStoryClipDurations && <p className="text-[10px] text-amber-300">This model's supported duration does not match OmniPulse's current 5- and 10-second scene lengths. Choose a compatible model for this workflow.</p>}
               {videoModelsError && <p role="alert" className="text-[10px] text-rose-300">{videoModelsError}</p>}
               {videoProvider === 'auto' && <p className="text-[10px] text-amber-300/80">The selected deAPI model is used only when automatic failover reaches deAPI. FAL remains the primary engine.</p>}
             </label>
