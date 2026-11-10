@@ -1548,7 +1548,7 @@ const videoRender: Handler = async ({ req, res, body }) => {
   }
   await rateLimit(`render:${row.id}`, 80, 3600);
   const videoQuality: 'balanced' | 'quality' = str(body.videoQuality, 20) === 'quality' ? 'quality' : 'balanced';
-  const job = await submitToProvider(prompt, PLANS[user.tier]?.resolution || '480P', seconds, aspect, undefined, undefined, videoModel, provider, undefined, videoQuality);
+  const job = await submitToProvider(prompt, PLANS[user.tier]?.resolution || '480P', seconds, aspect, undefined, videoModel, provider, undefined, videoQuality);
   const id = newId('job');
   await sql()`INSERT INTO video_jobs (id, user_id, status_url, response_url, seconds, source, render_prompt) VALUES (${id}, ${row.id}, ${job.statusUrl}, ${job.responseUrl}, ${seconds}, ${source}, ${prompt})`;
   json(res, 200, { jobId: id });
