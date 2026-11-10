@@ -13,7 +13,7 @@ export function isFalCreditExhaustion(error: unknown): boolean {
 }
 
 export function shouldFallbackToDeapi(provider: VideoProvider, error?: unknown): boolean {
-  return provider === 'auto' || isFalCreditExhaustion(error);
+  return provider === 'auto' || (provider === 'fal' && isFalCreditExhaustion(error));
 }
 
 export function shouldAttemptKlingMultiShot(provider: VideoProvider, hasFalKey: boolean, shotCount: number): boolean {
