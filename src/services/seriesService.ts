@@ -114,6 +114,8 @@ export interface CreateEpisodeRequest {
   /** Exact deAPI catalogue slug; applied only when server provider routing reaches deAPI. */
   videoProvider?: 'fal' | 'deapi' | 'auto';
   videoModel?: string;
+  /** Balanced keeps the lower-cost Turbo endpoint; quality selects regular H3 Max where applicable. */
+  videoQuality?: 'balanced' | 'quality';
   /** Leave out to start a new series (Part 1). */
   projectId?: string;
   title?: string;
@@ -138,7 +140,7 @@ export const Series = {
   create: (r: CreateEpisodeRequest) => api.post<{ projectId: string; episodeId: string; partNumber: number; status: EpisodeStatus }>('/episodes/create', {
     projectId: r.projectId, title: r.title, idea: r.idea, mode: r.mode, script: r.script, series: r.series, format: r.format, look: r.look, aspectRatio: r.aspectRatio, niche: r.niche,
     durationMode: r.brief.durationMode, requestedSeconds: r.brief.requestedSeconds, sceneSeconds: r.brief.sceneSeconds, mood: r.brief.mood, cameraProfile: r.brief.cameraProfile, characterLock: r.brief.characterLock,
-    presentation: r.brief.presentation, genre: r.brief.genre, intensity: r.brief.intensity, dialogue: r.brief.dialogue, ending: r.brief.ending, cast: r.brief.cast, animalsTalk: r.brief.animalsTalk, trope: r.brief.trope, reviewFirst: r.reviewFirst, characterReferences: r.characterReferences, brandKit: r.brandKit, videoProvider: r.videoProvider, videoModel: r.videoModel,
+    presentation: r.brief.presentation, genre: r.brief.genre, intensity: r.brief.intensity, dialogue: r.brief.dialogue, ending: r.brief.ending, cast: r.brief.cast, animalsTalk: r.brief.animalsTalk, trope: r.brief.trope, reviewFirst: r.reviewFirst, characterReferences: r.characterReferences, brandKit: r.brandKit, videoProvider: r.videoProvider, videoModel: r.videoModel, videoQuality: r.videoQuality,
   }),
   /** Makes a matched clean version of the saved location plate and the previous episode's last frame for the next part. */
   cleanPlate: (projectId: string, instruction: string) => api.post<{ ok: boolean; nextPart: number; referenceAssets: NonNullable<ProjectDetail['project']['referenceAssets']> }>('/projects/reference/clean-plate', { projectId, instruction }),
