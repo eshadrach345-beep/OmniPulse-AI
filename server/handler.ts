@@ -613,7 +613,7 @@ const adImageRender: Handler = async ({ req, res, body }) => {
   const videoQuality: 'balanced' | 'quality' = str(body.videoQuality, 20) === 'quality' ? 'quality' : 'balanced';
   const job = await falImageVideoSubmit(imageUrl, prompt, seconds, aspect, PLANS[user.tier]?.resolution || '480P', targetAudioUrl, videoQuality);
   const id = newId('job');
-  await sql()`INSERT INTO video_jobs (id, user_id, status_url, response_url, seconds, source) VALUES (${id}, ${row.id}, ${job.statusUrl}, ${job.responseUrl}, ${seconds}, ${source})`;
+  await sql()`INSERT INTO video_jobs (id, user_id, status_url, response_url, seconds, source, render_prompt) VALUES (${id}, ${row.id}, ${job.statusUrl}, ${job.responseUrl}, ${seconds}, ${source}, ${prompt})`;
   json(res, 200, { jobId: id });
 };
 
@@ -1572,7 +1572,7 @@ async function startSceneBatch(row: any, user: ReturnType<typeof toUser>, scenes
   const results = await Promise.all(scenes.map(async (s, i) => {
     try {
       const job = await submitToProvider(s.prompt, reso, s.seconds, s.aspect, undefined, undefined, undefined, undefined, videoQuality);
-      return { index: s.index, ok: true as const, job, source: sources[i], seconds: s.seconds };
+      return { index: s.index, prompt: s.prompt, ok: true as const, job, source: sources[i], seconds: s.seconds };
     } catch (e: any) {
       console.error(`batch scene ${s.index + 1} failed to start:`, e?.message);
       return { index: s.index, ok: false as const, error: String(e?.message || 'The video engine could not start this scene.').slice(0, 300) };
@@ -1583,7 +1583,7 @@ async function startSceneBatch(row: any, user: ReturnType<typeof toUser>, scenes
   for (const r of results) {
     if (!r.ok) { jobs.push({ index: r.index, error: r.error }); continue; }
     const id = newId('job');
-    await sql()`INSERT INTO video_jobs (id, user_id, status_url, response_url, seconds, source) VALUES (${id}, ${row.id}, ${r.job.statusUrl}, ${r.job.responseUrl}, ${r.seconds}, ${r.source})`;
+    await sql()`INSERT INTO video_jobs (id, user_id, status_url, response_url, seconds, source, render_prompt) VALUES (${id}, ${row.id}, ${r.job.statusUrl}, ${r.job.responseUrl}, ${r.seconds}, ${r.source}, ${r.prompt})`;
     jobs.push({ index: r.index, jobId: id });
   }
   return jobs;
@@ -2376,7 +2376,7 @@ async function startPart(row: any, user: ReturnType<typeof toUser>, spec: { prom
     } else job = await submitToProvider(deapiPrompt, reso, PART_SECONDS, spec.aspect, deapiMultiPrompt, spec.videoModel, spec.videoProvider, spec.seed, spec.videoQuality || 'balanced');
   }
   const id = newId('job');
-  await sql()`INSERT INTO video_jobs (id, user_id, status_url, response_url, seconds, source) VALUES (${id}, ${row.id}, ${job.statusUrl}, ${job.responseUrl}, ${PART_SECONDS}, ${source})`;
+  await sql()`INSERT INTO video_jobs (id, user_id, status_url, response_url, seconds, source, render_prompt) VALUES (${id}, ${row.id}, ${job.statusUrl}, ${job.responseUrl}, ${PART_SECONDS}, ${source}, ${spec.prompt})`;
   return { jobId: id };
 }
 
