@@ -255,7 +255,7 @@ async function pollRender(jobId: string, onStatus?: (m: string) => void): Promis
  */
 async function pollRenderWithQualityRetries(
   initialJobId: string,
-  options: { prompt: string; seconds: number; aspect: string; videoQuality: 'balanced' | 'quality' },
+  options: { prompt: string; seconds: number; aspect: string; videoQuality: 'balanced' | 'quality'; videoProvider?: 'fal' | 'deapi'; videoModel?: string },
   onStatus?: (message: string) => void,
 ): Promise<{ url: string; jobId: string }> {
   let jobId = initialJobId;
@@ -287,8 +287,10 @@ export async function generateAIVideoScript(params: {
   aiDirectorEngine?: AIDirectorEngine;
   grokHookStyle?: GrokHookStyle;
   voiceId?: string;
-  /** Length of the video in seconds: 5 or 10. */
+  /** Length of the rendered clip in seconds. DeAPI models may support up to 30 seconds. */
   seconds?: number;
+  videoProvider?: 'fal' | 'deapi';
+  videoModel?: string;
   voiceMomentum?: number;
   voiceQuality?: string;
   videoQuality?: 'balanced' | 'quality';
@@ -306,6 +308,8 @@ export async function generateAIVideoScript(params: {
     voiceQuality = 'AI Studio Voice',
     seconds = 5,
     videoQuality = 'balanced',
+    videoProvider = 'fal',
+    videoModel,
   } = params;
 
   const chosenVoice = StudioAudioService.getVoice(voiceId);
@@ -337,11 +341,12 @@ export async function generateAIVideoScript(params: {
   onStatus?.('Submitting your video to the render engine...');
   const falPrompt = scriptData?.falPrompt || `${idea}. Dynamic camera motion, cinematic lighting, high detail`;
   let jobId: string;
-  try { ({ jobId } = await api.post<{ jobId: string }>('/video/render', { prompt: falPrompt, seconds, videoQuality })); }
+  const renderOptions = { prompt: falPrompt, seconds, aspect: aspectRatio, videoQuality, videoProvider, ...(videoProvider === 'deapi' && videoModel ? { videoModel } : {}) };
+  try { ({ jobId } = await api.post<{ jobId: string }>('/video/render', renderOptions)); }
   catch (e) { throw new Error(`Video render step failed: ${e instanceof Error ? e.message : 'unknown error'}`); }
-  const generatedRender = await pollRenderWithQualityRetries(jobId, { prompt: falPrompt, seconds, aspect: '9:16', videoQuality }, onStatus);
+  const generatedRender = await pollRenderWithQualityRetries(jobId, renderOptions, onStatus);
   const generatedVideoUrl = generatedRender.url;
-  const falEngineName = 'fal-ai/minimax/h3-max-turbo';
+  const falEngineName = videoProvider === 'deapi' ? `DeAPI · ${videoModel || 'selected model'}` : 'fal-ai/minimax/h3-max-turbo';
 
   // If the AI engine generated the script, build the complete video object
   {
