@@ -14,8 +14,8 @@ const DEFAULT_MODELS: Record<FalVideoTask, Record<FalVideoQuality, string>> = {
 
 /**
  * Resolve the provider endpoint for a creator's selected quality profile.
- * An explicit workspace FAL_VIDEO_MODEL remains authoritative; the profile only
- * chooses the built-in endpoint when no custom model has been configured.
+ * Built-in H3 workspace defaults follow the per-production profile. A genuinely
+ * custom FAL_VIDEO_MODEL remains authoritative.
  */
 export function resolveFalVideoModel(
   task: FalVideoTask,
