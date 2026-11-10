@@ -1554,6 +1554,65 @@ const videoRender: Handler = async ({ req, res, body }) => {
   json(res, 200, { jobId: id });
 };
 
+/** Starts a model-validated DeAPI image-to-video clip from a saved private opening frame. */
+const videoAnimate: Handler = async ({ req, res, body }) => {
+  const { row, user } = await requireAccess(req);
+  await rateLimit(`render:${row.id}`, 80, 3600);
+  const prompt = str(body.prompt, 2400);
+  if (prompt.length < 5) throw new HttpError(400, 'A video prompt is required.');
+  let provider: ReturnType<typeof parseVideoProvider>;
+  try { provider = parseVideoProvider(body.videoProvider || process.env.VIDEO_PROVIDER); }
+  catch (error: any) { throw new HttpError(400, error?.message || 'Choose a supported video engine.', 'VIDEO_PROVIDER'); }
+  if (provider !== 'deapi') throw new HttpError(400, 'Opening-frame image-to-video is currently available through direct DeAPI selection.', 'VIDEO_PROVIDER_MODE');
+  if (!lookupEnv('DEAPI_API_KEY')) throw new HttpError(424, 'DeAPI is not configured for this workspace. Add DEAPI_API_KEY in Vercel and redeploy.', 'VIDEO_PROVIDER_UNAVAILABLE');
+
+  const seconds = Number(body.seconds);
+  if (!Number.isInteger(seconds)) throw new HttpError(400, 'Choose a whole-number video duration.', 'VIDEO_DURATION');
+  const videoModel = str(body.videoModel || process.env.DEAPI_VIDEO_MODEL || 'seedance-2.5', 120);
+  const availableModels = await deapiVideoModels();
+  const selectedModel = availableModels.find((model) => model.slug === videoModel);
+  if (!selectedModel) throw new HttpError(400, 'That DeAPI model is not available on the connected account. Refresh the model list and choose an available model.', 'DEAPI_MODEL_UNAVAILABLE');
+  if (!selectedModel.supportsImageToVideo) throw new HttpError(400, `${selectedModel.name} does not support image-to-video. Choose a model marked image-to-video.`, 'DEAPI_MODEL_MODE');
+  if (!selectedModel.minDurationSeconds || !selectedModel.maxDurationSeconds
+    || seconds < selectedModel.minDurationSeconds || seconds > selectedModel.maxDurationSeconds) {
+    throw new HttpError(400, `${selectedModel.name} supports ${selectedModel.durationLabel}; ${seconds} seconds is outside that model's limits.`, 'DEAPI_DURATION');
+  }
+
+  const firstFrameAssetId = str(body.firstFrameAssetId, 100);
+  if (!firstFrameAssetId) throw new HttpError(400, 'Choose an opening image from your private Media Library.');
+  const frameRows = await sql()`SELECT pathname, original_name, content_type, size_bytes
+    FROM media_assets WHERE id=${firstFrameAssetId} AND user_id=${row.id} LIMIT 1`;
+  const frameAsset = frameRows[0] as any;
+  if (!frameAsset) throw new HttpError(404, 'The selected opening image was not found in your private Media Library.', 'MEDIA_NOT_FOUND');
+  if (!['image/jpeg', 'image/png', 'image/webp'].includes(String(frameAsset.content_type || '').toLowerCase())) {
+    throw new HttpError(415, 'The opening frame must be a JPG, PNG or WebP image.');
+  }
+  const size = Number(frameAsset.size_bytes || 0);
+  if (size <= 0 || size > 15 * 1024 * 1024) throw new HttpError(413, 'The opening frame must be 15 MB or smaller.');
+  const token = await issueSignedToken({ operations: ['get'] });
+  const signed = await presignUrl(token, { pathname: frameAsset.pathname, operation: 'get', access: 'private', validUntil: Date.now() + 10 * 60 * 1000 });
+  const response = await fetch(signed.presignedUrl, { signal: AbortSignal.timeout(20_000) });
+  if (!response.ok) throw new HttpError(424, 'Could not retrieve the opening image from private storage.', 'MEDIA_FETCH_FAILED');
+  const firstFrame = Buffer.from(await response.arrayBuffer());
+  if (!firstFrame.length || firstFrame.length > 15 * 1024 * 1024) throw new HttpError(413, 'The opening frame exceeds the 15 MB limit.');
+
+  const aspect = ['9:16', '16:9', '1:1'].includes(String(body.aspect)) ? String(body.aspect) : '9:16';
+  const used = (await sql()`SELECT COALESCE(sum(seconds), 0)::int AS secs FROM video_jobs WHERE user_id=${row.id} AND source = 'plan' AND status <> 'failed' AND created_at >= date_trunc('month', now())`) as any[];
+  const planLeft = Math.max(0, user.secondsLimit - Number(used[0]?.secs || 0));
+  const bonus = await topupBalance(row.id);
+  let source = 'plan';
+  if (seconds > planLeft) {
+    if (seconds <= bonus) source = 'topup';
+    else throw new HttpError(403, planLeft + bonus > 0 ? `You have ${planLeft + bonus} seconds of video left, so a ${seconds} second video will not fit. Choose a shorter length or buy more seconds.` : 'You have used all your video seconds for this month. Buy extra seconds or upgrade your plan.', 'LIMIT');
+  }
+
+  const job = await deapiAnimate(prompt, firstFrame, PLANS[user.tier]?.resolution || '480P', seconds, aspect, videoModel);
+  const id = newId('job');
+  await sql()`INSERT INTO video_jobs (id, user_id, status_url, response_url, seconds, source, render_prompt)
+    VALUES (${id}, ${row.id}, ${'deapi:' + job.requestId}, 'deapi', ${seconds}, ${source}, ${prompt})`;
+  json(res, 200, { jobId: id, model: videoModel, duration: seconds });
+};
+
 /** Most scenes one production can have (2 minutes of 10 second clips). */
 const MAX_BATCH_SCENES = 12;
 
@@ -3747,7 +3806,7 @@ const routes: Record<string, Handler> = {
   'POST /video/director/plan': videoDirectorPlan, 'POST /video/director/match': videoDirectorMatch, 'POST /media/upload': mediaUpload, 'GET /media/list': mediaList, 'GET /media/url': mediaSignedUrl, 'POST /media/transcribe': mediaTranscribe,
   'POST /ai/generate-script': genScript, 'POST /ai/research-trends': researchTrends, 'POST /ai/youtube-growth-kit': youtubeGrowthKit, 'POST /ai/ad-concepts': adConcepts, 'POST /ad/brand-images': adBrandImages, 'POST /ad/render-image': adImageRender, 'POST /tts': tts,
   'POST /ai/ab-variations': abVariations, 'POST /ai/competitor-analysis': competitorAnalysis, 'POST /ai/outrank': outrank,
-  'POST /video/render': videoRender, 'POST /video/audio-sync': videoAudioSync, 'GET /video/status': videoStatus, 'GET /video/models': videoModelCatalogue,
+  'POST /video/render': videoRender, 'POST /video/animate': videoAnimate, 'POST /video/audio-sync': videoAudioSync, 'GET /video/status': videoStatus, 'GET /video/models': videoModelCatalogue,
   'GET /social/accounts': socialAccounts, 'POST /social/sync': socialSync, 'GET /video/download': videoDownload, 'GET /video/merge': videoMerge, 'GET /video/editor/capabilities': videoEditorCapabilities, 'POST /video/editor/ai-test': videoEditorAiTest, 'POST /video/editor/render': videoEditorRender, 'POST /video/editor/assemble': videoEditorAssemble, 'GET /social/connect': socialConnect, 'GET /social/callback': socialCallback, 'GET /social/zernio-callback': socialZernioCallback,
   'POST /social/disconnect': socialDisconnect, 'GET /social/metrics': socialMetricsRoute, 'POST /social/publish': socialPublish,
   'POST /episodes/create': episodeCreate, 'POST /episodes/retry': episodeRetry, 'GET /episodes/status': episodeStatus, 'GET /episodes/clip': episodeClip, 'POST /episodes/pause': episodePause, 'POST /episodes/resume': episodeResume, 'POST /episodes/edit': episodeEdit, 'GET /episodes/video': episodeVideo, 'GET /projects': projectsList, 'GET /projects/get': projectGet, 'POST /projects/reference/clean-plate': projectCleanPlate,
