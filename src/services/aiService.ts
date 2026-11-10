@@ -265,6 +265,7 @@ export async function generateAIVideoScript(params: {
     voiceMomentum = 1.1,
     voiceQuality = 'AI Studio Voice',
     seconds = 5,
+    videoQuality = 'balanced',
   } = params;
 
   const chosenVoice = StudioAudioService.getVoice(voiceId);
