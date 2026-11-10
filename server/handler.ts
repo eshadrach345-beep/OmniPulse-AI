@@ -1482,7 +1482,7 @@ const tts: Handler = async ({ req, res, body }) => {
 
 // ---------------------------------------------------------------- video (fal.ai / deAPI queue)
 /** Sends one clip to the configured video provider (VIDEO_PROVIDER: fal, deapi or auto) and returns its queue addresses. */
-async function submitToProvider(prompt: string, reso: '480P' | '768P' | '1080P', seconds: 5 | 10, aspect: string, multiPrompt?: { prompt: string; duration: number }[], videoModel?: string, videoProvider?: string, seedOverride?: number, videoQuality: 'balanced' | 'quality' = 'balanced'): Promise<{ statusUrl: string; responseUrl: string }> {
+async function submitToProvider(prompt: string, reso: '480P' | '768P' | '1080P', seconds: number, aspect: string, multiPrompt?: { prompt: string; duration: number }[], videoModel?: string, videoProvider?: string, seedOverride?: number, videoQuality: 'balanced' | 'quality' = 'balanced'): Promise<{ statusUrl: string; responseUrl: string }> {
   let provider: ReturnType<typeof parseVideoProvider>;
   try { provider = parseVideoProvider(videoProvider || process.env.VIDEO_PROVIDER); }
   catch (e: any) { throw new HttpError(500, e?.message || 'Invalid VIDEO_PROVIDER setting.', 'VIDEO_PROVIDER'); }
@@ -1508,7 +1508,35 @@ const videoRender: Handler = async ({ req, res, body }) => {
   const { row, user } = await requireAccess(req);
   const prompt = str(body.prompt, 2400);
   if (prompt.length < 5) throw new HttpError(400, 'A video prompt is required.');
-  const seconds: 5 | 10 = Number(body.seconds) === 10 ? 10 : 5;
+  let provider: ReturnType<typeof parseVideoProvider>;
+  try { provider = parseVideoProvider(body.videoProvider || process.env.VIDEO_PROVIDER); }
+  catch (error: any) { throw new HttpError(400, error?.message || 'Choose a supported video engine.', 'VIDEO_PROVIDER'); }
+
+  const requestedSeconds = Number(body.seconds);
+  if (!Number.isInteger(requestedSeconds)) throw new HttpError(400, 'Choose a whole-number video duration.', 'VIDEO_DURATION');
+  let seconds: number;
+  let videoModel: string | undefined;
+  if (provider === 'deapi') {
+    if (!lookupEnv('DEAPI_API_KEY')) throw new HttpError(424, 'DeAPI is not configured for this workspace. Add DEAPI_API_KEY in Vercel and redeploy.', 'VIDEO_PROVIDER_UNAVAILABLE');
+    videoModel = str(body.videoModel || process.env.DEAPI_VIDEO_MODEL || 'Ltx2_5_22B_Dist_INT8', 120);
+    const availableModels = await deapiVideoModels();
+    const selectedModel = availableModels.find((model) => model.slug === videoModel);
+    if (!selectedModel) throw new HttpError(400, 'That DeAPI model is not available on the connected account. Refresh the model list and choose an available model.', 'DEAPI_MODEL_UNAVAILABLE');
+    if (!selectedModel.maxDurationSeconds || !selectedModel.minDurationSeconds
+      || requestedSeconds < selectedModel.minDurationSeconds || requestedSeconds > selectedModel.maxDurationSeconds) {
+      throw new HttpError(400, `${selectedModel.name} supports ${selectedModel.durationLabel}; ${requestedSeconds} seconds is outside that model's limits. Choose a supported duration or another model.`, 'DEAPI_DURATION');
+    }
+    seconds = requestedSeconds;
+  } else {
+    if (![5, 10].includes(requestedSeconds)) {
+      throw new HttpError(400, 'FAL and Automatic currently support 5- or 10-second clips in this creator. Select DeAPI and a model that supports 30 seconds for a longer single clip.', 'VIDEO_DURATION_PROVIDER');
+    }
+    seconds = requestedSeconds;
+  }
+
+  if (provider === 'auto' && seconds > 10) {
+    throw new HttpError(400, 'A 30-second request must use DeAPI directly. Automatic starts with FAL, which does not accept this duration.', 'VIDEO_DURATION_PROVIDER');
+  }
   const aspect = ['9:16', '16:9', '1:1'].includes(String(body.aspect)) ? String(body.aspect) : '9:16';
   const used = (await sql()`SELECT COALESCE(sum(seconds), 0)::int AS secs FROM video_jobs WHERE user_id=${row.id} AND source = 'plan' AND status <> 'failed' AND created_at >= date_trunc('month', now())`) as any[];
   const planLeft = Math.max(0, user.secondsLimit - used[0].secs);
@@ -1520,7 +1548,7 @@ const videoRender: Handler = async ({ req, res, body }) => {
   }
   await rateLimit(`render:${row.id}`, 80, 3600);
   const videoQuality: 'balanced' | 'quality' = str(body.videoQuality, 20) === 'quality' ? 'quality' : 'balanced';
-  const job = await submitToProvider(prompt, PLANS[user.tier]?.resolution || '480P', seconds, aspect, undefined, undefined, undefined, undefined, videoQuality);
+  const job = await submitToProvider(prompt, PLANS[user.tier]?.resolution || '480P', seconds, aspect, undefined, undefined, videoModel, provider, undefined, videoQuality);
   const id = newId('job');
   await sql()`INSERT INTO video_jobs (id, user_id, status_url, response_url, seconds, source, render_prompt) VALUES (${id}, ${row.id}, ${job.statusUrl}, ${job.responseUrl}, ${seconds}, ${source}, ${prompt})`;
   json(res, 200, { jobId: id });
