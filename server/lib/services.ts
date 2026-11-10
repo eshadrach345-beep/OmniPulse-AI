@@ -4,6 +4,7 @@ import { buildDeapiVideoFields, resolveDeapiSeed } from './deapi-tuning.js';
 import { deapiAudioMime, deapiAudioSyncFrames, supportsDeapiAudioSyncModel } from './deapi-audio-sync.js';
 import { isRecentTrendSource, normalizeTrendPublishedAt, TREND_FRESHNESS_DAYS } from './trend-freshness.js';
 import { buildTrendSearchQueries } from './trend-search-plan.js';
+import { resolveFalVideoModel, resolveFalPromptExpansionMode, type FalVideoQuality } from './fal-video-profile.js';
 
 export const ENV_ALIASES: Record<string, string[]> = {
   GEMINI_API_KEY: ['GEMINI_API_KEY', 'GOOGLE_API_KEY', 'GOOGLE_GENAI_API_KEY', 'GEMINI_KEY', 'GOOGLE_AI_API_KEY'],
@@ -920,20 +921,30 @@ export async function geminiJson(prompt: string, opts: { grounded?: boolean; tim
 // =====================================================================
 // fal.ai (queue API: submit → poll → fetch result)
 // =====================================================================
-/** Video model. Override with FAL_VIDEO_MODEL; extra JSON input (e.g. aspect_ratio) can be set in FAL_VIDEO_INPUT. */
-const FAL_APP = () => (process.env.FAL_VIDEO_MODEL || 'minimax/h3-max-turbo/text-to-video').trim();
-function falVideoBody(prompt: string, resolution: string, seconds: number, aspect: string) {
+/** Extra JSON input (e.g. aspect_ratio) can still be set in FAL_VIDEO_INPUT. */
+function falVideoBody(prompt: string, resolution: string, seconds: number, aspect: string, quality: FalVideoQuality = 'balanced') {
   let extra: Record<string, unknown> = {};
   try { extra = JSON.parse(process.env.FAL_VIDEO_INPUT || '{}'); } catch { /* ignore bad JSON */ }
-  return { prompt, duration: seconds, resolution, aspect_ratio: aspect, prompt_expansion_mode: process.env.FAL_PROMPT_EXPANSION || 'balanced', ...extra };
+  return {
+    prompt, duration: seconds, resolution, aspect_ratio: aspect,
+    prompt_expansion_mode: resolveFalPromptExpansionMode(quality, process.env.FAL_PROMPT_EXPANSION),
+    ...extra,
+  };
 }
 const falHeaders = () => ({ Authorization: `Key ${need('FAL_KEY')}`, 'Content-Type': 'application/json' });
 
-export async function falSubmit(prompt: string, resolution: '480P' | '768P' | '1080P' = '480P', seconds = 5, aspect = '9:16') {
+export async function falSubmit(
+  prompt: string,
+  resolution: '480P' | '768P' | '1080P' = '480P',
+  seconds = 5,
+  aspect = '9:16',
+  quality: FalVideoQuality = 'balanced',
+) {
+  const model = resolveFalVideoModel('text', quality, process.env.FAL_VIDEO_MODEL);
   let r: Response;
   try {
-    r = await fetch(`https://queue.fal.run/${FAL_APP()}`, {
-      method: 'POST', headers: falHeaders(), body: JSON.stringify(falVideoBody(prompt, resolution, seconds, aspect)), signal: AbortSignal.timeout(20_000),
+    r = await fetch(`https://queue.fal.run/${model}`, {
+      method: 'POST', headers: falHeaders(), body: JSON.stringify(falVideoBody(prompt, resolution, seconds, aspect, quality)), signal: AbortSignal.timeout(20_000),
     });
   } catch (e: any) {
     console.error('fal submit network error', e?.name, e?.message);
@@ -950,14 +961,21 @@ export async function falSubmit(prompt: string, resolution: '480P' | '768P' | '1
   return { requestId: d.request_id as string, statusUrl: d.status_url as string, responseUrl: d.response_url as string };
 }
 
-/** Continues a finished fal clip from its exact final frame using MiniMax H3 Max Turbo image-to-video. */
-export async function falContinueSubmit(prompt: string, imageUrl: string, resolution: '480P' | '768P' | '1080P' = '480P', seconds = 10, aspect = '9:16') {
-  const model = 'minimax/h3-max-turbo/image-to-video';
+/** Continues a finished fal clip from its exact final frame using the selected image-to-video quality profile. */
+export async function falContinueSubmit(
+  prompt: string,
+  imageUrl: string,
+  resolution: '480P' | '768P' | '1080P' = '480P',
+  seconds = 10,
+  aspect = '9:16',
+  quality: FalVideoQuality = 'balanced',
+) {
+  const model = resolveFalVideoModel('image', quality, process.env.FAL_VIDEO_MODEL);
   let r: Response;
   try {
     r = await fetch(`https://queue.fal.run/${model}`, {
       method: 'POST', headers: falHeaders(),
-      body: JSON.stringify({ prompt, image_url: imageUrl, duration: seconds, resolution, aspect_ratio: aspect, prompt_expansion_mode: process.env.FAL_PROMPT_EXPANSION || 'balanced' }),
+      body: JSON.stringify({ prompt, image_url: imageUrl, duration: seconds, resolution, aspect_ratio: aspect, prompt_expansion_mode: resolveFalPromptExpansionMode(quality, process.env.FAL_PROMPT_EXPANSION) }),
       signal: AbortSignal.timeout(30_000),
     });
   } catch (e: any) {
@@ -1353,16 +1371,24 @@ export async function falTts(text: string, voiceId: string, gender?: string): Pr
 }
 
 
-/** Starts an image-conditioned brand-ad clip on H3 Max Turbo. Optional TTS audio is pinned as the exact ad voice-over. */
-export async function falImageVideoSubmit(imageUrl: string, prompt: string, seconds: 5 | 10, aspect: '9:16' | '16:9' | '1:1', resolution: '480P' | '768P' | '1080P' = '480P', targetAudioUrl?: string) {
-  const model = 'minimax/h3-max-turbo/image-to-video';
+/** Starts an image-conditioned brand-ad clip with the selected model profile. Optional TTS audio is pinned as the exact ad voice-over. */
+export async function falImageVideoSubmit(
+  imageUrl: string,
+  prompt: string,
+  seconds: 5 | 10,
+  aspect: '9:16' | '16:9' | '1:1',
+  resolution: '480P' | '768P' | '1080P' = '480P',
+  targetAudioUrl?: string,
+  quality: FalVideoQuality = 'balanced',
+) {
+  const model = resolveFalVideoModel('image', quality, process.env.FAL_VIDEO_MODEL);
   const body = {
     image_url: imageUrl,
     prompt,
     duration: seconds,
     resolution,
     aspect_ratio: aspect,
-    prompt_expansion_mode: process.env.FAL_PROMPT_EXPANSION || 'balanced',
+    prompt_expansion_mode: resolveFalPromptExpansionMode(quality, process.env.FAL_PROMPT_EXPANSION),
     ...(targetAudioUrl ? { target_audio_url: targetAudioUrl } : {}),
   };
   let r: Response;
