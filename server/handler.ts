@@ -553,7 +553,7 @@ const genScript: Handler = async ({ req, res, body }) => {
     idea: str(body.idea || 'Automated viral marketing for creator business', 600), niche: str(body.niche || 'Tech & AI SaaS', 80),
     videoType: str(body.videoType || 'explainer_video', 40), aspectRatio: str(body.aspectRatio || '9:16', 10),
     targetPlatforms: Array.isArray(body.targetPlatforms) ? body.targetPlatforms.slice(0, 7).map((x: any) => str(x, 20)) : ['tiktok', 'youtube', 'instagram'],
-    directorStyle: str(body.directorStyle || 'dynamic_viral', 40), hookFormula: str(body.hookFormula || 'witty_provocative', 40), voiceName: str(body.voiceName || 'No voice-over', 60), seconds: Number(body.seconds) === 10 ? 10 : 5,
+    directorStyle: str(body.directorStyle || 'dynamic_viral', 40), hookFormula: str(body.hookFormula || 'witty_provocative', 40), voiceName: str(body.voiceName || 'No voice-over', 60), seconds: [5, 10, 30].includes(Number(body.seconds)) ? Number(body.seconds) : 5,
   }));
   if (!Array.isArray(data.scenes) || !data.scenes.length) throw new HttpError(424, 'The AI returned an incomplete script. Please try again.', 'AI_PROVIDER_UNAVAILABLE');
   json(res, 200, { success: true, ...data });
