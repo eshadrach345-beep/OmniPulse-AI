@@ -16,6 +16,7 @@ import { renderComposition } from './lib/compositor.js';
 import { buildSceneKeyframePrompt, chooseSceneKeyframeReference, resolveSceneOpeningFrameUrl } from './lib/scene-keyframe.js';
 import { mergeClips, lastFrameJpeg, sampleVideoFrames } from './lib/merge.js';
 import { parseVideoProvider, shouldAttemptKlingMultiShot, shouldFallbackToDeapi, requiresKlingMultiShot } from './lib/video-provider-policy.js';
+import { evaluateVisualReview } from './lib/video-quality-gate.js';
 import { PROVIDERS, PLATFORM_IDS, Platform, isPlatform, isConfigured, redirectUri, socialPkce, socialAuthorizeUrl, exchangeSocialCode, saveSocialConnection, listSocialAccounts, removeSocialConnection, publishToPlatform, socialMetrics } from './lib/social.js';
 import { zernioConfigured, zernioConnectUrl, zernioSyncAccounts, zernioListAccounts, zernioDisconnect, zernioPublish, zernioHealth, zernioDeleteCustomer } from './lib/zernio.js';
 
@@ -609,7 +610,8 @@ const adImageRender: Handler = async ({ req, res, body }) => {
     const audio = await synthesize(voiceover, voiceGender === 'male' ? 'am_adam' : 'af_heart', voiceGender);
     targetAudioUrl = `data:${audio.type};base64,${audio.audio.toString('base64')}`;
   }
-  const job = await falImageVideoSubmit(imageUrl, prompt, seconds, aspect, PLANS[user.tier]?.resolution || '480P', targetAudioUrl);
+  const videoQuality: 'balanced' | 'quality' = str(body.videoQuality, 20) === 'quality' ? 'quality' : 'balanced';
+  const job = await falImageVideoSubmit(imageUrl, prompt, seconds, aspect, PLANS[user.tier]?.resolution || '480P', targetAudioUrl, videoQuality);
   const id = newId('job');
   await sql()`INSERT INTO video_jobs (id, user_id, status_url, response_url, seconds, source) VALUES (${id}, ${row.id}, ${job.statusUrl}, ${job.responseUrl}, ${seconds}, ${source})`;
   json(res, 200, { jobId: id });
@@ -1479,12 +1481,12 @@ const tts: Handler = async ({ req, res, body }) => {
 
 // ---------------------------------------------------------------- video (fal.ai / deAPI queue)
 /** Sends one clip to the configured video provider (VIDEO_PROVIDER: fal, deapi or auto) and returns its queue addresses. */
-async function submitToProvider(prompt: string, reso: '480P' | '768P' | '1080P', seconds: 5 | 10, aspect: string, multiPrompt?: { prompt: string; duration: number }[], videoModel?: string, videoProvider?: string, seedOverride?: number): Promise<{ statusUrl: string; responseUrl: string }> {
+async function submitToProvider(prompt: string, reso: '480P' | '768P' | '1080P', seconds: 5 | 10, aspect: string, multiPrompt?: { prompt: string; duration: number }[], videoModel?: string, videoProvider?: string, seedOverride?: number, videoQuality: 'balanced' | 'quality' = 'balanced'): Promise<{ statusUrl: string; responseUrl: string }> {
   let provider: ReturnType<typeof parseVideoProvider>;
   try { provider = parseVideoProvider(videoProvider || process.env.VIDEO_PROVIDER); }
   catch (e: any) { throw new HttpError(500, e?.message || 'Invalid VIDEO_PROVIDER setting.', 'VIDEO_PROVIDER'); }
   const viaDeapi = async () => { const deapiPrompt = multiPrompt?.length ? `${prompt} ${toNativeMultiShotPrompt(multiPrompt)}` : prompt; const j = await deapiSubmit(deapiPrompt, reso, seconds, aspect, videoModel, seedOverride); return { statusUrl: `deapi:${j.requestId}`, responseUrl: 'deapi' }; };
-  const viaFal = async () => { const j = await falSubmit(prompt, reso, seconds, aspect); return { statusUrl: j.statusUrl, responseUrl: j.responseUrl }; };
+  const viaFal = async () => { const j = await falSubmit(prompt, reso, seconds, aspect, videoQuality); return { statusUrl: j.statusUrl, responseUrl: j.responseUrl }; };
   if (provider === 'deapi') return viaDeapi();
   if (provider === 'fal') return viaFal();
   // Automatic failover is opt-in: VIDEO_PROVIDER=auto. fal/deapi selections are strict.
@@ -1510,7 +1512,8 @@ const videoRender: Handler = async ({ req, res, body }) => {
     else throw new HttpError(403, planLeft + bonus > 0 ? `You have ${planLeft + bonus} seconds of video left, so a ${seconds} second video will not fit. Choose a shorter length or buy more seconds.` : `You've used all your video seconds for this month. Buy extra seconds or upgrade your plan.`, 'LIMIT');
   }
   await rateLimit(`render:${row.id}`, 80, 3600);
-  const job = await submitToProvider(prompt, PLANS[user.tier]?.resolution || '480P', seconds, aspect);
+  const videoQuality: 'balanced' | 'quality' = str(body.videoQuality, 20) === 'quality' ? 'quality' : 'balanced';
+  const job = await submitToProvider(prompt, PLANS[user.tier]?.resolution || '480P', seconds, aspect, undefined, undefined, undefined, undefined, videoQuality);
   const id = newId('job');
   await sql()`INSERT INTO video_jobs (id, user_id, status_url, response_url, seconds, source) VALUES (${id}, ${row.id}, ${job.statusUrl}, ${job.responseUrl}, ${seconds}, ${source})`;
   json(res, 200, { jobId: id });
@@ -1540,7 +1543,8 @@ const videoRenderBatch: Handler = async ({ req, res, body }) => {
   }));
   const bad = scenes.find((s) => s.prompt.length < 5);
   if (bad) throw new HttpError(400, `Scene ${bad.index + 1} has no picture description.`);
-  const jobs = await startSceneBatch(row, user, scenes);
+  const videoQuality: 'balanced' | 'quality' = str(body.videoQuality, 20) === 'quality' ? 'quality' : 'balanced';
+  const jobs = await startSceneBatch(row, user, scenes, videoQuality);
   json(res, 200, { jobs, accepted: jobs.filter((j) => 'jobId' in j).length, failed: jobs.filter((j) => 'error' in j).length });
 };
 
@@ -1551,7 +1555,7 @@ type BatchJob = { index: number; jobId: string } | { index: number; error: strin
  * Checks the allowance once for the whole batch, sends every scene to the video provider at the same time (Promise.all),
  * and records the accepted scenes in video_jobs. Shared by the single-video flow and the series worker.
  */
-async function startSceneBatch(row: any, user: ReturnType<typeof toUser>, scenes: BatchScene[]): Promise<BatchJob[]> {
+async function startSceneBatch(row: any, user: ReturnType<typeof toUser>, scenes: BatchScene[], videoQuality: 'balanced' | 'quality' = 'balanced'): Promise<BatchJob[]> {
   // Allowance: plan seconds are used first, then bought top-up seconds, exactly like single renders.
   const total = scenes.reduce((t, s) => t + s.seconds, 0);
   const used = (await sql()`SELECT COALESCE(sum(seconds), 0)::int AS secs FROM video_jobs WHERE user_id=${row.id} AND source = 'plan' AND status <> 'failed' AND created_at >= date_trunc('month', now())`) as any[];
@@ -1567,7 +1571,7 @@ async function startSceneBatch(row: any, user: ReturnType<typeof toUser>, scenes
 
   const results = await Promise.all(scenes.map(async (s, i) => {
     try {
-      const job = await submitToProvider(s.prompt, reso, s.seconds, s.aspect);
+      const job = await submitToProvider(s.prompt, reso, s.seconds, s.aspect, undefined, undefined, undefined, undefined, videoQuality);
       return { index: s.index, ok: true as const, job, source: sources[i], seconds: s.seconds };
     } catch (e: any) {
       console.error(`batch scene ${s.index + 1} failed to start:`, e?.message);
@@ -2029,7 +2033,7 @@ const CHECK_EVERY_MS = 20_000;
 const MAX_STARTS_PER_STEP = 4;
 
 /** One 10 second clip of a scene, as saved in episodes.render_jobs. */
-interface PartEntry { tries: number; jobId?: string; url?: string; error?: string; checkAt?: number; retryAt?: number; keyframeUrl?: string; keyframePathname?: string; keyframeGeneratedAt?: string; keyframeReference?: string; continuityWarning?: string; visualReviewedJobId?: string; visualReviewStatus?: 'passed' | 'warning' | 'rejected' | 'unavailable'; visualReview?: { passed: boolean; severity: string; issues: string[]; summary: string } }
+interface PartEntry { tries: number; jobId?: string; url?: string; error?: string; checkAt?: number; retryAt?: number; keyframeUrl?: string; keyframePathname?: string; keyframeGeneratedAt?: string; keyframeReference?: string; continuityWarning?: string; visualReviewedJobId?: string; visualReviewStatus?: 'passed' | 'warning' | 'rejected' | 'unavailable'; visualReview?: { passed: boolean; severity: string; confidence?: string; qualityScore?: number | null; promptMatchScore?: number | null; motionCoherenceScore?: number | null; issues: string[]; summary: string } }
 /** One scene: a 10 second scene has one clip, a 20 second scene has two that follow each other. */
 interface RenderEntry { index: number; parts: PartEntry[] }
 
@@ -2074,6 +2078,10 @@ function episodeView(e: any) {
       scene: entry.index + 1, part: index + 1,
       status: part.visualReviewStatus || 'pending',
       severity: part.visualReview?.severity || null,
+      confidence: part.visualReview?.confidence || null,
+      qualityScore: part.visualReview?.qualityScore ?? null,
+      promptMatchScore: part.visualReview?.promptMatchScore ?? null,
+      motionCoherenceScore: part.visualReview?.motionCoherenceScore ?? null,
       issues: part.visualReview?.issues || [],
       summary: part.visualReview?.summary || part.continuityWarning || '',
     }))),
@@ -2143,6 +2151,7 @@ const episodeCreate: Handler = async ({ req, res, body }) => {
   if (videoProvider === 'deapi' && !lookupEnv('DEAPI_API_KEY')) throw new HttpError(424, 'DeAPI is not configured on this account. Choose FAL or add DEAPI_API_KEY in Vercel.', 'VIDEO_PROVIDER_UNAVAILABLE');
   if (videoProvider === 'auto' && !lookupEnv('FAL_KEY') && !lookupEnv('DEAPI_API_KEY')) throw new HttpError(424, 'No video provider is configured. Add FAL_KEY or DEAPI_API_KEY in Vercel.', 'VIDEO_PROVIDER_UNAVAILABLE');
   const videoModel = (videoProvider === 'deapi' || videoProvider === 'auto') ? str(body.videoModel, 120) : '';
+  const videoQuality: 'balanced' | 'quality' = str(body.videoQuality, 20) === 'quality' ? 'quality' : 'balanced';
   if (videoProvider === 'auto' && !lookupEnv('DEAPI_API_KEY') && videoModel) throw new HttpError(400, 'A DeAPI model cannot be selected because DeAPI is not configured as a fallback.', 'VIDEO_PROVIDER_UNAVAILABLE');
   const hasBrandKit = !!(brandKit.brandName || brandKit.tagline || brandKit.cta || brandKit.url || brandKit.logoAssetId || brandKit.referenceAssetIds.length || brandKit.startFrameAssetId || brandKit.endFrameAssetId);
   if (hasBrandKit) {
@@ -2187,7 +2196,7 @@ const episodeCreate: Handler = async ({ req, res, body }) => {
   }
 
   const episodeId = newId('ep');
-  const settings = { format: input.format, look: input.look, aspect: input.aspect, niche: input.niche, brief: input.brief, variationSeed: input.variationSeed, mode, script, direction, brandKit: hasBrandKit ? brandKit : null, videoProvider, videoModel: videoModel || undefined, reviewFirst: body.reviewFirst === true, characterReferences: body.characterReferences === true || (videoProvider === 'deapi' && !!lookupEnv('FAL_KEY')), approved: false };
+  const settings = { format: input.format, look: input.look, aspect: input.aspect, niche: input.niche, brief: input.brief, variationSeed: input.variationSeed, mode, script, direction, brandKit: hasBrandKit ? brandKit : null, videoProvider, videoModel: videoModel || undefined, videoQuality, reviewFirst: body.reviewFirst === true, characterReferences: body.characterReferences === true || (videoProvider === 'deapi' && !!lookupEnv('FAL_KEY')), approved: false };
   try {
     await sql()`INSERT INTO episodes (id, project_id, part_number, prompt_input, status, brief) VALUES (${episodeId}, ${projectId}, ${partNumber}, ${input.idea}, 'PROCESSING', ${jsonb(settings)}::jsonb)`;
   } catch (e: any) {
@@ -2278,7 +2287,7 @@ async function reserveSource(row: any, user: ReturnType<typeof toUser>, seconds:
  * Starts one 10 second clip. The second half of a 20 second scene starts from the last picture of the first half (image-to-video),
  * so the scene carries on without a jump; if that is not possible it falls back to a normal clip with a "continue" prompt.
  */
-async function startPart(row: any, user: ReturnType<typeof toUser>, spec: { prompt: string; aspect: string; kind: 'text' | 'continue'; prevUrl?: string; startImageUrl?: string; lastFrame?: Buffer; referenceImages?: { name: string; url: string; description?: string }[]; multiPrompt?: { prompt: string; duration: number }[]; commercial?: boolean; videoModel?: string; videoProvider?: string; seed?: number }) {
+async function startPart(row: any, user: ReturnType<typeof toUser>, spec: { prompt: string; aspect: string; kind: 'text' | 'continue'; prevUrl?: string; startImageUrl?: string; lastFrame?: Buffer; referenceImages?: { name: string; url: string; description?: string }[]; multiPrompt?: { prompt: string; duration: number }[]; commercial?: boolean; videoModel?: string; videoProvider?: string; videoQuality?: 'balanced' | 'quality'; seed?: number }) {
   const source = await reserveSource(row, user, PART_SECONDS);
   await rateLimit(`render:${row.id}`, 300, 3600);
   const reso = PLANS[user.tier]?.resolution || '480P';
@@ -2340,7 +2349,7 @@ async function startPart(row: any, user: ReturnType<typeof toUser>, spec: { prom
         const prompt = refs.length ? `${refs.map((x, i) => `Reference image ${i + 1} is ${x.name}. Preserve its relevant identity or environment details exactly; do not redesign them. `).join('')}${spec.prompt}` : spec.prompt;
         const j = refs.length
           ? await falReferenceVideoSubmit(prompt, refs.map((x) => x.url), reso, PART_SECONDS, spec.aspect, imageUrl)
-          : await falContinueSubmit(spec.prompt, imageUrl, reso, PART_SECONDS, spec.aspect);
+          : await falContinueSubmit(spec.prompt, imageUrl, reso, PART_SECONDS, spec.aspect, spec.videoQuality || 'balanced');
         job = { statusUrl: j.statusUrl, responseUrl: j.responseUrl };
       } catch (e: any) {
         if (e instanceof RateLimited) throw e;
@@ -2364,7 +2373,7 @@ async function startPart(row: any, user: ReturnType<typeof toUser>, spec: { prom
           job = { statusUrl: `deapi:${j.requestId}`, responseUrl: 'deapi' };
         } else throw e;
       }
-    } else job = await submitToProvider(deapiPrompt, reso, PART_SECONDS, spec.aspect, deapiMultiPrompt, spec.videoModel, spec.videoProvider, spec.seed);
+    } else job = await submitToProvider(deapiPrompt, reso, PART_SECONDS, spec.aspect, deapiMultiPrompt, spec.videoModel, spec.videoProvider, spec.seed, spec.videoQuality || 'balanced');
   }
   const id = newId('job');
   await sql()`INSERT INTO video_jobs (id, user_id, status_url, response_url, seconds, source) VALUES (${id}, ${row.id}, ${job.statusUrl}, ${job.responseUrl}, ${PART_SECONDS}, ${source})`;
@@ -2445,11 +2454,11 @@ async function stageRender(row: any, user: ReturnType<typeof toUser>, ep: any): 
     try {
       const st = await refreshJob(j);
       if (st.state === 'done' && st.videoUrl) {
-        // Review three sampled frames before accepting a generated shot. A clear identity,
-        // hand-anatomy or prop-continuity defect gets a bounded new-seed retry.
+        // Review four chronological frames against the exact render prompt and any
+        // continuity anchor before this paid clip can enter the final edit.
         if (p.visualReviewedJobId !== p.jobId) {
           try {
-            const sampled = await sampleVideoFrames(st.videoUrl, 3);
+            const sampled = await sampleVideoFrames(st.videoUrl, 4);
             const reviewReferences: { name: string; bytes: Buffer; mimeType: string }[] = [];
             let referenceUrl = /^https:\/\//i.test(String(p.keyframeUrl || '')) ? String(p.keyframeUrl) : '';
             if (!referenceUrl && p.keyframePathname && process.env.BLOB_READ_WRITE_TOKEN) {
@@ -2461,51 +2470,88 @@ async function stageRender(row: any, user: ReturnType<typeof toUser>, ep: any): 
               const referenceResponse = await fetch(referenceUrl, { signal: AbortSignal.timeout(8_000) });
               if (referenceResponse.ok) {
                 const referenceBytes = Buffer.from(await referenceResponse.arrayBuffer());
-                if (referenceBytes.length > 0 && referenceBytes.length <= 6 * 1024 * 1024) reviewReferences.push({ name: 'Saved scene opening keyframe', bytes: referenceBytes, mimeType: 'image/jpeg' });
+                if (referenceBytes.length > 0 && referenceBytes.length <= 6 * 1024 * 1024) {
+                  reviewReferences.push({ name: 'Saved scene opening keyframe', bytes: referenceBytes, mimeType: 'image/jpeg' });
+                }
               }
             }
+
             const scene = scenes[en.index] || {};
+            const partIndex = en.parts.indexOf(p);
+            const previousClipUrl = partIndex > 0
+              ? en.parts[partIndex - 1]?.url
+              : (scene.continuesPrevious === true || scene.referencePrevious === true)
+                ? entries[en.index - 1]?.parts.slice(-1)[0]?.url
+                : undefined;
+            if (previousClipUrl && reviewReferences.length < 2) {
+              try {
+                const previousFrame = await lastFrameJpeg(previousClipUrl);
+                if (previousFrame.length > 0 && previousFrame.length <= 6 * 1024 * 1024) {
+                  reviewReferences.push({ name: 'Previous scene final frame for continuity comparison', bytes: previousFrame, mimeType: 'image/jpeg' });
+                }
+              } catch (continuityError: any) {
+                console.warn('Previous-scene continuity reference could not be sampled:', continuityError?.message || continuityError);
+              }
+            }
+
             const cast = Array.isArray(ep.storyboard_json?.characters) ? ep.storyboard_json.characters : [];
+            const exactPartPrompt = scene.parts?.[partIndex]?.prompt || '';
             const sceneDescription = [
-              scene.visualPrompt || '',
-              scene.location ? `Location: ${scene.location}` : '',
-              (scene.lines || []).map((line: any) => `Character ${line.speaker}: ${line.text}`).join('; '),
+              'EXACT RENDER PROMPT: ' + exactPartPrompt,
+              'STORYBOARD VISUAL INTENT: ' + (scene.visualPrompt || ''),
+              scene.secondHalfAction ? 'NEXT PHYSICAL ACTION: ' + scene.secondHalfAction : '',
+              scene.location ? `LOCATION: ${scene.location}` : '',
+              (scene.lines || []).map((line: any) => `CHARACTER ${line.speaker}: ${line.text}`).join('; '),
               cast.map((character: any) => `${character.name}: ${character.description || ''}`).join('; '),
-            ].filter(Boolean).join('\n').slice(0, 2200);
-            const reviewFrames = sampled.map((frame, index) => ({ ...frame, name: `Shot frame ${index + 1}` }));
+            ].filter(Boolean).join('\n').slice(0, 3200);
+            const reviewFrames = sampled.map((frame, index) => ({ ...frame, name: `Chronological shot frame ${index + 1}` }));
             const review = await geminiVisualReview(sceneDescription, reviewFrames, reviewReferences);
             p.visualReviewedJobId = String(p.jobId || '');
             if (review) {
-              p.visualReviewStatus = review.passed ? 'passed' : review.severity === 'major' ? 'rejected' : 'warning';
-              p.visualReview = { passed: review.passed, severity: review.severity, issues: review.issues, summary: review.summary };
-              if (!review.passed && review.severity === 'major') {
-                const reason = review.summary || review.issues[0] || 'Major visual continuity defect detected.';
-                if (p.tries < 2) {
-                  // Allow one targeted regeneration for an unmistakable major defect.
-                  // A second rejection becomes a visible warning rather than an endless QA loop.
-                  await sql()`UPDATE video_jobs SET status = 'failed', error = ${('Visual QA rejected this shot: ' + reason).slice(0, 300)}
-                    WHERE id = ${p.jobId} AND user_id = ${row.id}`;
-                  delete p.jobId;
-                  delete p.url;
-                  p.error = `Visual QA rejected this shot: ${reason}`.slice(0, 300);
+              const decision = evaluateVisualReview(review);
+              p.visualReviewStatus = decision.status;
+              p.visualReview = {
+                passed: review.passed,
+                severity: review.severity,
+                confidence: review.confidence,
+                qualityScore: review.qualityScore,
+                promptMatchScore: review.promptMatchScore,
+                motionCoherenceScore: review.motionCoherenceScore,
+                issues: review.issues,
+                summary: decision.reject ? decision.reason : review.summary,
+              };
+              if (decision.reject) {
+                const reason = decision.reason || 'Visual quality did not meet the minimum standard.';
+                // A rejected output is not accepted as a finished clip. Mark its provider
+                // job failed first so the usage calculation refunds the rejected attempt.
+                await sql()`UPDATE video_jobs SET status = 'failed', error = ${('Visual QA rejected this shot: ' + reason).slice(0, 300)}
+                  WHERE id = ${p.jobId} AND user_id = ${row.id}`;
+                const rejectedJobId = p.jobId;
+                delete p.jobId;
+                delete p.url;
+                delete p.checkAt;
+                p.error = `Visual QA rejected this shot: ${reason}`.slice(0, 300);
+                if (p.tries < MAX_PART_TRIES) {
                   p.retryAt = Date.now() + 10_000;
-                  console.warn('Visual QA rejected generated scene; retrying once with a new seed:', { episodeId: ep.id, scene: en.index + 1, part: en.parts.indexOf(p) + 1, attempt: p.tries, reason });
-                  await save();
-                  continue;
+                  console.warn('Visual QA rejected generated scene; retrying with a new seed:', { episodeId: ep.id, scene: en.index + 1, part: partIndex + 1, attempt: p.tries, rejectedJobId, reason });
+                } else {
+                  delete p.retryAt;
+                  console.error('Visual QA rejected every generated attempt; scene will stop instead of delivering a known-bad clip:', { episodeId: ep.id, scene: en.index + 1, part: partIndex + 1, attempts: p.tries, rejectedJobId, reason });
                 }
-                p.visualReviewStatus = 'warning';
-                p.visualReview = { ...p.visualReview, passed: false, severity: 'major', summary: `Accepted after one visual retry. Review warning: ${reason}` };
-                console.warn('Visual QA still found issues after one retry; keeping the playable shot and showing a warning:', { episodeId: ep.id, scene: en.index + 1, part: en.parts.indexOf(p) + 1, reason });
+                await save();
+                continue;
               }
             } else {
-              p.visualReviewStatus = 'unavailable';
-              p.visualReview = { passed: true, severity: 'minor', issues: [], summary: 'Vision review unavailable; shot was not blocked.' };
+              const unavailable = evaluateVisualReview(null);
+              p.visualReviewStatus = unavailable.status;
+              p.visualReview = { passed: false, severity: 'minor', confidence: 'low', qualityScore: null, promptMatchScore: null, motionCoherenceScore: null, issues: [], summary: unavailable.reason };
             }
           } catch (error: any) {
             p.visualReviewedJobId = String(p.jobId || '');
-            p.visualReviewStatus = 'unavailable';
-            p.visualReview = { passed: true, severity: 'minor', issues: [], summary: 'Visual inspection could not run; shot was not blocked.' };
-            console.warn('Visual QA unavailable for generated scene:', error?.message || error);
+            const unavailable = evaluateVisualReview(null);
+            p.visualReviewStatus = unavailable.status;
+            p.visualReview = { passed: false, severity: 'minor', confidence: 'low', qualityScore: null, promptMatchScore: null, motionCoherenceScore: null, issues: [], summary: unavailable.reason };
+            console.warn('Visual QA unavailable for generated scene; clip is not quality-certified:', error?.message || error);
           }
         }
         p.url = st.videoUrl;
@@ -2670,7 +2716,7 @@ async function stageRender(row: any, user: ReturnType<typeof toUser>, ep: any): 
       const continuityPrompt = previousUrl || startImageUrl
         ? `${scene.parts[k].prompt} Continue from the supplied reference frame. Preserve the exact visible character identities, faces, hair, wardrobe, carried props and screen direction. The intended current scene location is ${currentLocation || 'the location described in this scene'}. If it differs from the reference frame, make a clear motivated transition into this current location and replace the old background; do not carry the previous set into the new scene. Keep only the named people required by this scene.`
         : scene.parts[k].prompt;
-      const { jobId } = await startPart(row, user, { prompt: continuityPrompt, aspect, kind: previousUrl || startImageUrl ? 'continue' : 'text', prevUrl: previousUrl, startImageUrl, referenceImages: selected, multiPrompt: commercialMultiPrompt || scene.parts[k].multiPrompt, commercial: isCommercial, videoModel: str(ep.brief?.videoModel, 120) || undefined, videoProvider: str(ep.brief?.videoProvider, 20) || undefined, lastFrame: userEndingFrame, seed: p.tries > 0 ? Math.floor(Math.random() * 2_000_000_000) : undefined });
+      const { jobId } = await startPart(row, user, { prompt: continuityPrompt, aspect, kind: previousUrl || startImageUrl ? 'continue' : 'text', prevUrl: previousUrl, startImageUrl, referenceImages: selected, multiPrompt: commercialMultiPrompt || scene.parts[k].multiPrompt, commercial: isCommercial, videoModel: str(ep.brief?.videoModel, 120) || undefined, videoProvider: str(ep.brief?.videoProvider, 20) || undefined, videoQuality: str(ep.brief?.videoQuality, 20) === 'quality' ? 'quality' : 'balanced', lastFrame: userEndingFrame, seed: p.tries > 0 ? Math.floor(Math.random() * 2_000_000_000) : undefined });
       p.jobId = jobId; p.tries += 1; p.checkAt = Date.now() + FIRST_CHECK_MS; delete p.error; started++;
     } catch (e: any) {
       if (e instanceof RateLimited) {

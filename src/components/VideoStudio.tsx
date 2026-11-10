@@ -140,6 +140,7 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
   // Studio Voice State
   const [selectedVoiceId, setSelectedVoiceId] = useState<string>(''); // no voice is chosen for the user
   const [selectedSeconds, setSelectedSeconds] = useState<number>(5);
+  const [videoQuality, setVideoQuality] = useState<'balanced' | 'quality'>('balanced');
   const [voiceGenderFilter, setVoiceGenderFilter] = useState<'all' | 'male' | 'female'>('all');
   const [voiceTypeFilter, setVoiceTypeFilter] = useState<'all' | 'commercial_ad' | 'viral_short' | 'storyteller' | 'explainer_tech' | 'conversational'>('all');
   const [voiceMomentum, setVoiceMomentum] = useState<number>(1.10); // 0.75x to 1.40x
@@ -448,6 +449,7 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
         seconds: selectedSeconds,
         voiceMomentum,
         voiceQuality,
+        videoQuality,
       }, (m) => setStatusMessage(m));
 
       onSaveNewVideo(generated);
@@ -1157,6 +1159,15 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
                   })}
                 </div>
                 {secondsLeft != null && <p className="text-[11px] text-slate-400">{secondsLeft} seconds of video left this month.</p>}
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="block text-xs font-semibold text-slate-300">Video rendering quality</label>
+                <select value={videoQuality} onChange={(event) => setVideoQuality(event.target.value as 'balanced' | 'quality')} className="w-full rounded-lg bg-slate-950 border border-slate-800 p-2.5 text-xs text-white">
+                  <option value="balanced">Balanced · H3 Max Turbo (lower cost)</option>
+                  <option value="quality">Quality-first · H3 Max (stronger prompt adherence and aesthetics)</option>
+                </select>
+                <p className="text-[10px] text-slate-500">Quality-first has a higher FAL charge per second. Balanced stays selected by default; a custom workspace FAL model override takes precedence.</p>
               </div>
 
               {/* Voice Selection Strip */}

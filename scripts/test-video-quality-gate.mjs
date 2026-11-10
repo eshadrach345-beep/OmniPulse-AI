@@ -1,0 +1,57 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import { createRequire } from 'node:module';
+
+const require = createRequire(import.meta.url);
+const ts = require('typescript');
+const source = fs.readFileSync(new URL('../server/lib/video-quality-gate.ts', import.meta.url), 'utf8');
+const compiled = ts.transpileModule(source, {
+  fileName: 'video-quality-gate.ts',
+  compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
+}).outputText;
+const gate = await import('data:text/javascript;base64,' + Buffer.from(compiled).toString('base64'));
+
+const strong = {
+  passed: true, severity: 'none', confidence: 'high',
+  qualityScore: 84, promptMatchScore: 91, motionCoherenceScore: 79,
+  issues: [], summary: 'The requested action is clear and coherent.',
+};
+assert.deepEqual(gate.evaluateVisualReview(strong), {
+  status: 'passed', reject: false, reason: 'The requested action is clear and coherent.',
+});
+
+const identityDefect = { ...strong, passed: false, severity: 'major', identityDrift: true, summary: 'The lead actor changes identity.' };
+const identityDecision = gate.evaluateVisualReview(identityDefect);
+assert.equal(identityDecision.status, 'rejected');
+assert.equal(identityDecision.reject, true);
+assert.match(identityDecision.reason, /identity/i);
+
+const lowPromptMatch = { ...strong, qualityScore: 80, promptMatchScore: 28, summary: 'The shot does not show the requested action.' };
+const lowPromptDecision = gate.evaluateVisualReview(lowPromptMatch);
+assert.equal(lowPromptDecision.status, 'rejected', 'high-confidence prompt mismatch scores block unusable shots');
+assert.match(lowPromptDecision.reason, /matched only 28/);
+
+const lowConfidence = { ...strong, confidence: 'low', qualityScore: 20, promptMatchScore: 10, motionCoherenceScore: 5 };
+assert.equal(gate.evaluateVisualReview(lowConfidence).status, 'passed', 'uncertain numeric scores alone must not cause a rejection');
+
+const minorWarning = { ...strong, passed: false, severity: 'minor', issues: ['The background is slightly soft.'] };
+const warning = gate.evaluateVisualReview(minorWarning);
+assert.equal(warning.status, 'warning');
+assert.equal(warning.reject, false);
+
+const unavailable = gate.evaluateVisualReview(null);
+assert.equal(unavailable.status, 'unavailable');
+assert.equal(unavailable.reject, false);
+assert.match(unavailable.reason, /not been quality-certified/i);
+
+assert.equal(gate.VISUAL_QUALITY_THRESHOLDS.overall, 58);
+assert.equal(gate.VISUAL_QUALITY_THRESHOLDS.promptMatch, 45);
+assert.equal(gate.VISUAL_QUALITY_THRESHOLDS.motionCoherence, 38);
+
+const handler = fs.readFileSync(new URL('../server/handler.ts', import.meta.url), 'utf8');
+assert.match(handler, /if \(p\.tries < MAX_PART_TRIES\)/, 'visual QA retry budget must be the same bounded three-attempt budget as provider rendering');
+assert.match(handler, /evaluateVisualReview\(review\)/, 'generated clips must pass through the central visual quality decision');
+assert.match(handler, /quality-certified/i, 'an unavailable visual reviewer must not be reported as a pass');
+assert.doesNotMatch(handler, /Accepted after one visual retry/, 'a clip rejected on every attempt must never be silently accepted');
+assert.match(handler, /UPDATE video_jobs SET status = 'failed'[\s\S]*?delete p\.jobId/, 'a rejected paid provider job must be failed before the episode releases it');
+console.log('Visual quality gate tests passed (major defects, confidence-aware scores, warnings, unavailable review, bounded retries and billing refund).');

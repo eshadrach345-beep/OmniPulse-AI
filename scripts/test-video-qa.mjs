@@ -29,18 +29,24 @@ assert.equal(noAudio.hasAudio, false);
 console.log('Video delivery QA parser tests passed (freeze, silence, loudness, true peak and no-audio handling).');
 
 const handler = fs.readFileSync(new URL('../server/handler.ts', import.meta.url), 'utf8');
-const rejectionBlock = handler.match(/if \(!review\.passed && review\.severity === 'major'\) \{([\s\S]*?)\n\s*\}\n\s*\} else \{/);
-assert.ok(rejectionBlock, 'visual QA major-rejection path must exist');
-const rejectionCode = rejectionBlock[1];
+const rejectedShotBlock = handler.match(/if \(decision\.reject\) \{([\s\S]*?)\n\s*\}\n\s*\} else \{/);
+assert.ok(rejectedShotBlock, 'visual QA must have a strict rejected-shot path');
+const rejectionCode = rejectedShotBlock[1];
 const refundUpdate = rejectionCode.indexOf("UPDATE video_jobs SET status = 'failed'");
 const clearJob = rejectionCode.indexOf('delete p.jobId');
 assert.ok(refundUpdate >= 0, 'a visually rejected completed provider job must be marked failed for billing');
 assert.ok(clearJob > refundUpdate, 'billing row must be marked failed before the episode drops its job ID');
 assert.match(rejectionCode, /WHERE id = \$\{p\.jobId\} AND user_id = \$\{row\.id\}/, 'refund update must be scoped to the current user and rejected job');
+assert.match(rejectionCode, /if \(p\.tries < MAX_PART_TRIES\)/, 'the visual review must use the bounded total render-attempt budget');
+assert.match(rejectionCode, /retrying with a new seed/);
+assert.match(rejectionCode, /rejected every generated attempt/);
+assert.match(handler, /sampleVideoFrames\(st\.videoUrl, 4\)/, 'visual QA must sample four chronological frames');
+assert.match(handler, /EXACT RENDER PROMPT:/, 'visual QA must compare output against the precise prompt sent to the provider');
+assert.match(handler, /lastFrameJpeg\(previousClipUrl\)/, 'continuous scenes must compare against the preceding clip final frame');
+assert.doesNotMatch(handler, /Accepted after one visual retry/, 'the system must not silently accept a repeatedly rejected shot');
 
 const providerTimeoutBlock = handler.match(/const MAX_PROVIDER_JOB_MS = 20 \* 60_000;[\s\S]*?const st = await refreshJob\(j\);/);
 assert.ok(providerTimeoutBlock, 'stale provider jobs must have a bounded timeout before status polling');
 assert.match(providerTimeoutBlock[0], /Date\.now\(\) - providerStartedAt > MAX_PROVIDER_JOB_MS/);
 assert.match(providerTimeoutBlock[0], /UPDATE video_jobs SET status = 'failed'/);
 assert.match(providerTimeoutBlock[0], /p\.tries = MAX_PART_TRIES/);
-assert.match(handler, /if \(p\.tries < 2\) \{[\s\S]*?Visual QA still found issues after one retry/);

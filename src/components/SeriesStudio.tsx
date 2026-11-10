@@ -213,6 +213,7 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
   const [startFrame, setStartFrame] = useState<BrandMediaAsset | null>(null);
   const [endFrame, setEndFrame] = useState<BrandMediaAsset | null>(null);
   const [videoProvider, setVideoProvider] = useState<'fal' | 'deapi' | 'auto'>('fal');
+  const [videoQuality, setVideoQuality] = useState<'balanced' | 'quality'>('balanced');
   const [falEnabled, setFalEnabled] = useState(false);
   const [deapiEnabled, setDeapiEnabled] = useState(false);
   const [videoModels, setVideoModels] = useState<{ slug: string; name: string; description: string; supportsImageToVideo: boolean; supportsLastFrame: boolean }[]>([]);
@@ -424,6 +425,7 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
         projectId: detail?.project.id, title: title.trim() || undefined, idea: idea.trim(), mode: writer, script: writer === 'paste' ? script.trim() : undefined,
         format, look, aspectRatio: ratio, niche: nicheName, brief: built.brief, reviewFirst, characterReferences,
         videoProvider,
+        videoQuality,
         videoModel: videoProvider === 'deapi' || videoProvider === 'auto' ? videoModel : undefined,
         brandKit: (brandName.trim() || brandTagline.trim() || brandCta.trim() || brandUrl.trim() || brandLogo || brandReferences.length || startFrame || endFrame) ? {
           brandName: brandName.trim(), tagline: brandTagline.trim(), primaryColor: brandColor,
@@ -562,6 +564,43 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
               {notice && <p role="status" className="text-[11px] text-emerald-300">{notice}</p>}
             </>
           )}
+
+          {episode && (episode.status === 'COMPLETED' || episode.status === 'FAILED') && episode.visualQuality?.length > 0 && (() => {
+            const checks = episode.visualQuality;
+            const passed = checks.filter((check) => check.status === 'passed').length;
+            const warnings = checks.filter((check) => check.status === 'warning' || check.status === 'rejected').length;
+            const unavailable = checks.filter((check) => check.status === 'unavailable').length;
+            const attention = checks.filter((check) => check.status !== 'passed').slice(0, 6);
+            return (
+              <section className="rounded-xl border border-slate-700 bg-slate-950/70 p-3 space-y-2">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-xs font-semibold text-white">AI visual quality review</p>
+                  <p className="text-[10px] text-slate-400">{passed}/{checks.length} clips passed · {warnings} warnings · {unavailable} unverified</p>
+                </div>
+                {attention.length > 0 ? (
+                  <div className="space-y-2">
+                    {attention.map((check) => (
+                      <div key={`${check.scene}-${check.part}`} className="rounded-lg border border-slate-800 bg-slate-900/70 px-2.5 py-2">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <span className="text-[10px] font-semibold text-slate-200">Scene {check.scene} · Clip {check.part}</span>
+                          <span className={`text-[9px] font-bold uppercase ${check.status === 'rejected' ? 'text-rose-300' : check.status === 'warning' ? 'text-amber-300' : 'text-slate-400'}`}>{check.status}</span>
+                        </div>
+                        <p className="mt-1 text-[10px] text-slate-400">{check.summary || 'No additional review details.'}</p>
+                        {(check.qualityScore !== null || check.promptMatchScore !== null || check.motionCoherenceScore !== null) && (
+                          <p className="mt-1 text-[9px] text-slate-500">
+                            {check.qualityScore !== null ? `Visual quality ${check.qualityScore}/100 · ` : ''}
+                            {check.promptMatchScore !== null ? `Scene match ${check.promptMatchScore}/100 · ` : ''}
+                            {check.motionCoherenceScore !== null ? `Motion coherence ${check.motionCoherenceScore}/100` : ''}
+                          </p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ) : <p className="text-[10px] text-emerald-300">All reviewed clips passed the automated visual checks.</p>}
+                {unavailable > 0 && <p className="text-[10px] text-amber-300">Some clips could not be checked by the vision reviewer. Those clips are marked unverified, not passed.</p>}
+              </section>
+            );
+          })()}
 
           {episode?.status === 'FAILED' && (
             <div className="space-y-2">
@@ -971,6 +1010,17 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
             </label>
             <span className="mb-0.5 rounded-full border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-center text-[9px] font-semibold uppercase tracking-wide text-slate-400">{videoProvider === 'auto' ? 'Automatic failover' : videoProvider === 'deapi' ? 'DeAPI engine' : 'FAL engine'}</span>
           </div>
+          {falEnabled && (videoProvider === 'fal' || videoProvider === 'auto') && (
+            <label className="block space-y-1 border-t border-slate-800 pt-3">
+              <span className="text-[11px] font-medium text-slate-300">FAL rendering quality</span>
+              <select value={videoQuality} onChange={(event) => setVideoQuality(event.target.value as 'balanced' | 'quality')} className={selectCls}>
+                <option value="balanced">Balanced · H3 Max Turbo (lower cost)</option>
+                <option value="quality">Quality-first · H3 Max (stronger prompt adherence and aesthetics)</option>
+              </select>
+              <p className="text-[10px] text-slate-500">Quality-first uses a higher FAL charge per second. The Balanced option remains the default. A custom workspace FAL model override takes precedence.</p>
+              {videoProvider === 'auto' && <p className="text-[10px] text-amber-300/80">This profile applies when Automatic uses FAL. It does not change the selected DeAPI backup model.</p>}
+            </label>
+          )}
           {(videoProvider === 'deapi' || videoProvider === 'auto') && deapiEnabled && (
             <label className="block space-y-1">
               <span className="text-[11px] font-medium text-slate-400">Video generation model</span>
@@ -1026,6 +1076,17 @@ export const SeriesStudio: React.FC<Props> = ({ nicheName, secondsLeft, onUsageC
               </select>
               <p className="text-[10px] text-slate-500">Saved to this new part. Provider choices are strict unless Automatic is selected.</p>
             </label>
+            {falEnabled && (videoProvider === 'fal' || videoProvider === 'auto') && (
+              <label className="block space-y-1 border-t border-slate-800 pt-3">
+                <span className="text-[11px] font-medium text-slate-300">FAL rendering quality</span>
+                <select value={videoQuality} onChange={(event) => setVideoQuality(event.target.value as 'balanced' | 'quality')} className={selectCls}>
+                  <option value="balanced">Balanced · H3 Max Turbo (lower cost)</option>
+                  <option value="quality">Quality-first · H3 Max (stronger prompt adherence and aesthetics)</option>
+                </select>
+                <p className="text-[10px] text-slate-500">Quality-first uses a higher FAL charge per second. Balanced remains the default. Custom workspace FAL model overrides take precedence.</p>
+                {videoProvider === 'auto' && <p className="text-[10px] text-amber-300/80">This applies to FAL only; the DeAPI backup uses its selected model.</p>}
+              </label>
+            )}
             {(videoProvider === 'deapi' || videoProvider === 'auto') && deapiEnabled && (
               <label className="block space-y-1">
                 <span className="text-[11px] font-medium text-slate-400">DeAPI video model</span>
