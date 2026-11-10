@@ -15,6 +15,8 @@ assert.equal(profile.resolveFalVideoModel('text'), 'minimax/h3-max-turbo/text-to
 assert.equal(profile.resolveFalVideoModel('image'), 'minimax/h3-max-turbo/image-to-video');
 assert.equal(profile.resolveFalVideoModel('text', 'quality'), 'minimax/h3-max/text-to-video');
 assert.equal(profile.resolveFalVideoModel('image', 'quality'), 'minimax/h3-max/image-to-video');
+assert.equal(profile.resolveFalVideoModel('text', 'quality', 'minimax/h3-max-turbo/text-to-video'), 'minimax/h3-max/text-to-video', 'per-production quality choice must override the default H3 Turbo model');
+assert.equal(profile.resolveFalVideoModel('image', 'balanced', 'minimax/h3-max/text-to-video'), 'minimax/h3-max-turbo/image-to-video', 'balanced choice must select Turbo even when workspace H3 Max is configured');
 
 assert.equal(
   profile.resolveFalVideoModel('image', 'quality', 'custom/model/text-to-video'),
