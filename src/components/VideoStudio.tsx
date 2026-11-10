@@ -218,7 +218,7 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
   const uploadVideoOpeningFrame = async (selection: FileList | null) => {
     const file = selection?.[0];
     if (!file) return;
-    const mime = file.type || (/\\.png$/i.test(file.name) ? 'image/png' : /\\.webp$/i.test(file.name) ? 'image/webp' : 'image/jpeg');
+    const mime = file.type || (file.name.toLowerCase().endsWith('.png') ? 'image/png' : file.name.toLowerCase().endsWith('.webp') ? 'image/webp' : 'image/jpeg');
     if (!['image/jpeg', 'image/png', 'image/webp'].includes(mime)) { setVideoFrameError('Choose a JPG, PNG or WebP image.'); return; }
     if (file.size <= 0 || file.size > 15 * 1024 * 1024) { setVideoFrameError('The opening image must be 15 MB or smaller.'); return; }
     const selectedModel = deapiModels.find((model) => model.slug === selectedDeapiModel);
