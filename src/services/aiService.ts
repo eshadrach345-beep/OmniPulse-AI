@@ -255,7 +255,7 @@ async function pollRender(jobId: string, onStatus?: (m: string) => void): Promis
  */
 async function pollRenderWithQualityRetries(
   initialJobId: string,
-  options: { prompt: string; seconds: number; aspect: string; videoQuality: 'balanced' | 'quality'; videoProvider?: 'fal' | 'deapi'; videoModel?: string },
+  options: { prompt: string; seconds: number; aspect: string; videoQuality: 'balanced' | 'quality'; videoProvider?: 'fal' | 'deapi' | 'auto'; videoModel?: string },
   onStatus?: (message: string) => void,
 ): Promise<{ url: string; jobId: string }> {
   let jobId = initialJobId;
@@ -289,7 +289,7 @@ export async function generateAIVideoScript(params: {
   voiceId?: string;
   /** Length of the rendered clip in seconds. DeAPI models may support up to 30 seconds. */
   seconds?: number;
-  videoProvider?: 'fal' | 'deapi';
+  videoProvider?: 'fal' | 'deapi' | 'auto';
   videoModel?: string;
   voiceMomentum?: number;
   voiceQuality?: string;
