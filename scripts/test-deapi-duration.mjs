@@ -38,8 +38,10 @@ assert.throws(() => D.deapiFramesForDuration(30, 'Ltx2_3_22B', ltxLimits), /supp
 assert.equal(D.getDeapiFrameLimits('Kling-4', {}).maxDurationSeconds, 30);
 assert.equal(D.getDeapiFrameLimits('unknown-video-model', {}), null);
 assert.throws(() => D.deapiFramesForDuration(30, 'unknown-video-model', {}), /did not publish frame limits/);
-assert.throws(() => D.deapiFramesForDuration(30, 'MiniMaxH3_33B_Turbo_INT8', {
-  info: { limits: { min_frames: 56, max_frames: 243, min_fps: 24, max_fps: 24 }, defaults: { fps: 24 } },
-}), /supports approximately 2.3–10.1 seconds/);
+const minimaxLimits = { info: { limits: { min_frames: 96, max_frames: 360, min_fps: 24, max_fps: 24 }, defaults: { fps: 24 } } };
+assert.deepEqual(D.deapiFramesForDuration(15, 'MiniMaxH3_33B_Turbo_INT8', minimaxLimits), { frames: 360, fps: 24 });
+assert.throws(() => D.deapiFramesForDuration(30, 'MiniMaxH3_33B_Turbo_INT8', minimaxLimits), /supports approximately 4–15 seconds/);
+assert.equal(D.getDeapiFrameLimits('Ltx2_5_22B_Dist_INT8', {}).maxDurationSeconds, 10);
+assert.equal(D.getDeapiFrameLimits('veo-3.1', {}).maxDurationSeconds, 8);
 
 console.log('DeAPI duration and frame-limit tests passed.');
