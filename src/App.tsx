@@ -626,7 +626,7 @@ function Workspace({ user: currentUser, initialDashboard, onLogout, onUserChange
 
         {activeTab === 'creator-studio' && (
           <div className="space-y-5">
-            <CreatorUploadStudio onEditVideo={(asset) => {
+            {!creatorEditVideo && <CreatorUploadStudio onEditMedia={(asset) => {
               const sceneId = `creator-scene-${asset.id}`;
               setCreatorEditVideo({
                 id: `creator-project-${asset.id}`,
@@ -652,7 +652,7 @@ function Workspace({ user: currentUser, initialDashboard, onLogout, onUserChange
                     assetId: asset.id,
                     name: asset.name,
                     contentType: asset.contentType,
-                    kind: 'video',
+                    kind: asset.contentType.startsWith('image/') ? 'image' : 'video',
                     track: 'main',
                     startAt: 0,
                     sourceIn: 0,
@@ -671,7 +671,7 @@ function Workspace({ user: currentUser, initialDashboard, onLogout, onUserChange
                 status: 'ready',
               });
               window.setTimeout(() => document.getElementById('creator-edit-workspace')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80);
-            }} />
+            }} />}
             {creatorEditVideo && (
               <div id="creator-edit-workspace" className="scroll-mt-24 space-y-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">
