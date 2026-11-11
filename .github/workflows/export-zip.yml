@@ -1,0 +1,61 @@
+name: Export uploaded project ZIP
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Safely extract the uploaded ZIP
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile
+          import shutil
+
+          archive = Path("OmniPulse-AI-main-full.zip")
+          output = Path("omnipulse-zip-export")
+          if not archive.is_file():
+              raise SystemExit(f"Archive not found at repository root: {archive}")
+          if output.exists():
+              shutil.rmtree(output)
+          output.mkdir()
+          root = output.resolve()
+
+          with ZipFile(archive) as zf:
+              for info in zf.infolist():
+                  target = (output / info.filename).resolve()
+                  if target != root and root not in target.parents:
+                      raise SystemExit(f"Unsafe ZIP entry rejected: {info.filename}")
+                  if info.is_dir():
+                      target.mkdir(parents=True, exist_ok=True)
+                      continue
+                  target.parent.mkdir(parents=True, exist_ok=True)
+                  with zf.open(info) as src, target.open("wb") as dst:
+                      shutil.copyfileobj(src, dst)
+
+          files = sorted(p for p in output.rglob("*") if p.is_file())
+          manifest = output / "EXPORT-MANIFEST.txt"
+          manifest.write_text(
+              "\n".join(f"{p.relative_to(output)}\t{p.stat().st_size} bytes" for p in files),
+              encoding="utf-8"
+          )
+          print(f"Extracted {len(files)} files.")
+          PY
+
+      - name: Upload extracted source as a downloadable artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: omnipulse-source-export
+          path: omnipulse-zip-export/
+          if-no-files-found: error
+          retention-days: 3
