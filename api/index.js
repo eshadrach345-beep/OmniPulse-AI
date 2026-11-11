@@ -1558,6 +1558,12 @@ function deapiCanvas(resolution, aspect) {
     width = sq;
     height = sq;
   }
+  const maxDimension = 1024;
+  if (height > maxDimension || width > maxDimension) {
+    const scale = Math.min(maxDimension / width, maxDimension / height);
+    width = Math.max(2, Math.floor(width * scale / 2) * 2);
+    height = Math.max(2, Math.floor(height * scale / 2) * 2);
+  }
   return [width, height];
 }
 function deapiClip(seconds, model, modelInfo) {
