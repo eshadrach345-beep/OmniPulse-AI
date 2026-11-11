@@ -1023,6 +1023,16 @@ function deapiCanvas(resolution: string, aspect: string): [number, number] {
   let [width, height] = DEAPI_SIZES[resolution] || DEAPI_SIZES['480P'];
   if (aspect === '16:9') [width, height] = [height, width];
   else if (aspect === '1:1') { const sq = resolution === '1080P' ? 960 : resolution === '768P' ? 832 : 640; width = sq; height = sq; }
+  // DeAPI currently rejects any request whose height exceeds 1024px. Some of
+  // our advertised portrait presets (768P/1080P) exceed that limit. Scale both
+  // dimensions together, round down to even values for video codecs, and keep
+  // the requested aspect ratio rather than sending an invalid canvas.
+  const maxDimension = 1024;
+  if (height > maxDimension || width > maxDimension) {
+    const scale = Math.min(maxDimension / width, maxDimension / height);
+    width = Math.max(2, Math.floor((width * scale) / 2) * 2);
+    height = Math.max(2, Math.floor((height * scale) / 2) * 2);
+  }
   return [width, height];
 }
 
