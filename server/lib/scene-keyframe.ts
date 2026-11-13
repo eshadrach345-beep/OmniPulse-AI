@@ -51,3 +51,16 @@ export function resolveSceneOpeningFrameUrl(preparedKeyframeUrl?: string, source
   const fallback = String(sourceReferenceUrl || '').trim();
   return /^https:\/\//i.test(fallback) ? fallback : '';
 }
+
+
+/** Keep canonical recurring props explicit in every render and visual-QA comparison. */
+export function buildCanonicalPropLock(props?: Array<{ name?: string; description?: string }>): string {
+  const entries = (Array.isArray(props) ? props : []).filter((prop) => String(prop?.name || '').trim()).slice(0, 8)
+    .map((prop) => {
+      const name = String(prop.name || '').trim().slice(0, 80);
+      const description = String(prop.description || '').trim().slice(0, 240);
+      return description ? `${name}: ${description}` : name;
+    });
+  if (!entries.length) return '';
+  return 'CANONICAL STORY-PROP CONTINUITY LOCK (these designs are fixed across shots): ' + entries.join('; ') + '. Preserve each listed object’s exact silhouette, proportions, material, colour, texture, markings and scale. Keep its holder, hand, orientation, damage and screen position continuous unless the visible action explicitly changes them. Never replace, duplicate, erase, redesign or spontaneously restore a story-critical prop.';
+}
