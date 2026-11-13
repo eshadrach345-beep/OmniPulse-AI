@@ -2941,7 +2941,7 @@ async function stageRender(row: any, user: ReturnType<typeof toUser>, ep: any): 
           ? `${scene.parts[k].prompt} Continue from the supplied reference frame. Preserve the exact visible character identities, faces, hair, wardrobe, carried props and screen direction. The intended current scene location is ${currentLocation || 'the location described in this scene'}. If it differs from the reference frame, make a clear motivated transition into this current location and replace the old background; do not carry the previous set into the new scene. Keep only the named people required by this scene.`
           : scene.parts[k].prompt,
         buildCanonicalPropLock(ep.storyboard_json?.keyProps),
-      ].filter(Boolean).join('\\n\\n');
+      ].filter(Boolean).join('\n\n');
       const { jobId } = await startPart(row, user, { prompt: continuityPrompt, aspect, kind: previousUrl || startImageUrl ? 'continue' : 'text', prevUrl: previousUrl, startImageUrl, referenceImages: selected, multiPrompt: commercialMultiPrompt || scene.parts[k].multiPrompt, commercial: isCommercial, videoModel: str(ep.brief?.videoModel, 120) || undefined, videoProvider: str(ep.brief?.videoProvider, 20) || undefined, videoQuality: str(ep.brief?.videoQuality, 20) === 'quality' ? 'quality' : 'balanced', lastFrame: userEndingFrame, seed: p.tries > 0 ? Math.floor(Math.random() * 2_000_000_000) : undefined });
       p.jobId = jobId; p.tries += 1; p.checkAt = Date.now() + FIRST_CHECK_MS; delete p.error; started++;
     } catch (e: any) {
