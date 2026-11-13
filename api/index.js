@@ -3369,6 +3369,15 @@ function resolveSceneOpeningFrameUrl(preparedKeyframeUrl, sourceReferenceUrl) {
   const fallback = String(sourceReferenceUrl || "").trim();
   return /^https:\/\//i.test(fallback) ? fallback : "";
 }
+function buildCanonicalPropLock(props) {
+  const entries = (Array.isArray(props) ? props : []).filter((prop) => String(prop?.name || "").trim()).slice(0, 8).map((prop) => {
+    const name = String(prop.name || "").trim().slice(0, 80);
+    const description = String(prop.description || "").trim().slice(0, 240);
+    return description ? `${name}: ${description}` : name;
+  });
+  if (!entries.length) return "";
+  return "CANONICAL STORY-PROP CONTINUITY LOCK (these designs are fixed across shots): " + entries.join("; ") + ". Preserve each listed object\u2019s exact silhouette, proportions, material, colour, texture, markings and scale. Keep its holder, hand, orientation, damage and screen position continuous unless the visible action explicitly changes them. Never replace, duplicate, erase, redesign or spontaneously restore a story-critical prop.";
+}
 
 // server/lib/merge.ts
 async function ffmpegBinary() {
@@ -6995,7 +7004,8 @@ async function stageRender(row, user, ep) {
               scene.secondHalfAction ? "NEXT PHYSICAL ACTION: " + scene.secondHalfAction : "",
               scene.location ? `LOCATION: ${scene.location}` : "",
               (scene.lines || []).map((line) => `CHARACTER ${line.speaker}: ${line.text}`).join("; "),
-              cast.map((character) => `${character.name}: ${character.description || ""}`).join("; ")
+              cast.map((character) => `${character.name}: ${character.description || ""}`).join("; "),
+              buildCanonicalPropLock(ep.storyboard_json?.keyProps)
             ].filter(Boolean).join("\n").slice(0, 3200);
             const reviewFrames = sampled.map((frame, index) => ({ ...frame, name: `Chronological shot frame ${index + 1}` }));
             const review = await geminiVisualReview(sceneDescription, reviewFrames, reviewReferences);
@@ -7184,7 +7194,10 @@ async function stageRender(row, user, ep) {
         cameraMotion: str(scene.cameraMotion, 180),
         spokenLines: spokenPartLines
       }) : void 0;
-      const continuityPrompt = previousUrl || startImageUrl ? `${scene.parts[k].prompt} Continue from the supplied reference frame. Preserve the exact visible character identities, faces, hair, wardrobe, carried props and screen direction. The intended current scene location is ${currentLocation || "the location described in this scene"}. If it differs from the reference frame, make a clear motivated transition into this current location and replace the old background; do not carry the previous set into the new scene. Keep only the named people required by this scene.` : scene.parts[k].prompt;
+      const continuityPrompt = [
+        previousUrl || startImageUrl ? `${scene.parts[k].prompt} Continue from the supplied reference frame. Preserve the exact visible character identities, faces, hair, wardrobe, carried props and screen direction. The intended current scene location is ${currentLocation || "the location described in this scene"}. If it differs from the reference frame, make a clear motivated transition into this current location and replace the old background; do not carry the previous set into the new scene. Keep only the named people required by this scene.` : scene.parts[k].prompt,
+        buildCanonicalPropLock(ep.storyboard_json?.keyProps)
+      ].filter(Boolean).join("\n\n");
       const { jobId } = await startPart(row, user, { prompt: continuityPrompt, aspect, kind: previousUrl || startImageUrl ? "continue" : "text", prevUrl: previousUrl, startImageUrl, referenceImages: selected, multiPrompt: commercialMultiPrompt || scene.parts[k].multiPrompt, commercial: isCommercial, videoModel: str(ep.brief?.videoModel, 120) || void 0, videoProvider: str(ep.brief?.videoProvider, 20) || void 0, videoQuality: str(ep.brief?.videoQuality, 20) === "quality" ? "quality" : "balanced", lastFrame: userEndingFrame, seed: p.tries > 0 ? Math.floor(Math.random() * 2e9) : void 0 });
       p.jobId = jobId;
       p.tries += 1;
