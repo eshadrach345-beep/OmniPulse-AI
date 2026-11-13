@@ -10,6 +10,10 @@ const compiled = ts.transpileModule(source, {
 }).outputText;
 const mod = await import('data:text/javascript;base64,' + Buffer.from(compiled).toString('base64'));
 
+const storyboardPrompt = fs.readFileSync(new URL('../server/lib/prompts.ts', import.meta.url), 'utf8');
+assert.match(storyboardPrompt, /not only recurring props/);
+assert.match(storyboardPrompt, /list its visible contents as separate props/);
+
 const prompt = mod.buildSceneKeyframePrompt({
   scenePrompt: 'A woman opens a weathered wooden box beside the sea.',
   location: 'Stormy cliffside with iron railing.',
