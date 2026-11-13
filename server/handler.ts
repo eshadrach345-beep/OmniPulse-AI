@@ -13,7 +13,7 @@ import { validateTrendRadarOutput } from './lib/trend-radar-validation.js';
 import { assembleParts, toNativeMultiShotPrompt, addDeapiCastNotes, buildCommercialShotPrompts } from './lib/assemble.js';
 import { refineScene, shownInstruction, proseToUnits, thoughtToVisual, type SpokenLine } from './lib/screenplay.js';
 import { renderComposition } from './lib/compositor.js';
-import { buildSceneKeyframePrompt, chooseSceneKeyframeReference, resolveSceneOpeningFrameUrl } from './lib/scene-keyframe.js';
+import { buildSceneKeyframePrompt, buildCanonicalPropLock, chooseSceneKeyframeReference, resolveSceneOpeningFrameUrl } from './lib/scene-keyframe.js';
 import { mergeClips, lastFrameJpeg, sampleVideoFrames } from './lib/merge.js';
 import { parseVideoProvider, shouldAttemptKlingMultiShot, shouldFallbackToDeapi, requiresKlingMultiShot } from './lib/video-provider-policy.js';
 import { resolveFalKlingResolution } from './lib/fal-video-profile.js';
@@ -2725,6 +2725,7 @@ async function stageRender(row: any, user: ReturnType<typeof toUser>, ep: any): 
               scene.location ? `LOCATION: ${scene.location}` : '',
               (scene.lines || []).map((line: any) => `CHARACTER ${line.speaker}: ${line.text}`).join('; '),
               cast.map((character: any) => `${character.name}: ${character.description || ''}`).join('; '),
+              buildCanonicalPropLock(ep.storyboard_json?.keyProps),
             ].filter(Boolean).join('\n').slice(0, 3200);
             const reviewFrames = sampled.map((frame, index) => ({ ...frame, name: `Chronological shot frame ${index + 1}` }));
             const review = await geminiVisualReview(sceneDescription, reviewFrames, reviewReferences);
@@ -2935,9 +2936,12 @@ async function stageRender(row: any, user: ReturnType<typeof toUser>, ep: any): 
             spokenLines: spokenPartLines,
           })
         : undefined;
-      const continuityPrompt = previousUrl || startImageUrl
-        ? `${scene.parts[k].prompt} Continue from the supplied reference frame. Preserve the exact visible character identities, faces, hair, wardrobe, carried props and screen direction. The intended current scene location is ${currentLocation || 'the location described in this scene'}. If it differs from the reference frame, make a clear motivated transition into this current location and replace the old background; do not carry the previous set into the new scene. Keep only the named people required by this scene.`
-        : scene.parts[k].prompt;
+      const continuityPrompt = [
+        previousUrl || startImageUrl
+          ? `${scene.parts[k].prompt} Continue from the supplied reference frame. Preserve the exact visible character identities, faces, hair, wardrobe, carried props and screen direction. The intended current scene location is ${currentLocation || 'the location described in this scene'}. If it differs from the reference frame, make a clear motivated transition into this current location and replace the old background; do not carry the previous set into the new scene. Keep only the named people required by this scene.`
+          : scene.parts[k].prompt,
+        buildCanonicalPropLock(ep.storyboard_json?.keyProps),
+      ].filter(Boolean).join('\\n\\n');
       const { jobId } = await startPart(row, user, { prompt: continuityPrompt, aspect, kind: previousUrl || startImageUrl ? 'continue' : 'text', prevUrl: previousUrl, startImageUrl, referenceImages: selected, multiPrompt: commercialMultiPrompt || scene.parts[k].multiPrompt, commercial: isCommercial, videoModel: str(ep.brief?.videoModel, 120) || undefined, videoProvider: str(ep.brief?.videoProvider, 20) || undefined, videoQuality: str(ep.brief?.videoQuality, 20) === 'quality' ? 'quality' : 'balanced', lastFrame: userEndingFrame, seed: p.tries > 0 ? Math.floor(Math.random() * 2_000_000_000) : undefined });
       p.jobId = jobId; p.tries += 1; p.checkAt = Date.now() + FIRST_CHECK_MS; delete p.error; started++;
     } catch (e: any) {
