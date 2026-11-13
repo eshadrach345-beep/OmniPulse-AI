@@ -30,6 +30,11 @@ const refs = [
   { url: 'https://example.test/character.jpg', kind: 'character' },
   { url: 'https://example.test/product.jpg', kind: 'product' },
 ];
+const propLock = mod.buildCanonicalPropLock([{ name: 'Evidence phone', description: 'black glass slab, cracked upper-right corner, silver side buttons' }]);
+assert.match(propLock, /Evidence phone: black glass slab/);
+assert.match(propLock, /Never replace, duplicate, erase, redesign/);
+assert.equal(mod.buildCanonicalPropLock([]), '');
+
 assert.equal(mod.chooseSceneKeyframeReference(refs).url, refs[1].url, 'character identity takes priority over location plate');
 assert.equal(mod.chooseSceneKeyframeReference([{ url: 'https://example.test/product.jpg', kind: 'product' }]).kind, 'product');
 assert.equal(mod.chooseSceneKeyframeReference([]), undefined);
