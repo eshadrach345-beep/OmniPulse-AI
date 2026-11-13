@@ -604,7 +604,7 @@ const sceneRules = (cam: { label: string }) => `SCENE RULES:
 - "cameraMotion": one sentence in film language applying the ${cam.label} profile to this shot. It must not cross the action axis or reverse the subject's travel direction unless the scene visibly motivates it.
 - "lines": 0 to 3 natural lines per scene, spoken during the action. Vary line length and rhythm (a sharp 2-word interruption may sit beside a complete 8-to-12-word thought); do not make every line the same length or force clipped fragments. Keep within the total spoken-word budget for that clip. Every speaker must match a character name and each line must fit its assigned half. For each line, "doing" is a concrete visible physical action, not an emotion; include that action in the scene's visual sequence as well as in the line field. Keep each speaker's quoted words separate and in the exact order they are spoken.
 - PRESERVE CHARACTER IDENTITY: every recurring character keeps the same face shape, eye spacing, skin tone, hair colour, hair length, hairstyle, build, exact outfit, garment colours, shoes and accessories in every shot. Repeat the fixed description verbatim. A new room or camera angle is not a wardrobe change. Do not create a second copy, twin, duplicate reflection-person or background version of a named character; show exactly one instance unless the plot explicitly calls for a duplicate.
-- LOCK STORY OBJECTS: for every recurring story-critical prop, define its canonical shape, proportions, material, colour, surface texture, size and unique marks in the top-level keyProps array. Reuse those same descriptors whenever it appears. A stone anchor remains the same stone anchor with the same solid geometry; do not reinterpret it as a ring, loop or different object. A map, box, tool or keepsake must not change dimensions, design, material or markings between shots. Keep its holder, hand, orientation, damage and position continuous unless an action changes them.
+- LOCK STORY OBJECTS: define every story-critical prop in the top-level keyProps array, not only recurring props. Include one-off objects if they matter to the plot. For any case, bag, box, drawer or container, list its visible contents as separate props and specify their count, position and appearance. Reuse the same descriptors whenever they appear; contents cannot disappear or a container become empty unless the screenplay shows the removal. A stone anchor remains the same stone anchor with the same solid geometry; do not reinterpret it as a ring, loop or different object. A map, box, tool or keepsake must not change dimensions, design, material or markings between shots. Keep its holder, hand, orientation, damage and position continuous unless an action changes them.
 - HUMAN FORM AND HANDS: keep each person anatomically natural with two arms and two hands, five distinct fingers on each visible hand, stable joints and believable grips. Avoid fused, duplicated or bent-through fingers. If a complicated grip cannot be rendered clearly, use a medium shot with the hand and object visible together rather than an extreme close-up of fingers.
 - LOCATION, LIGHT AND PERSPECTIVE: lock each named room architecture, furniture, doors, windows, floor plan, horizon, object scale and practical light positions. Keep key-light direction, colour temperature, shadow direction and time of day stable across adjacent shots unless the script visibly changes them. Maintain the same 180-degree action axis; a new lens or angle must not mirror the room or move fixed objects.
 - Preserve geography, injuries, character identity, exact wardrobe and props. Use referencePrevious whenever the same cast, outfit or important object must stay visually identical across a motivated cut. Start fresh only when the screenplay specifies a real reset, time jump or new continuity state.
@@ -704,7 +704,7 @@ Return ONLY valid JSON in exactly this shape:
   "logline": "<one sentence summary>",
   "storySoFar": "<2 to 4 sentences summarising the whole story so far, including this part, so a future writer can continue it>",
   "location": "<35 to 70 word fixed primary location description for the series>",
-  "keyProps": [ { "name": "<recurring object>", "description": "<canonical shape, proportions, material, colour, texture and distinctive marks>" } ],
+  "keyProps": [ { "name": "<story-critical prop, recurring or one-off>", "description": "<canonical shape, proportions, material, colour, texture, distinctive marks, and exact contents if it is a container>" } ],
   "characters": [ { "id": "c1", "name": "<n>", "role": "<role>", "gender": "male", "voice": "<how they sound>", "description": "<visual description>" } ],
   "scenes": [ ${sceneJsonShape} ],
   "hashtags": ["#tag1", "#tag2", "#tag3", "#tag4", "#tag5"],
@@ -728,7 +728,7 @@ Return ONLY valid JSON in exactly this shape:
   "logline": "<one sentence summary>",
   "storySoFar": "<2 to 4 sentences summarising the whole story so far, including this part>",
   "location": "<35 to 70 word fixed primary location description for the series>",
-  "keyProps": [ { "name": "<recurring object>", "description": "<canonical shape, proportions, material, colour, texture and distinctive marks>" } ],
+  "keyProps": [ { "name": "<story-critical prop, recurring or one-off>", "description": "<canonical shape, proportions, material, colour, texture, distinctive marks, and exact contents if it is a container>" } ],
   "characters": [ { "id": "c1", "name": "<n>", "role": "<role>", "gender": "male", "voice": "<how they sound>", "description": "<visual description>" } ],
   "outline": [ { "sceneNumber": 1, "summary": "<one specific sentence: where, who is in it, what happens, what changes>" } ],
   "hashtags": ["#tag1", "#tag2", "#tag3", "#tag4", "#tag5"],
@@ -792,7 +792,7 @@ Return ONLY valid JSON in exactly this shape:
   "logline": "<one sentence summary>",
   "storySoFar": "<2 to 4 sentences summarising the story so far, including this part>",
   "location": "<35 to 70 word fixed primary location description for the series>",
-  "keyProps": [ { "name": "<recurring object>", "description": "<canonical shape, proportions, material, colour, texture and distinctive marks>" } ],
+  "keyProps": [ { "name": "<story-critical prop, recurring or one-off>", "description": "<canonical shape, proportions, material, colour, texture, distinctive marks, and exact contents if it is a container>" } ],
   "characters": [ { "id": "c1", "name": "<n>", "role": "<role>", "gender": "male", "voice": "<how they sound>", "description": "<visual description>" } ],
   "scenes": [ ${sceneJsonShape} ],
   "remainingScript": "<the rest of the script, verbatim, or empty>",

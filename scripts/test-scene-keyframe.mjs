@@ -10,6 +10,10 @@ const compiled = ts.transpileModule(source, {
 }).outputText;
 const mod = await import('data:text/javascript;base64,' + Buffer.from(compiled).toString('base64'));
 
+const storyboardPrompt = fs.readFileSync(new URL('../server/lib/prompts.ts', import.meta.url), 'utf8');
+assert.match(storyboardPrompt, /not only recurring props/);
+assert.match(storyboardPrompt, /list its visible contents as separate props/);
+
 const prompt = mod.buildSceneKeyframePrompt({
   scenePrompt: 'A woman opens a weathered wooden box beside the sea.',
   location: 'Stormy cliffside with iron railing.',
@@ -33,7 +37,11 @@ const refs = [
 const propLock = mod.buildCanonicalPropLock([{ name: 'Evidence phone', description: 'black glass slab, cracked upper-right corner, silver side buttons' }]);
 assert.match(propLock, /Evidence phone: black glass slab/);
 assert.match(propLock, /Never replace, duplicate, erase, redesign/);
-assert.equal(mod.buildCanonicalPropLock([]), '');
+assert.match(propLock, /Treat nested contents as separate locked props/);
+assert.match(propLock, /Never show an empty container/);
+const emptyInventoryLock = mod.buildCanonicalPropLock([]);
+assert.match(emptyInventoryLock, /identify every story-critical object/);
+assert.match(emptyInventoryLock, /stored inside another object/);
 
 assert.equal(mod.chooseSceneKeyframeReference(refs).url, refs[1].url, 'character identity takes priority over location plate');
 assert.equal(mod.chooseSceneKeyframeReference([{ url: 'https://example.test/product.jpg', kind: 'product' }]).kind, 'product');
