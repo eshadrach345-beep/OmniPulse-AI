@@ -345,3 +345,32 @@ export async function sampleVideoFrames(url: string, count = 4): Promise<Sampled
     await fs.rm(dir, { recursive: true, force: true }).catch(() => undefined);
   }
 }
+
+
+/** Samples three chronological frames from an already assembled local film for sequence-level continuity review. */
+export async function sampleVideoFileFrames(file: string, count = 3): Promise<SampledVideoFrame[]> {
+  const bin = await ffmpegBinary();
+  const fs = await import('node:fs/promises');
+  const os = await import('node:os');
+  const path = await import('node:path');
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'op-film-qa-'));
+  try {
+    const info = await inspect(bin, file);
+    const duration = Math.max(1, info.seconds || 5);
+    const sampleCount = Math.max(3, Math.min(4, Math.round(count) || 3));
+    const pattern = path.join(dir, 'frame-%02d.jpg');
+    const fps = (sampleCount / duration).toFixed(6);
+    const result = await run(bin, ['-y', '-i', file, '-vf', `fps=${fps},scale=512:-2`, '-frames:v', String(sampleCount), '-q:v', '5', pattern], 10_000);
+    if (result.code !== 0) throw new Error('Could not sample the assembled film for sequence-level visual QA.');
+    const names = (await fs.readdir(dir)).filter((name) => /^frame-\\d+\\.jpg$/.test(name)).sort();
+    const frames: SampledVideoFrame[] = [];
+    for (let i = 0; i < names.length; i++) {
+      const bytes = await fs.readFile(path.join(dir, names[i]));
+      if (bytes.length) frames.push({ timestamp: Math.min(duration, (i + 0.5) * duration / sampleCount), bytes, mimeType: 'image/jpeg' });
+    }
+    if (frames.length < 3) throw new Error('Sequence-level QA could not extract enough frames from the assembled film.');
+    return frames;
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true }).catch(() => undefined);
+  }
+}
