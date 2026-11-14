@@ -94,6 +94,17 @@ export function ensureSchema(): Promise<void> {
         expires_at TIMESTAMPTZ,
         connected_at TIMESTAMPTZ NOT NULL DEFAULT now()
       )`;
+      await q`ALTER TABLE buffer_connections ADD COLUMN IF NOT EXISTS refresh_lock_until TIMESTAMPTZ`;
+      await q`CREATE TABLE IF NOT EXISTS buffer_channels (
+        user_id TEXT NOT NULL,
+        platform TEXT NOT NULL,
+        channel_id TEXT NOT NULL,
+        name TEXT NOT NULL DEFAULT '',
+        service TEXT NOT NULL DEFAULT '',
+        organization_id TEXT NOT NULL DEFAULT '',
+        connected_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        PRIMARY KEY (user_id, platform)
+      )`;
       await q`CREATE TABLE IF NOT EXISTS social_connections (
         user_id TEXT NOT NULL,
         platform TEXT NOT NULL,
