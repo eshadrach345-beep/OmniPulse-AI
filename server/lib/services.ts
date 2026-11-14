@@ -1631,6 +1631,47 @@ export async function falKlingReferenceSubmit(
   return { requestId: String(d.request_id), statusUrl: String(d.status_url), responseUrl: String(d.response_url) };
 }
 
+/** Generates two ad brand stills through deAPI when configured, without silently charging fal.ai as a fallback. */
+export async function generateAdBrandImages(prompt: string, aspect: '9:16' | '16:9' | '1:1') {
+  const mode = (process.env.AD_IMAGE_PROVIDER || process.env.IMAGE_PROVIDER || 'auto').trim().toLowerCase();
+  const haveDeapi = !!lookupEnv('DEAPI_API_KEY');
+  const selected = mode === 'auto' ? (haveDeapi ? 'deapi' : lookupEnv('FAL_KEY') ? 'fal' : '') : mode;
+  if (selected === 'fal') return falGenerateBrandImages(prompt, aspect);
+  if (selected !== 'deapi') throw new HttpError(424, selected ? 'AD_IMAGE_PROVIDER must be deapi, fal or auto.' : 'No brand image provider is configured. Add DEAPI_API_KEY or FAL_KEY in Vercel.', 'AD_IMAGE_PROVIDER');
+  const dimensions = aspect === '9:16' ? [576, 1024] : aspect === '16:9' ? [1024, 576] : [768, 768];
+  const createOne = async (index: number): Promise<string> => {
+    let response: Response;
+    try {
+      response = await fetch(`${DEAPI_BASE}/images/generations`, {
+        method: 'POST', headers: deapiHeaders(),
+        body: JSON.stringify({ model: (process.env.DEAPI_IMAGE_MODEL || 'Flux_2_Klein_4B_BF16').trim(), prompt, width: dimensions[0], height: dimensions[1], steps: 4, seed: Math.floor(Math.random() * 2_000_000_000) + index }),
+        signal: AbortSignal.timeout(20_000),
+      });
+    } catch (e: any) {
+      throw new HttpError(424, e?.name === 'TimeoutError' ? 'Brand image generation timed out. Please try again.' : 'Could not reach the deAPI brand image generator.', 'DEAPI_IMAGE');
+    }
+    const requestId = await deapiParse(response);
+    const deadline = Date.now() + 35_000;
+    while (Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 1800));
+      let statusResponse: Response;
+      try {
+        statusResponse = await fetch(`${DEAPI_BASE}/jobs/${encodeURIComponent(requestId)}`, { headers: deapiHeaders(), signal: AbortSignal.timeout(10_000) });
+      } catch { continue; }
+      if (statusResponse.status === 429 || statusResponse.status >= 500) continue;
+      const statusData: any = await statusResponse.json().catch(() => ({}));
+      if (!statusResponse.ok) throw new HttpError(424, 'Could not check brand image generation status on deAPI.', 'DEAPI_IMAGE');
+      const job = statusData?.data || {};
+      const state = String(job.status || '').toLowerCase();
+      const result = String(job.result_url || job.result?.url || '');
+      if (state === 'done' && /^https:\/\//i.test(result)) return result;
+      if (state === 'error' || state === 'failed') throw new HttpError(424, String(job.error || job.message || 'The brand image generation failed.').slice(0, 220), 'DEAPI_IMAGE');
+    }
+    throw new HttpError(424, 'Brand image generation is taking longer than expected. Please try again.', 'DEAPI_IMAGE_TIMEOUT');
+  };
+  return Promise.all([createOne(1), createOne(2)]);
+}
+
 /** Generates two optional brand campaign stills; the FAL key stays server-side. */
 export async function falGenerateBrandImages(prompt: string, aspect: '9:16' | '16:9' | '1:1') {
   const imageSize = aspect === '9:16' ? 'portrait_16_9' : aspect === '16:9' ? 'landscape_16_9' : 'square_hd';
