@@ -816,6 +816,7 @@ export interface VisualReviewResult {
   motionCoherenceIssue: boolean;
   visualArtifactIssue: boolean;
   framingIssue: boolean;
+  sceneContinuityIssue: boolean;
   qualityScore: number | null;
   promptMatchScore: number | null;
   motionCoherenceScore: number | null;
@@ -845,12 +846,12 @@ export async function geminiVisualReview(
     'Read the exact render prompt first. Compare the chronological shot frames with the requested action, named subjects, location, visual style and camera direction. References are visual anchors, not extra scene content.',
     `EXACT INTENDED SHOT AND RENDER DIRECTION:\n${String(sceneDescription || '').slice(0, 2600)}`,
     'Evaluate four separate things: (1) overall visual quality: clarity, coherent composition, plausible lighting, stable geometry and professional-looking imagery; (2) prompt fidelity: whether the requested people, objects, action and setting actually appear; (3) motion coherence: whether the chronological frames show a plausible progression of the described action without freezing, teleporting, morphing or contradictory body positions; (4) continuity and technical artifacts.',
-    'Reject only clear material failures: the requested main action or subject is absent/replaced; a lead actor visibly changes identity; severe sustained anatomy damage or duplicated limbs; a story-critical prop visibly morphs/disappears; a major location jump not requested; obvious persistent ghosting/melting/flicker; unusable crop that hides the main subject/action; or clearly incoherent temporal movement.',
+    'Reject clear material failures, including: the requested main action or subject is absent/replaced; a lead actor visibly changes identity; the visible lead cast changes unexpectedly between shots; a lead character's distinctive wardrobe or a story-critical prop changes design, colour, holder or position without an on-screen action explaining it; a story-critical prop visibly morphs/disappears; a major location or screen-direction jump is not motivated by the script; severe sustained anatomy damage or duplicated limbs; obvious persistent ghosting/melting/flicker; unusable crop that hides the main subject/action; or clearly incoherent temporal movement. Treat the supplied scene sequence as one continuous story: do not approve visually attractive but unrelated shots that do not advance the requested action.',
     'Do not mistake a deliberate static composition, a slow camera move, a motivated cut, natural motion blur, shallow depth of field, intentional darkness, or a brief dramatic pause for a defect.',
     'Background extras are not identity-locked. A changing number or arrangement of distant pedestrians or crowd members is not a defect unless a fixed count matters to the story.',
     'Only mark confidence "high" when the sampled frames give clear evidence. Use "medium" or "low" when the sequence cannot be judged reliably. If motion cannot be inferred from the sparse frames, set motionCoherenceScore to null and lower confidence.',
     'Scores are 0–100: qualityScore is overall visual usability; promptMatchScore is fidelity to the requested scene; motionCoherenceScore is temporal/action coherence (not amount of camera movement). Do not inflate scores. A score below 58 for quality, 45 for prompt match, or 38 for motion coherence is a serious concern only when confidence is high.',
-    'Return JSON only with this exact schema: {"passed":boolean,"severity":"none|minor|major","confidence":"high|medium|low","qualityScore":number|null,"promptMatchScore":number|null,"motionCoherenceScore":number|null,"identityDrift":boolean,"handAnatomyIssue":boolean,"propConsistencyIssue":boolean,"promptMismatch":boolean,"motionCoherenceIssue":boolean,"visualArtifactIssue":boolean,"framingIssue":boolean,"issues":string[],"summary":string}.',
+    'Return JSON only with this exact schema: {"passed":boolean,"severity":"none|minor|major","confidence":"high|medium|low","qualityScore":number|null,"promptMatchScore":number|null,"motionCoherenceScore":number|null,"identityDrift":boolean,"handAnatomyIssue":boolean,"propConsistencyIssue":boolean,"promptMismatch":boolean,"motionCoherenceIssue":boolean,"visualArtifactIssue":boolean,"framingIssue":boolean,"sceneContinuityIssue":boolean,"issues":string[],"summary":string}.',
     'A clear material failure must set passed=false and severity="major". Minor or uncertain issues must not force regeneration. If evidence is too ambiguous, set passed=true, severity="minor", confidence="low" and explain the limitation.',
     'Images are supplied next in the exact order labelled below:',
     ...images.map((image) => image.label),
@@ -894,6 +895,7 @@ export async function geminiVisualReview(
       const motionCoherenceIssue = parsed?.motionCoherenceIssue === true;
       const visualArtifactIssue = parsed?.visualArtifactIssue === true;
       const framingIssue = parsed?.framingIssue === true;
+      const sceneContinuityIssue = parsed?.sceneContinuityIssue === true;
       const qualityScore = score(parsed?.qualityScore);
       const promptMatchScore = score(parsed?.promptMatchScore);
       const motionCoherenceScore = score(parsed?.motionCoherenceScore);
@@ -901,9 +903,9 @@ export async function geminiVisualReview(
       return {
         passed: parsed?.passed === true && severity !== 'major'
           && !identityDrift && !handAnatomyIssue && !propConsistencyIssue && !promptMismatch
-          && !motionCoherenceIssue && !visualArtifactIssue && !framingIssue,
+          && !motionCoherenceIssue && !visualArtifactIssue && !framingIssue && !sceneContinuityIssue,
         severity, confidence, identityDrift, handAnatomyIssue, propConsistencyIssue,
-        promptMismatch, motionCoherenceIssue, visualArtifactIssue, framingIssue,
+        promptMismatch, motionCoherenceIssue, visualArtifactIssue, framingIssue, sceneContinuityIssue,
         qualityScore, promptMatchScore, motionCoherenceScore,
         issues,
         summary: String(parsed?.summary || issues[0] || 'Visual review completed.').slice(0, 400),
