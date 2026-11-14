@@ -17,7 +17,7 @@ const PLATFORM_NAMES: Record<Platform, string> = {
 export const bufferConfigured = () => !!(process.env.BUFFER_CLIENT_ID || '').trim() && !!(process.env.BUFFER_CLIENT_SECRET || '').trim();
 const clientId = () => (process.env.BUFFER_CLIENT_ID || '').trim();
 const clientSecret = () => (process.env.BUFFER_CLIENT_SECRET || '').trim();
-const b64url = (b: Buffer) => b.toString('base64').replace(/\\+/g, '-').replace(/\\//g, '_').replace(/=+$/, '');
+const b64url = (b: Buffer) => b.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 
 export function bufferPkce() {
   const verifier = b64url(crypto.randomBytes(32));
