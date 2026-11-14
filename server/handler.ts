@@ -19,7 +19,8 @@ import { parseVideoProvider, shouldAttemptKlingMultiShot, shouldFallbackToDeapi,
 import { resolveFalKlingResolution } from './lib/fal-video-profile.js';
 import { evaluateVisualReview } from './lib/video-quality-gate.js';
 import { PROVIDERS, PLATFORM_IDS, Platform, isPlatform, isConfigured, redirectUri, socialPkce, socialAuthorizeUrl, exchangeSocialCode, saveSocialConnection, listSocialAccounts, removeSocialConnection, publishToPlatform, socialMetrics } from './lib/social.js';
-import { zernioConfigured, zernioConnectUrl, zernioSyncAccounts, zernioListAccounts, zernioDisconnect, zernioPublish, zernioHealth, zernioDeleteCustomer } from './lib/zernio.js';
+import { zernioDeleteCustomer } from './lib/zernio.js'; // legacy account cleanup only
+import { bufferPkce, bufferAuthorizeUrl, bufferExchangeCode, bufferSaveConnection, bufferHasConnection, bufferSyncAccounts, bufferListAccounts, bufferDisconnectChannel, bufferPublish, bufferHealth } from './lib/buffer.js';
 
 // We parse bodies ourselves (webhooks need the raw bytes).
 export const config = { api: { bodyParser: false }, maxDuration: 60 };
@@ -515,9 +516,12 @@ const deleteAccount: Handler = async ({ req, res, body }) => {
   const mediaRows = (await sql()`SELECT blob_url FROM media_assets WHERE user_id=${id}`) as any[];
   await Promise.all(mediaRows.map((asset: any) => del(asset.blob_url).catch((e: any) => console.error('media cleanup on delete', e?.message))));
   await sql()`DELETE FROM media_assets WHERE user_id=${id}`;
-  if (zernioConfigured()) await zernioDeleteCustomer(id).catch((e) => console.error('Zernio account cleanup on delete', e));
+  // Remove legacy Zernio data if this account used the previous connector.
+  await zernioDeleteCustomer(id).catch((e) => console.error('Legacy social cleanup on delete', e));
   await sql()`DELETE FROM zernio_connections WHERE user_id=${id}`;
   await sql()`DELETE FROM zernio_profiles WHERE user_id=${id}`;
+  await sql()`DELETE FROM buffer_channels WHERE user_id=${id}`;
+  await sql()`DELETE FROM buffer_connections WHERE user_id=${id}`;
   await sql()`DELETE FROM dashboards WHERE user_id=${id}`;
   await sql()`DELETE FROM social_connections WHERE user_id=${id}`;
   await sql()`DELETE FROM scheduled_posts WHERE user_id=${id}`;
@@ -1502,17 +1506,7 @@ const systemCheck: Handler = async ({ req, res }) => {
       for (const x of ids) { const p = await flw(`/payment-plans/${encodeURIComponent(x.id!)}`).catch(() => { throw new Error(`Plan ${x.id} (${x.t} ${x.c}) was not found. Is it in the same mode (Test/Live) as your secret key?`); }); out.push(`${x.t} ${x.c}: ${p.amount} ${p.currency}`); }
       return `Key accepted. Plans: ${out.join(' · ')}`;
     }),
-    run('Zernio (social publishing)', async () => {
-      if (!zernioConfigured()) throw new Error('ZERNIO_API_KEY is not set in Vercel. Add it and redeploy to enable customer social connections.');
-      await zernioHealth();
-      return 'Zernio API key accepted. Each OmniPulse customer will use a separate profile.';
-    }),
-    run('Social networks (direct connect fallback)', async () => {
-      if (zernioConfigured()) return 'Not needed: Zernio is handling social connections.';
-      const lines = PLATFORM_IDS.map((p) => `${PROVIDERS[p].name}: ${isConfigured(p) ? 'ready' : `missing ${PROVIDERS[p].idEnv} / ${PROVIDERS[p].secretEnv}`} · redirect ${redirectUri(appUrl(req), p)}`);
-      if (!PLATFORM_IDS.some((p) => isConfigured(p))) throw new Error(`Zernio is not configured and no direct social network developer apps are set up. Add ZERNIO_API_KEY in Vercel.`);
-      return lines.join(' | ');
-    }),
+    run('Buffer (social publishing)', async () => { await bufferHealth(); return 'Buffer OAuth app credentials are present. Each customer connects their own Buffer account.'; }),
     run('Scheduled-post sender', async () => {
       if (!process.env.CRON_SECRET) throw new Error('CRON_SECRET is not set. Scheduled posts will not be sent until you set it and ping /api/cron/dispatch every few minutes (see docs/ENVIRONMENT.md).');
       return 'CRON_SECRET is set. Make sure something calls /api/cron/dispatch every 5 minutes.';
@@ -1861,56 +1855,34 @@ async function refreshJob(j: any): Promise<{ state: string; videoUrl?: string; e
   return s;
 }
 
-// ---------------------------------------------------------------- Social networks (Zernio provider, with direct OAuth fallback)
-const socialAccounts: Handler = async ({ req, res }) => {
-  const { row, user } = await requireAccess(req);
-  const accounts = zernioConfigured() ? await zernioListAccounts(row.id,user.channelsLimit) : await listSocialAccounts(row.id);
-  json(res, 200, { accounts, limit: user.channelsLimit, provider: zernioConfigured() ? 'zernio' : 'direct' });
-};
-
-const socialSync: Handler = async ({ req, res }) => {
-  const { row, user } = await requireAccess(req);
-  const added = zernioConfigured() ? await zernioSyncAccounts(row.id,user.channelsLimit) : 0;
-  json(res, 200, { added, accounts: zernioConfigured() ? await zernioListAccounts(row.id,user.channelsLimit) : await listSocialAccounts(row.id) });
-};
-
+// ---------------------------------------------------------------- Social publishing (Buffer OAuth + GraphQL)
+const socialAccounts: Handler = async ({ req, res }) => { const { row, user } = await requireAccess(req); const accounts = await bufferListAccounts(row.id,user.channelsLimit); json(res,200,{accounts,limit:user.channelsLimit,provider:'buffer'}); };
+const socialSync: Handler = async ({ req, res }) => { const { row, user } = await requireAccess(req); const connected = await bufferHasConnection(row.id); const added = connected ? await bufferSyncAccounts(row.id,user.channelsLimit) : 0; json(res,200,{added,accounts:await bufferListAccounts(row.id,user.channelsLimit),provider:'buffer'}); };
 const socialConnect: Handler = async ({ req, res, query }) => {
-  const fail = (why: string) => redirect(res, `/?social=error&reason=${encodeURIComponent(why)}`);
-  const uid = await sessionUserId(req);
-  if (!uid) return redirect(res, '/');
-  const p = query.get('platform');
-  if (!isPlatform(p)) return fail('Unknown platform.');
+  const fail = (why:string) => redirect(res, `/?social=error&reason=${encodeURIComponent(why)}`);
+  const uid = await sessionUserId(req); if (!uid) return redirect(res,'/');
+  const p = query.get('platform'); if (!isPlatform(p)) return fail('Unknown platform.');
   try {
     const { user } = await requireAccess(req);
-    if (zernioConfigured()) {
-      const started = await zernioConnectUrl(uid,p,`${appUrl(req)}/api/social/zernio-callback`);
-      setCookie(res,'op_zer',await signBlob({u:uid,p,state:started.state,profileId:started.profileId},'15m'),900);
-      return redirect(res,started.url);
+    if (await bufferHasConnection(uid)) {
+      await bufferSyncAccounts(uid,user.channelsLimit);
+      const accounts = await bufferListAccounts(uid,user.channelsLimit);
+      if (accounts.some((account:any) => account.platform===p && account.connected)) return redirect(res, `/?social=connected&platform=${encodeURIComponent(p)}`);
+      return fail(`No ${PROVIDERS[p].name} channel is connected in Buffer yet. Add it in Buffer, then sync accounts in OmniPulse.`);
     }
-    const { verifier, challenge, state } = socialPkce();
-    const url = socialAuthorizeUrl(p, appUrl(req), state, challenge);
-    setCookie(res, 'op_soc', await signBlob({ v: verifier, s: state, u: uid, p }), 900);
-    redirect(res, url);
-  } catch (e: any) { fail(e instanceof HttpError ? e.message : 'Could not start the connection.'); }
+    const { verifier,challenge,state } = bufferPkce();
+    const url = bufferAuthorizeUrl(appUrl(req),state,challenge);
+    setCookie(res,'op_buf',await signBlob({v:verifier,s:state,u:uid},'15m'),900);
+    redirect(res,url);
+  } catch(e:any) { fail(e instanceof HttpError ? e.message : 'Could not start the Buffer connection.'); }
 };
-
-const socialZernioCallback: Handler = async ({ req, res, query }) => {
-  const fail = (why:string) => redirect(res,`/?social=error&reason=${encodeURIComponent(why)}`);
-  const blob=await readBlob(parseCookies(req)['op_zer']);
-  setCookie(res,'op_zer','',0);
-  const uid=await sessionUserId(req);
-  const connected=String(query.get('connected')||'');
-  const providerPlatform:Record<string,string>={x:'twitter',youtube:'youtube',tiktok:'tiktok',instagram:'instagram',linkedin:'linkedin',facebook:'facebook',pinterest:'pinterest'};
-  if(query.get('error')) return fail('The social network authorization was not completed.');
-  if(!blob||!uid||blob.u!==uid||blob.state!==query.get('state')||!query.get('profileId')||blob.profileId!==query.get('profileId'))
-    return fail('The connection attempt expired or could not be verified. Please try again.');
-  if(!Object.entries(providerPlatform).some(([k,v])=>k===blob.p&&v===connected))
-    return fail('The returned social account did not match the platform you selected.');
-  try {
-    const {user}=await requireAccess(req);
-    await zernioSyncAccounts(uid,user.channelsLimit);
-    redirect(res,`/?social=connected&platform=${encodeURIComponent(String(blob.p))}`);
-  } catch(e:any) { console.error('Zernio callback',e); fail(e instanceof HttpError?e.message:'Could not finish connecting the account.'); }
+const socialBufferCallback: Handler = async ({ req,res,query }) => {
+  const fail=(why:string)=>redirect(res, `/?social=error&reason=${encodeURIComponent(why)}`);
+  const blob=await readBlob(parseCookies(req)['op_buf']); setCookie(res,'op_buf','',0); const uid=await sessionUserId(req);
+  if(query.get('error')) return fail(query.get('error')==='access_denied'?'You declined Buffer access.':'Buffer authorization returned an error.');
+  if(!blob||!uid||blob.u!==uid||blob.s!==query.get('state')||!query.get('code')) return fail('The Buffer connection attempt expired or could not be verified. Please try again.');
+  try { const {user}=await requireAccess(req); const tokens=await bufferExchangeCode(query.get('code')!,appUrl(req),String(blob.v||'')); await bufferSaveConnection(uid,tokens); await bufferSyncAccounts(uid,user.channelsLimit); redirect(res,'/?social=connected'); }
+  catch(e:any) { console.error('Buffer OAuth callback',e); fail(e instanceof HttpError?e.message:'Could not finish connecting Buffer.'); }
 };
 
 const socialCallback: Handler = async ({ req, res, query }) => {
@@ -1933,15 +1905,14 @@ const socialCallback: Handler = async ({ req, res, query }) => {
 const socialDisconnect: Handler = async ({ req, res, body }) => {
   const { row } = await requireAccess(req);
   if (!isPlatform(body.platform)) throw new HttpError(400, 'Unknown platform.');
-  if (zernioConfigured()) await zernioDisconnect(row.id,body.platform);
-  else await removeSocialConnection(row.id, body.platform);
+  await bufferDisconnectChannel(row.id, body.platform);
   json(res, 200, { ok: true });
 };
 
 const socialMetricsRoute: Handler = async ({ req, res, query }) => {
   const { row } = await requireAccess(req);
   const ids = (query.get('ids') || '').split(',').map((x) => x.trim()).filter(Boolean).slice(0, 40);
-  json(res, 200, { metrics: ids.length && !zernioConfigured() ? await socialMetrics(row.id, ids) : [] });
+  json(res, 200, { metrics: [] });
 };
 
 type PublishResult = { platform: string; name: string; ok: boolean; postId?: string; scheduled?: boolean; error?: string };
@@ -1950,7 +1921,7 @@ async function publishAll(userId: string, platforms: Platform[], post: { text: s
   const out: PublishResult[] = [];
   for (const p of platforms) {
     try {
-      const postId = zernioConfigured() ? await zernioPublish(userId,p,post) : await publishToPlatform(userId,p,post);
+      const postId = await bufferPublish(userId,p,post);
       out.push({ platform: p, name: PROVIDERS[p].name, ok: true, postId });
     } catch (e: any) { out.push({ platform: p, name: PROVIDERS[p].name, ok: false, error: e?.message || 'Publishing failed.' }); }
   }
@@ -1965,10 +1936,10 @@ const socialPublish: Handler = async ({ req, res, body }) => {
   const videoUrl = typeof body.videoUrl === 'string' && /^https:\/\//.test(body.videoUrl) ? body.videoUrl : undefined;
   if (!text || !platforms.length) throw new HttpError(400, 'A caption and at least one connected channel are required.');
   const when = body.dueAt ? new Date(body.dueAt).getTime() : 0;
-  if (body.mode === 'scheduled' && when > Date.now() + 60_000 && zernioConfigured()) {
+  if (body.mode === 'scheduled' && when > Date.now() + 60_000 && await bufferHasConnection(row.id)) {
     const results: PublishResult[] = [];
     for (const p of platforms) {
-      try { results.push({ platform:p,name:PROVIDERS[p].name,ok:true,scheduled:true,postId:await zernioPublish(row.id,p,{text,title,videoUrl},new Date(when)) }); }
+      try { results.push({ platform:p,name:PROVIDERS[p].name,ok:true,scheduled:true,postId:await bufferPublish(row.id,p,{text,title,videoUrl},new Date(when)) }); }
       catch(e:any) { results.push({platform:p,name:PROVIDERS[p].name,ok:false,error:e?.message||'Scheduling failed.'}); }
     }
     return json(res,200,{results});
@@ -3898,7 +3869,7 @@ const routes: Record<string, Handler> = {
   'POST /ai/generate-script': genScript, 'POST /ai/research-trends': researchTrends, 'POST /ai/youtube-growth-kit': youtubeGrowthKit, 'POST /ai/ad-concepts': adConcepts, 'POST /ad/brand-images': adBrandImages, 'POST /ad/render-image': adImageRender, 'POST /tts': tts,
   'POST /ai/ab-variations': abVariations, 'POST /ai/competitor-analysis': competitorAnalysis, 'POST /ai/outrank': outrank,
   'POST /video/render': videoRender, 'POST /video/animate': videoAnimate, 'POST /video/audio-sync': videoAudioSync, 'GET /video/status': videoStatus, 'GET /video/models': videoModelCatalogue,
-  'GET /social/accounts': socialAccounts, 'POST /social/sync': socialSync, 'GET /video/download': videoDownload, 'GET /video/merge': videoMerge, 'GET /video/editor/capabilities': videoEditorCapabilities, 'POST /video/editor/ai-test': videoEditorAiTest, 'POST /video/editor/render': videoEditorRender, 'POST /video/editor/assemble': videoEditorAssemble, 'GET /social/connect': socialConnect, 'GET /social/callback': socialCallback, 'GET /social/zernio-callback': socialZernioCallback,
+  'GET /social/accounts': socialAccounts, 'POST /social/sync': socialSync, 'GET /video/download': videoDownload, 'GET /video/merge': videoMerge, 'GET /video/editor/capabilities': videoEditorCapabilities, 'POST /video/editor/ai-test': videoEditorAiTest, 'POST /video/editor/render': videoEditorRender, 'POST /video/editor/assemble': videoEditorAssemble, 'GET /social/connect': socialConnect, 'GET /social/callback': socialCallback, 'GET /social/buffer-callback': socialBufferCallback,
   'POST /social/disconnect': socialDisconnect, 'GET /social/metrics': socialMetricsRoute, 'POST /social/publish': socialPublish,
   'POST /episodes/create': episodeCreate, 'POST /episodes/retry': episodeRetry, 'GET /episodes/status': episodeStatus, 'GET /episodes/clip': episodeClip, 'POST /episodes/pause': episodePause, 'POST /episodes/resume': episodeResume, 'POST /episodes/edit': episodeEdit, 'GET /episodes/video': episodeVideo, 'GET /projects': projectsList, 'GET /projects/get': projectGet, 'POST /projects/reference/clean-plate': projectCleanPlate,
   'GET /cron/dispatch': cronDispatch, 'POST /cron/dispatch': cronDispatch,
