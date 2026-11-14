@@ -1856,7 +1856,7 @@ async function refreshJob(j: any): Promise<{ state: string; videoUrl?: string; e
 }
 
 // ---------------------------------------------------------------- Social publishing (Buffer OAuth + GraphQL)
-const socialAccounts: Handler = async ({ req, res }) => { const { row, user } = await requireAccess(req); const accounts = await bufferListAccounts(row.id,user.channelsLimit); json(res,200,{accounts,limit:user.channelsLimit,provider:'buffer'}); };
+const socialAccounts: Handler = async ({ req, res }) => { const { row, user } = await requireAccess(req); const accounts = await bufferListAccounts(row.id); json(res,200,{accounts,limit:user.channelsLimit,provider:'buffer'}); };
 const socialSync: Handler = async ({ req, res }) => { const { row, user } = await requireAccess(req); const connected = await bufferHasConnection(row.id); const added = connected ? await bufferSyncAccounts(row.id,user.channelsLimit) : 0; json(res,200,{added,accounts:await bufferListAccounts(row.id,user.channelsLimit),provider:'buffer'}); };
 const socialConnect: Handler = async ({ req, res, query }) => {
   const fail = (why:string) => redirect(res, `/?social=error&reason=${encodeURIComponent(why)}`);
@@ -1866,7 +1866,7 @@ const socialConnect: Handler = async ({ req, res, query }) => {
     const { user } = await requireAccess(req);
     if (await bufferHasConnection(uid)) {
       await bufferSyncAccounts(uid,user.channelsLimit);
-      const accounts = await bufferListAccounts(uid,user.channelsLimit);
+      const accounts = await bufferListAccounts(uid);
       if (accounts.some((account:any) => account.platform===p && account.connected)) return redirect(res, `/?social=connected&platform=${encodeURIComponent(p)}`);
       return fail(`No ${PROVIDERS[p].name} channel is connected in Buffer yet. Add it in Buffer, then sync accounts in OmniPulse.`);
     }
@@ -1881,7 +1881,7 @@ const socialBufferCallback: Handler = async ({ req,res,query }) => {
   const blob=await readBlob(parseCookies(req)['op_buf']); setCookie(res,'op_buf','',0); const uid=await sessionUserId(req);
   if(query.get('error')) return fail(query.get('error')==='access_denied'?'You declined Buffer access.':'Buffer authorization returned an error.');
   if(!blob||!uid||blob.u!==uid||blob.s!==query.get('state')||!query.get('code')) return fail('The Buffer connection attempt expired or could not be verified. Please try again.');
-  try { const {user}=await requireAccess(req); const tokens=await bufferExchangeCode(query.get('code')!,appUrl(req),String(blob.v||'')); await bufferSaveConnection(uid,tokens); await bufferSyncAccounts(uid,user.channelsLimit); redirect(res,'/?social=connected'); }
+  try { const {user}=await requireAccess(req); const tokens=await bufferExchangeCode(query.get('code')!,appUrl(req),String(blob.v||'')); await bufferSaveConnection(uid,tokens,user.channelsLimit); redirect(res,'/?social=connected'); }
   catch(e:any) { console.error('Buffer OAuth callback',e); fail(e instanceof HttpError?e.message:'Could not finish connecting Buffer.'); }
 };
 
