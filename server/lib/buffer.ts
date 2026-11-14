@@ -110,14 +110,14 @@ async function graph<T=any>(token: string, query: string): Promise<T> {
   return data.data as T;
 }
 
-export async function bufferSaveConnection(userId: string, tokens: any): Promise<void> {
+export async function bufferSaveConnection(userId: string, tokens: any, limit: number): Promise<void> {
   if (!tokens?.access_token) throw new HttpError(424, 'Buffer did not return an access token.', 'BUFFER_AUTH');
   const expires = new Date(Date.now() + (Number(tokens.expires_in) || 3600) * 1000).toISOString();
   await sql()`INSERT INTO buffer_connections (user_id,access_token_enc,refresh_token_enc,expires_at,connected_at,refresh_lock_until)
     VALUES (${userId},${encrypt(tokens.access_token)},${tokens.refresh_token ? encrypt(tokens.refresh_token) : null},${expires},now(),NULL)
     ON CONFLICT (user_id) DO UPDATE SET access_token_enc=EXCLUDED.access_token_enc,
       refresh_token_enc=EXCLUDED.refresh_token_enc,expires_at=EXCLUDED.expires_at,connected_at=now(),refresh_lock_until=NULL`;
-  await bufferSyncAccounts(userId, 7);
+  await bufferSyncAccounts(userId, limit);
 }
 
 export async function bufferHasConnection(userId: string): Promise<boolean> {
@@ -152,7 +152,7 @@ export async function bufferSyncAccounts(userId: string, limit: number): Promise
   return selected.length;
 }
 
-export async function bufferListAccounts(userId: string, limit: number) {
+export async function bufferListAccounts(userId: string) {
   const rows: any[] = await sql()`SELECT platform,name,connected_at FROM buffer_channels WHERE user_id=${userId}`;
   return (Object.keys(PLATFORM_NAMES) as Platform[]).map((platform) => {
     const channel = rows.find((row) => row.platform === platform);
