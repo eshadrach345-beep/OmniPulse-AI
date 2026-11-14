@@ -22,7 +22,7 @@ They are *not* needed in Google AI Studio. This app runs on Vercel, not in the A
 | `DEAPI_API_KEY` | Optional DeAPI video provider key. The Creator Canvas loads the account's available video models from DeAPI; selected model IDs are checked against that live catalogue. |
 | `DEAPI_VIDEO_MODEL` | Optional default DeAPI video model when no model is selected; defaults to `Ltx2_5_22B_Dist_INT8`. The editor also exposes native audio-to-video for models that advertise audio-sync support. |
 | `VOICE_PROVIDER` | Optional. `auto` (default: deAPI voices when `DEAPI_API_KEY` exists, else fal.ai), `deapi`, or `fal` |
-| `ZERNIO_API_KEY` | Social publishing through Zernio. OmniPulse creates one isolated Zernio profile per customer; the first two connected accounts are free across the OmniPulse Zernio team, not two per customer. |
+| `BUFFER_CLIENT_ID`, `BUFFER_CLIENT_SECRET` | Buffer OAuth app credentials. Customers authorize their own Buffer accounts; OmniPulse stores encrypted OAuth tokens and syncs their Buffer channels. |
 | `FAL_KEY` | Video rendering and voice-over (fal.ai) |
 | `FAL_VIDEO_MODEL` | Optional. Default `minimax/h3-max-turbo/text-to-video` |
 | `FAL_VIDEO_INPUT` | Optional JSON merged into the video request, e.g. `{"aspect_ratio":"9:16"}` |
@@ -43,28 +43,21 @@ The Creator Canvas can use FAL and DeAPI for separate productions when both keys
 Flutterwave webhook URL: `https://YOUR-DOMAIN/api/billing/webhook`
 
 
-## Social networks (Zernio connector)
+## Social networks (Buffer connector)
 
-The primary connector is Zernio. Add `ZERNIO_API_KEY` above; customers then connect through the social network's official authorization flow hosted by Zernio. OmniPulse creates one separate Zernio profile per customer, and stores only the profile and connected-account IDs locally. You do not need to create separate developer apps for each network.
+OmniPulse uses Buffer's current GraphQL API with OAuth 2.0 Authorization Code + PKCE. Each customer connects their own Buffer account; OmniPulse does not share a single owner API key across customers.
 
-Zernio redirects back to `https://YOUR-DOMAIN/api/social/zernio-callback`; this callback is handled by OmniPulse and does not need to be registered in each social platform's developer console. The current OmniPulse account screen exposes YouTube, TikTok, Instagram, X, LinkedIn, Facebook Pages and Pinterest. Zernio supports additional platforms that can be added to the interface later.
+1. Register an OAuth app in Buffer Settings → API.
+2. Set the app's redirect URI to `https://YOUR-DOMAIN/api/social/buffer-callback` (use the exact production `APP_URL`).
+3. Add `BUFFER_CLIENT_ID` and `BUFFER_CLIENT_SECRET` to Vercel Production Environment Variables, then redeploy.
+4. In OmniPulse → Social Accounts, select a channel to start Buffer authorization. Buffer returns the user's organizations and channels, which OmniPulse syncs to the available social network slots.
+5. When a customer adds another social channel to Buffer later, use **Sync accounts** in OmniPulse to refresh the channel list.
 
-**Pricing note:** Zernio's first two connected accounts are free across the OmniPulse Zernio team, not two free accounts for every OmniPulse customer. Check Zernio's dashboard for current usage and billing before opening the service to customers.
+Buffer's current API accepts public media URLs for video/image assets. A scheduled media URL must remain publicly reachable until Buffer publishes it. Full Buffer analytics and engagement/reply management are not part of the current API integration.
 
-### Optional direct-OAuth fallback
+**Migration note:** Existing Zernio-connected accounts are not automatically transferable. Customers must connect Buffer and authorize their Buffer channels again. The old Zernio records are retained only for safe legacy account cleanup; new connections and publishing use Buffer.
 
-If `ZERNIO_API_KEY` is not set, OmniPulse can still use direct platform OAuth when you have configured the relevant developer apps. These are fallback credentials, not required for the Zernio integration. Redirect URIs must match exactly (replace the domain with your `APP_URL`).
-
-| Network | Env vars | Redirect URI to register | Notes |
-|---|---|---|---|
-| YouTube | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | `/api/social/callback/youtube` | Google Cloud → enable *YouTube Data API v3*, OAuth consent screen, scopes `youtube.upload` + `youtube.readonly`. |
-| X (Twitter) | `X_CLIENT_ID`, `X_CLIENT_SECRET` | `/api/social/callback/x` | OAuth 2.0 app with read+write. |
-| Facebook Page | `META_APP_ID`, `META_APP_SECRET` | `/api/social/callback/facebook` | Meta app. Needs `pages_manage_posts` (App Review for public use). |
-| Instagram | same `META_*` keys | `/api/social/callback/instagram` | Account must be Business/Creator and linked to a Facebook Page. |
-| LinkedIn | `LINKEDIN_CLIENT_ID`, `LINKEDIN_CLIENT_SECRET` | `/api/social/callback/linkedin` | Enable *Share on LinkedIn* + *Sign In with OpenID Connect*. |
-| TikTok | `TIKTOK_CLIENT_KEY`, `TIKTOK_CLIENT_SECRET` | `/api/social/callback/tiktok` | Content Posting API; unaudited apps may have posting restrictions. |
-| Pinterest | `PINTEREST_APP_ID`, `PINTEREST_APP_SECRET` | `/api/social/callback/pinterest` | Direct fallback connection. |
-
+Buffer API documentation: https://developers.buffer.com/guides/authentication.html
 ## Scheduled posts
 
 Scheduled posts are stored in the database and sent by `GET /api/cron/dispatch`. Set `CRON_SECRET`, then call
