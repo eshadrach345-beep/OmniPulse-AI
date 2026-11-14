@@ -1738,15 +1738,15 @@ async function deapiAnimate(prompt, firstFrame, resolution = "480P", seconds = 1
     Promise.resolve(deapiVideoOverrides())
   ]);
   const c = deapiClip(seconds, selectedModel, modelInfo);
-  const form2 = new FormData();
-  form2.set("model", c.model);
-  form2.set("prompt", prompt);
-  form2.set("width", String(width));
-  form2.set("height", String(height));
+  const form = new FormData();
+  form.set("model", c.model);
+  form.set("prompt", prompt);
+  form.set("width", String(width));
+  form.set("height", String(height));
   const seed = resolveDeapiSeed(seedOverride, overrides.seed ?? process.env.DEAPI_VIDEO_SEED, c.seed);
-  form2.set("frames", String(c.frames));
-  form2.set("fps", String(c.fps));
-  form2.set("seed", String(seed));
+  form.set("frames", String(c.frames));
+  form.set("fps", String(c.fps));
+  form.set("seed", String(seed));
   const imageMime = (bytes) => {
     if (bytes.length >= 3 && bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255) return { type: "image/jpeg", ext: "jpg" };
     if (bytes.length >= 8 && bytes.subarray(0, 8).toString("hex") === "89504e470d0a1a0a") return { type: "image/png", ext: "png" };
@@ -1754,17 +1754,17 @@ async function deapiAnimate(prompt, firstFrame, resolution = "480P", seconds = 1
     throw new HttpError(415, "The supplied frame must be a valid JPG, PNG or WebP image.", "DEAPI_FRAME_TYPE");
   };
   const firstMime = imageMime(firstFrame);
-  form2.set("first_frame_image", new Blob([new Uint8Array(firstFrame)], { type: firstMime.type }), `first-frame.${firstMime.ext}`);
+  form.set("first_frame_image", new Blob([new Uint8Array(firstFrame)], { type: firstMime.type }), `first-frame.${firstMime.ext}`);
   if (lastFrame) {
     const lastMime = imageMime(lastFrame);
-    form2.set("last_frame_image", new Blob([new Uint8Array(lastFrame)], { type: lastMime.type }), `last-frame.${lastMime.ext}`);
+    form.set("last_frame_image", new Blob([new Uint8Array(lastFrame)], { type: lastMime.type }), `last-frame.${lastMime.ext}`);
   }
   for (const [key, value] of Object.entries(buildDeapiVideoFields({ info: modelInfo }, overrides))) {
-    form2.set(key, value);
+    form.set(key, value);
   }
   let r;
   try {
-    r = await fetch(`${DEAPI_BASE}/videos/animations`, { method: "POST", headers: { Authorization: `Bearer ${need("DEAPI_API_KEY")}`, Accept: "application/json" }, body: form2, signal: AbortSignal.timeout(3e4) });
+    r = await fetch(`${DEAPI_BASE}/videos/animations`, { method: "POST", headers: { Authorization: `Bearer ${need("DEAPI_API_KEY")}`, Accept: "application/json" }, body: form, signal: AbortSignal.timeout(3e4) });
   } catch (e) {
     throw new HttpError(424, e?.name === "TimeoutError" ? "The video engine (deAPI) did not respond in time. Please try again." : "Could not reach the video engine (deAPI).", "DEAPI");
   }
@@ -1787,14 +1787,14 @@ async function deapiAudioSync(prompt, audio, audioContentType, audioFilename, du
   const overrides = deapiVideoOverrides();
   const requestedSeed = Number(overrides.seed ?? process.env.DEAPI_VIDEO_SEED);
   const seed = Number.isSafeInteger(requestedSeed) && requestedSeed >= 0 && requestedSeed <= 2147483647 ? requestedSeed : Math.floor(Math.random() * 2e9);
-  const form2 = new FormData();
-  form2.set("model", selected.slug);
-  form2.set("prompt", prompt.slice(0, 2200));
-  form2.set("width", String(width));
-  form2.set("height", String(height));
-  form2.set("frames", String(frameCount));
-  form2.set("seed", String(seed));
-  form2.set("audio", new Blob([new Uint8Array(audio)], { type: mime.type }), `audio.${mime.extension}`);
+  const form = new FormData();
+  form.set("model", selected.slug);
+  form.set("prompt", prompt.slice(0, 2200));
+  form.set("width", String(width));
+  form.set("height", String(height));
+  form.set("frames", String(frameCount));
+  form.set("seed", String(seed));
+  form.set("audio", new Blob([new Uint8Array(audio)], { type: mime.type }), `audio.${mime.extension}`);
   if (firstFrame) {
     const imageMime = (bytes) => {
       if (bytes.length >= 3 && bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255) return { type: "image/jpeg", ext: "jpg" };
@@ -1804,14 +1804,14 @@ async function deapiAudioSync(prompt, audio, audioContentType, audioFilename, du
     };
     const image = imageMime(firstFrame);
     if (firstFrame.length > 10 * 1024 * 1024) throw new HttpError(413, "The speaker reference image must be 10 MB or smaller.", "DEAPI_FRAME_SIZE");
-    form2.set("first_frame_image", new Blob([new Uint8Array(firstFrame)], { type: image.type }), `speaker.${image.ext}`);
+    form.set("first_frame_image", new Blob([new Uint8Array(firstFrame)], { type: image.type }), `speaker.${image.ext}`);
   }
   let response;
   try {
     response = await fetch(`${DEAPI_BASE}/videos/audio-syncs`, {
       method: "POST",
       headers: { Authorization: `Bearer ${need("DEAPI_API_KEY")}`, Accept: "application/json" },
-      body: form2,
+      body: form,
       signal: AbortSignal.timeout(3e4)
     });
   } catch (error) {
@@ -3702,12 +3702,12 @@ async function mergeClipsFresh(urls, options) {
       outputDuration = Math.max(0.1, totalDuration - fade * (files.length - 1));
       parts.push(`${previousAudio}apad,atrim=duration=${outputDuration.toFixed(2)}[aout]`);
     }
-    const graph = parts.join(";");
+    const graph2 = parts.join(";");
     const args = ["-y"];
     files.forEach((f) => args.push("-i", f));
     args.push(
       "-filter_complex",
-      graph,
+      graph2,
       "-map",
       "[v]",
       "-map",
@@ -3909,7 +3909,6 @@ function evaluateVisualReview(review) {
 }
 
 // server/lib/social.ts
-import crypto3 from "node:crypto";
 var META_AUTH = "https://www.facebook.com/v21.0/dialog/oauth";
 var META_TOKEN = "https://graph.facebook.com/v21.0/oauth/access_token";
 var GRAPH = "https://graph.facebook.com/v21.0";
@@ -4005,30 +4004,7 @@ var PROVIDERS = {
 };
 var PLATFORM_IDS = Object.keys(PROVIDERS);
 var isPlatform = (p) => typeof p === "string" && p in PROVIDERS;
-var isConfigured = (p) => !!(process.env[PROVIDERS[p].idEnv] && process.env[PROVIDERS[p].secretEnv]);
 var redirectUri = (base, p) => `${base}/api/social/callback/${p}`;
-var b64url = (b) => b.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-function socialPkce() {
-  const verifier = b64url(crypto3.randomBytes(32));
-  return { verifier, challenge: b64url(crypto3.createHash("sha256").update(verifier).digest()), state: b64url(crypto3.randomBytes(16)) };
-}
-function socialAuthorizeUrl(p, base, state, challenge) {
-  const pr = PROVIDERS[p];
-  if (!isConfigured(p)) throw new HttpError(424, `${pr.name} isn't set up on this server yet. The site owner needs to add ${pr.idEnv} and ${pr.secretEnv}.`, "CONFIG");
-  const params = new URLSearchParams({
-    [pr.clientIdParam || "client_id"]: process.env[pr.idEnv],
-    redirect_uri: redirectUri(base, p),
-    response_type: "code",
-    scope: pr.scopes.join(pr.scopeSep),
-    state,
-    ...pr.extraAuth || {}
-  });
-  if (pr.pkce) {
-    params.set("code_challenge", challenge);
-    params.set("code_challenge_method", "S256");
-  }
-  return `${pr.authUrl}?${params}`;
-}
 async function tokenCall(p, params) {
   const pr = PROVIDERS[p];
   const id = process.env[pr.idEnv], secret = process.env[pr.secretEnv];
@@ -4118,224 +4094,11 @@ async function saveSocialConnection(userId, p, t, limit) {
       external_id = EXCLUDED.external_id, handle = EXCLUDED.handle, avatar = EXCLUDED.avatar, followers = EXCLUDED.followers,
       extra_enc = EXCLUDED.extra_enc, connected_at = now()`;
 }
-async function listSocialAccounts(userId) {
-  const rows = await sql()`SELECT platform, handle, avatar, followers, connected_at FROM social_connections WHERE user_id = ${userId}`;
-  return PLATFORM_IDS.map((p) => {
-    const c = rows.find((r) => r.platform === p);
-    return {
-      platform: p,
-      name: PROVIDERS[p].name,
-      configured: isConfigured(p),
-      publishable: PROVIDERS[p].publishable,
-      connected: !!c,
-      handle: c?.handle || "",
-      avatar: c?.avatar || "",
-      followers: Number(c?.followers) || 0,
-      connectedAt: c?.connected_at || null
-    };
-  });
-}
-async function removeSocialConnection(userId, p) {
-  await sql()`DELETE FROM social_connections WHERE user_id = ${userId} AND platform = ${p}`;
-}
-async function connection(userId, p) {
-  const rows = await sql()`SELECT * FROM social_connections WHERE user_id = ${userId} AND platform = ${p}`;
-  const row = rows[0];
-  const notConnected = () => new HttpError(409, `${PROVIDERS[p].name} is not connected. Reconnect it from the accounts bar.`, "SOCIAL_NOT_CONNECTED");
-  if (!row) throw notConnected();
-  const extra = row.extra_enc ? JSON.parse(decrypt(row.extra_enc)) : {};
-  const fresh = !row.expires_at || new Date(row.expires_at).getTime() - Date.now() > 6e4;
-  if (fresh) return { token: decrypt(row.access_token_enc), externalId: row.external_id, extra };
-  if (!row.refresh_token_enc) {
-    await removeSocialConnection(userId, p);
-    throw notConnected();
-  }
-  try {
-    const t = await tokenCall(p, { grant_type: "refresh_token", refresh_token: decrypt(row.refresh_token_enc) });
-    const exp = new Date(Date.now() + (Number(t.expires_in) || 3600) * 1e3).toISOString();
-    await sql()`UPDATE social_connections SET access_token_enc = ${encrypt(t.access_token)}, refresh_token_enc = ${t.refresh_token ? encrypt(t.refresh_token) : row.refresh_token_enc}, expires_at = ${exp} WHERE user_id = ${userId} AND platform = ${p}`;
-    return { token: t.access_token, externalId: row.external_id, extra };
-  } catch {
-    await removeSocialConnection(userId, p);
-    throw notConnected();
-  }
-}
-var ensure = (ok, msg) => {
-  if (!ok) throw new HttpError(422, msg, "SOCIAL_POST");
-};
-async function downloadVideo(url) {
-  const r = await fetch(url, { signal: AbortSignal.timeout(3e4) });
-  if (!r.ok) throw new HttpError(424, "Could not download the video file to publish it.", "SOCIAL_POST");
-  const buf = Buffer.from(await r.arrayBuffer());
-  if (buf.length > 200 * 1024 * 1024) throw new HttpError(413, "The video is too large to publish.", "SOCIAL_POST");
-  return buf;
-}
-async function call(url, init, label) {
-  const r = await fetch(url, { ...init, signal: AbortSignal.timeout(45e3) });
-  const raw = await r.text();
-  let d = {};
-  try {
-    d = raw ? JSON.parse(raw) : {};
-  } catch {
-    d = { raw };
-  }
-  if (!r.ok) {
-    console.error(`${label} failed`, r.status, raw.slice(0, 400));
-    const msg = d?.error?.message || d?.error?.error_user_msg || d?.message || d?.detail || d?.title || d?.error?.code || (typeof d?.error === "string" ? d.error : "") || `status ${r.status}`;
-    throw new HttpError(424, `${label}: ${String(msg).slice(0, 220)}`, "SOCIAL_POST");
-  }
-  return { r, d };
-}
-var form = (o) => new URLSearchParams(o);
-var sleep = (ms) => new Promise((res) => setTimeout(res, ms));
-async function publishYouTube(c, p) {
-  ensure(p.videoUrl, "YouTube needs a video. Attach a generated video to this post.");
-  const video = await downloadVideo(p.videoUrl);
-  const meta = { snippet: { title: (p.title || p.text).replace(/\s+/g, " ").slice(0, 95) || "New video", description: p.text.slice(0, 4900), categoryId: "22" }, status: { privacyStatus: "public", selfDeclaredMadeForKids: false } };
-  const init = await fetch("https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status", {
-    method: "POST",
-    signal: AbortSignal.timeout(3e4),
-    headers: { Authorization: `Bearer ${c.token}`, "Content-Type": "application/json; charset=UTF-8", "X-Upload-Content-Type": "video/mp4", "X-Upload-Content-Length": String(video.length) },
-    body: JSON.stringify(meta)
-  });
-  const loc = init.headers.get("location");
-  if (!init.ok || !loc) {
-    console.error("YouTube init failed", init.status, (await init.text()).slice(0, 300));
-    throw new HttpError(424, "YouTube rejected the upload request. Check that your Google project has the YouTube Data API enabled.", "SOCIAL_POST");
-  }
-  const { d } = await call(loc, { method: "PUT", headers: { "Content-Type": "video/mp4", "Content-Length": String(video.length) }, body: new Uint8Array(video) }, "YouTube upload");
-  return d.id;
-}
-async function publishX(c, p) {
-  const link = p.videoUrl ? `
-${p.videoUrl}` : "";
-  const text = p.text.slice(0, Math.max(0, 280 - (p.videoUrl ? 24 : 0))).trim() + link;
-  const { d } = await call("https://api.twitter.com/2/tweets", { method: "POST", headers: { Authorization: `Bearer ${c.token}`, "Content-Type": "application/json" }, body: JSON.stringify({ text }) }, "X");
-  return d.data.id;
-}
-async function publishFacebook(c, p) {
-  const tok = c.extra.pageToken || c.token;
-  if (p.videoUrl) {
-    const { d: d2 } = await call(`${GRAPH}/${c.externalId}/videos`, { method: "POST", body: form({ file_url: p.videoUrl, description: p.text, title: p.title.slice(0, 100), access_token: tok }) }, "Facebook");
-    return d2.id;
-  }
-  const { d } = await call(`${GRAPH}/${c.externalId}/feed`, { method: "POST", body: form({ message: p.text, access_token: tok }) }, "Facebook");
-  return d.id;
-}
-async function publishInstagram(c, p) {
-  ensure(p.videoUrl, "Instagram needs a video or image. Attach a generated video to this post.");
-  const tok = c.extra.pageToken || c.token;
-  const { d: made } = await call(`${GRAPH}/${c.externalId}/media`, { method: "POST", body: form({ media_type: "REELS", video_url: p.videoUrl, caption: p.text.slice(0, 2200), access_token: tok }) }, "Instagram");
-  for (let i = 0; i < 12; i++) {
-    const st = await getJson(`${GRAPH}/${made.id}?fields=status_code,status&access_token=${encodeURIComponent(tok)}`);
-    if (st.status_code === "FINISHED") break;
-    if (st.status_code === "ERROR" || st.status_code === "EXPIRED") throw new HttpError(424, `Instagram could not process the video (${st.status || st.status_code}).`, "SOCIAL_POST");
-    await sleep(4e3);
-  }
-  const { d } = await call(`${GRAPH}/${c.externalId}/media_publish`, { method: "POST", body: form({ creation_id: made.id, access_token: tok }) }, "Instagram");
-  return d.id;
-}
-async function publishLinkedIn(c, p) {
-  const owner = `urn:li:person:${c.externalId}`;
-  const h = { Authorization: `Bearer ${c.token}`, "Content-Type": "application/json", "LinkedIn-Version": "202504", "X-Restli-Protocol-Version": "2.0.0" };
-  let content;
-  if (p.videoUrl) {
-    const video = await downloadVideo(p.videoUrl);
-    const { d: init } = await call("https://api.linkedin.com/rest/videos?action=initializeUpload", { method: "POST", headers: h, body: JSON.stringify({ initializeUploadRequest: { owner, fileSizeBytes: video.length, uploadCaptions: false, uploadThumbnail: false } }) }, "LinkedIn");
-    const v = init.value;
-    const etags = [];
-    for (const part of v.uploadInstructions) {
-      const chunk = video.subarray(part.firstByte, part.lastByte + 1);
-      const up = await fetch(part.uploadUrl, { method: "PUT", headers: { "Content-Type": "application/octet-stream" }, body: new Uint8Array(chunk), signal: AbortSignal.timeout(45e3) });
-      if (!up.ok) throw new HttpError(424, "LinkedIn rejected the video upload.", "SOCIAL_POST");
-      etags.push(up.headers.get("etag") || "");
-    }
-    await call("https://api.linkedin.com/rest/videos?action=finalizeUpload", { method: "POST", headers: h, body: JSON.stringify({ finalizeUploadRequest: { video: v.video, uploadToken: v.uploadToken || "", uploadedPartIds: etags } }) }, "LinkedIn");
-    content = { media: { title: p.title.slice(0, 200) || "Video", id: v.video } };
-  }
-  const body = { author: owner, commentary: p.text.slice(0, 2900), visibility: "PUBLIC", distribution: { feedDistribution: "MAIN_FEED", targetEntities: [], thirdPartyDistributionChannels: [] }, lifecycleState: "PUBLISHED", isReshareDisabledByAuthor: false };
-  if (content) body.content = content;
-  const { r } = await call("https://api.linkedin.com/rest/posts", { method: "POST", headers: h, body: JSON.stringify(body) }, "LinkedIn");
-  return r.headers.get("x-restli-id") || "posted";
-}
-async function publishTikTok(c, p) {
-  ensure(p.videoUrl, "TikTok needs a video. Attach a generated video to this post.");
-  const video = await downloadVideo(p.videoUrl);
-  const privacy = process.env.TIKTOK_PRIVACY || "SELF_ONLY";
-  const { d } = await call("https://open.tiktokapis.com/v2/post/publish/video/init/", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${c.token}`, "Content-Type": "application/json; charset=UTF-8" },
-    body: JSON.stringify({ post_info: { title: p.text.slice(0, 2e3), privacy_level: privacy }, source_info: { source: "FILE_UPLOAD", video_size: video.length, chunk_size: video.length, total_chunk_count: 1 } })
-  }, "TikTok");
-  const up = d.data?.upload_url;
-  ensure(up, "TikTok did not return an upload address.");
-  const put2 = await fetch(up, { method: "PUT", headers: { "Content-Type": "video/mp4", "Content-Range": `bytes 0-${video.length - 1}/${video.length}`, "Content-Length": String(video.length) }, body: new Uint8Array(video), signal: AbortSignal.timeout(45e3) });
-  if (!put2.ok) throw new HttpError(424, "TikTok rejected the video upload.", "SOCIAL_POST");
-  return d.data.publish_id;
-}
-async function publishToPlatform(userId, p, post) {
-  if (!PROVIDERS[p].publishable) throw new HttpError(422, `${PROVIDERS[p].name} publishing isn't available yet.`, "SOCIAL_POST");
-  const c = await connection(userId, p);
-  let id;
-  switch (p) {
-    case "youtube":
-      id = await publishYouTube(c, post);
-      break;
-    case "x":
-      id = await publishX(c, post);
-      break;
-    case "facebook":
-      id = await publishFacebook(c, post);
-      break;
-    case "instagram":
-      id = await publishInstagram(c, post);
-      break;
-    case "linkedin":
-      id = await publishLinkedIn(c, post);
-      break;
-    case "tiktok":
-      id = await publishTikTok(c, post);
-      break;
-    default:
-      throw new HttpError(422, "Unsupported platform.", "SOCIAL_POST");
-  }
-  return `${p}:${id}`;
-}
-async function socialMetrics(userId, ids) {
-  const out = [];
-  for (const full of ids) {
-    const [p, ...rest] = full.split(":");
-    const pid = rest.join(":");
-    if (!isPlatform(p) || !pid) continue;
-    try {
-      const c = await connection(userId, p);
-      if (p === "youtube") {
-        const d = await getJson(`https://www.googleapis.com/youtube/v3/videos?part=statistics&id=${encodeURIComponent(pid)}`, { Authorization: `Bearer ${c.token}` });
-        const s = d.items?.[0]?.statistics;
-        if (s) out.push({ id: full, metrics: { views: +s.viewCount || 0, reactions: +s.likeCount || 0, comments: +s.commentCount || 0 } });
-      } else if (p === "x") {
-        const d = await getJson(`https://api.twitter.com/2/tweets/${encodeURIComponent(pid)}?tweet.fields=public_metrics`, { Authorization: `Bearer ${c.token}` });
-        const m = d.data?.public_metrics;
-        if (m) out.push({ id: full, metrics: { impressions: m.impression_count || 0, reactions: m.like_count || 0, comments: m.reply_count || 0, reposts: m.retweet_count || 0 } });
-      } else if (p === "facebook") {
-        const d = await getJson(`${GRAPH}/${pid}?fields=likes.summary(true),comments.summary(true)&access_token=${encodeURIComponent(c.extra.pageToken || c.token)}`);
-        out.push({ id: full, metrics: { reactions: d.likes?.summary?.total_count || 0, comments: d.comments?.summary?.total_count || 0 } });
-      } else if (p === "instagram") {
-        const d = await getJson(`${GRAPH}/${pid}?fields=like_count,comments_count&access_token=${encodeURIComponent(c.extra.pageToken || c.token)}`);
-        out.push({ id: full, metrics: { reactions: d.like_count || 0, comments: d.comments_count || 0 } });
-      }
-    } catch (e) {
-      console.error("metrics", full, e.message);
-    }
-  }
-  return out;
-}
 
 // server/lib/zernio.ts
 var BASE = "https://zernio.com/api/v1";
 var TO_Z = { x: "twitter", youtube: "youtube", tiktok: "tiktok", instagram: "instagram", linkedin: "linkedin", facebook: "facebook", pinterest: "pinterest" };
 var FROM_Z = Object.fromEntries(Object.entries(TO_Z).map(([a, b]) => [b, a]));
-var zernioConfigured = () => !!(process.env.ZERNIO_API_KEY || "").trim();
 async function zernioRequest(path, init = {}) {
   const key = (process.env.ZERNIO_API_KEY || "").trim();
   if (!key) throw new HttpError(424, "Social publishing is not configured. Add ZERNIO_API_KEY in Vercel Environment Variables, then redeploy.", "ZERNIO_CONFIG");
@@ -4360,112 +4123,6 @@ async function zernioRequest(path, init = {}) {
   }
   return data;
 }
-async function zernioEnsureProfile(userId) {
-  const rows = await sql()`SELECT profile_id FROM zernio_profiles WHERE user_id=${userId}`;
-  if (rows[0]?.profile_id) return String(rows[0].profile_id);
-  const name = `omnipulse-${userId}`.slice(0, 80);
-  let d;
-  try {
-    d = await zernioRequest("/profiles", { method: "POST", body: JSON.stringify({ name, description: "OmniPulse customer profile" }) });
-  } catch (e) {
-    if (!String(e?.message || "").includes("(409)")) throw e;
-    const listed = await zernioRequest("/profiles");
-    const profiles = Array.isArray(listed?.profiles) ? listed.profiles : Array.isArray(listed?.data?.profiles) ? listed.data.profiles : [];
-    const match = profiles.find((p) => String(p?.name || "") === name);
-    const existingId = String(match?._id || match?.id || "");
-    if (!existingId) throw new HttpError(424, "A Zernio profile with this customer ID already exists but could not be safely recovered.", "ZERNIO_PROFILE");
-    await sql()`INSERT INTO zernio_profiles (user_id,profile_id) VALUES (${userId},${existingId}) ON CONFLICT (user_id) DO NOTHING`;
-    const saved2 = await sql()`SELECT profile_id FROM zernio_profiles WHERE user_id=${userId}`;
-    return String(saved2[0]?.profile_id || existingId);
-  }
-  const id = String(d?.profile?._id || d?.profile?.id || "");
-  if (!id) throw new HttpError(424, "Zernio did not return a customer profile ID.", "ZERNIO_PROFILE");
-  await sql()`INSERT INTO zernio_profiles (user_id,profile_id) VALUES (${userId},${id}) ON CONFLICT (user_id) DO NOTHING`;
-  const saved = await sql()`SELECT profile_id FROM zernio_profiles WHERE user_id=${userId}`;
-  return String(saved[0]?.profile_id || id);
-}
-async function zernioConnectUrl(userId, platform, redirectUrl) {
-  const zPlatform = TO_Z[platform];
-  if (!zPlatform) throw new HttpError(400, "This social platform is not supported.");
-  const profileId = await zernioEnsureProfile(userId);
-  const state = (await import("node:crypto")).randomBytes(24).toString("hex");
-  const qs = new URLSearchParams({ profileId, redirect_url: `${redirectUrl}?state=${state}` });
-  const d = await zernioRequest(`/connect/${encodeURIComponent(zPlatform)}?${qs.toString()}`);
-  const url = String(d?.authUrl || "");
-  if (!/^https:\/\//i.test(url)) throw new HttpError(424, "Zernio did not return a valid authorization link.", "ZERNIO");
-  return { url, profileId, state };
-}
-async function zernioSyncAccounts(userId, limit) {
-  const profileId = await zernioEnsureProfile(userId);
-  const d = await zernioRequest(`/accounts?profileId=${encodeURIComponent(profileId)}`);
-  const accounts = Array.isArray(d?.accounts) ? d.accounts : [];
-  let added = 0;
-  const supported = accounts.filter((a) => FROM_Z[String(a?.platform || "")] && a?.isActive !== false);
-  const remoteIds = new Set(supported.map((a) => String(a._id || a.accountId || "")).filter(Boolean));
-  const existingRows = await sql()`SELECT platform,account_id FROM zernio_connections WHERE user_id=${userId}`;
-  for (const old of existingRows) {
-    if (!remoteIds.has(String(old.account_id))) await sql()`DELETE FROM zernio_connections WHERE user_id=${userId} AND platform=${old.platform}`;
-  }
-  const existing = await sql()`SELECT platform FROM zernio_connections WHERE user_id=${userId}`;
-  const known = new Set(existing.map((r) => String(r.platform)));
-  for (const a of supported) {
-    const platform = FROM_Z[String(a.platform)];
-    const accountId = String(a._id || a.accountId || "");
-    if (!accountId) continue;
-    if (!known.has(platform) && known.size >= limit) continue;
-    const username = String(a.username || a.name || a.displayName || platform).slice(0, 120);
-    await sql()`INSERT INTO zernio_connections (user_id,profile_id,platform,account_id,username,connected_at)
-      VALUES (${userId},${profileId},${platform},${accountId},${username},now())
-      ON CONFLICT (user_id,platform) DO UPDATE SET profile_id=EXCLUDED.profile_id,account_id=EXCLUDED.account_id,username=EXCLUDED.username,connected_at=now()`;
-    if (!known.has(platform)) {
-      known.add(platform);
-      added++;
-    }
-  }
-  return added;
-}
-async function zernioListAccounts(userId, limit) {
-  await zernioSyncAccounts(userId, limit);
-  const rows = await sql()`SELECT platform,username,connected_at FROM zernio_connections WHERE user_id=${userId}`;
-  return Object.entries(TO_Z).map(([platform]) => {
-    const a = rows.find((r) => r.platform === platform);
-    const names = { x: "X (Twitter)", youtube: "YouTube", tiktok: "TikTok", instagram: "Instagram", linkedin: "LinkedIn", facebook: "Facebook Page", pinterest: "Pinterest" };
-    return { platform, name: names[platform] || platform, configured: zernioConfigured(), publishable: true, connected: !!a, handle: a?.username || "", avatar: "", followers: 0, connectedAt: a?.connected_at || null };
-  });
-}
-async function zernioDisconnect(userId, platform) {
-  const rows = await sql()`SELECT account_id FROM zernio_connections WHERE user_id=${userId} AND platform=${platform}`;
-  if (!rows[0]) return;
-  await zernioRequest(`/accounts/${encodeURIComponent(String(rows[0].account_id))}`, { method: "DELETE" });
-  await sql()`DELETE FROM zernio_connections WHERE user_id=${userId} AND platform=${platform}`;
-}
-async function zernioPublish(userId, platform, post, scheduledAt) {
-  const rows = await sql()`SELECT account_id FROM zernio_connections WHERE user_id=${userId} AND platform=${platform}`;
-  if (!rows[0]?.account_id) throw new HttpError(409, `${platform} is not connected. Connect it from Social Accounts first.`, "SOCIAL_NOT_CONNECTED");
-  const targetPlatform = TO_Z[platform];
-  if (!targetPlatform) throw new HttpError(422, "Unsupported social platform.", "SOCIAL_POST");
-  if (["youtube", "tiktok", "instagram"].includes(platform) && !post.videoUrl) {
-    const name = platform === "youtube" ? "YouTube" : platform === "tiktok" ? "TikTok" : "Instagram";
-    throw new HttpError(422, `${name} requires a finished video. Select a completed MP4 before scheduling or publishing.`, "SOCIAL_MEDIA_REQUIRED");
-  }
-  const body = { content: post.text, platforms: [{ platform: targetPlatform, accountId: String(rows[0].account_id) }] };
-  if (post.videoUrl) body.mediaItems = [{ type: "video", url: post.videoUrl }];
-  if (scheduledAt) {
-    body.scheduledFor = scheduledAt.toISOString();
-    body.timezone = "UTC";
-  } else body.publishNow = true;
-  const d = await zernioRequest("/posts", { method: "POST", body: JSON.stringify(body) });
-  const result = d?.post || d;
-  const platformResult = Array.isArray(result?.platforms) ? result.platforms[0] : null;
-  if (platformResult && ["failed", "error"].includes(String(platformResult.status || "").toLowerCase())) {
-    throw new HttpError(422, String(platformResult.error || platformResult.message || "The social network rejected this post.").slice(0, 240), "SOCIAL_POST");
-  }
-  const id = String(result?._id || result?.id || platformResult?.platformPostId || "queued");
-  return `${platform}:${id}`;
-}
-async function zernioHealth() {
-  await zernioRequest("/profiles");
-}
 async function zernioDeleteCustomer(userId) {
   const profiles = await sql()`SELECT profile_id FROM zernio_profiles WHERE user_id=${userId}`;
   if (!profiles[0]?.profile_id) return;
@@ -4476,6 +4133,210 @@ async function zernioDeleteCustomer(userId) {
   await zernioRequest(`/profiles/${encodeURIComponent(String(profiles[0].profile_id))}`, { method: "DELETE" });
   await sql()`DELETE FROM zernio_connections WHERE user_id=${userId}`;
   await sql()`DELETE FROM zernio_profiles WHERE user_id=${userId}`;
+}
+
+// server/lib/buffer.ts
+import crypto3 from "node:crypto";
+var API = "https://api.buffer.com";
+var AUTH = "https://auth.buffer.com";
+var SERVICE_TO_PLATFORM = {
+  twitter: "x",
+  x: "x",
+  youtube: "youtube",
+  tiktok: "tiktok",
+  instagram: "instagram",
+  linkedin: "linkedin",
+  facebook: "facebook",
+  pinterest: "pinterest"
+};
+var PLATFORM_NAMES = {
+  x: "X (Twitter)",
+  youtube: "YouTube",
+  tiktok: "TikTok",
+  instagram: "Instagram",
+  linkedin: "LinkedIn",
+  facebook: "Facebook Page",
+  pinterest: "Pinterest"
+};
+var bufferConfigured = () => !!(process.env.BUFFER_CLIENT_ID || "").trim() && !!(process.env.BUFFER_CLIENT_SECRET || "").trim();
+var clientId = () => (process.env.BUFFER_CLIENT_ID || "").trim();
+var clientSecret = () => (process.env.BUFFER_CLIENT_SECRET || "").trim();
+var b64url = (b) => b.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+function bufferPkce() {
+  const verifier = b64url(crypto3.randomBytes(32));
+  const challenge = b64url(crypto3.createHash("sha256").update(verifier).digest());
+  const state = b64url(crypto3.randomBytes(24));
+  return { verifier, challenge, state };
+}
+function bufferAuthorizeUrl(base, state, challenge) {
+  if (!bufferConfigured()) throw new HttpError(424, "Buffer is not configured. Add BUFFER_CLIENT_ID and BUFFER_CLIENT_SECRET in Vercel, then redeploy.", "BUFFER_CONFIG");
+  const redirectUri3 = `${base}/api/social/buffer-callback`;
+  const qs = new URLSearchParams({
+    client_id: clientId(),
+    redirect_uri: redirectUri3,
+    response_type: "code",
+    scope: "posts:read posts:write account:read offline_access",
+    state,
+    code_challenge: challenge,
+    code_challenge_method: "S256",
+    prompt: "consent"
+  });
+  return `${AUTH}/auth?${qs.toString()}`;
+}
+async function tokenRequest(params) {
+  const response = await fetch(`${AUTH}/token`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
+    body: new URLSearchParams({ client_id: clientId(), client_secret: clientSecret(), ...params }),
+    signal: AbortSignal.timeout(2e4)
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || !data.access_token) {
+    console.error("Buffer OAuth token request failed", response.status, JSON.stringify(data).slice(0, 300));
+    throw new HttpError(424, `Buffer authorization failed: ${String(data.error_description || data.error || "token exchange was rejected").slice(0, 180)}`, "BUFFER_AUTH");
+  }
+  return data;
+}
+async function bufferExchangeCode(code, base, verifier) {
+  return tokenRequest({
+    grant_type: "authorization_code",
+    code,
+    redirect_uri: `${base}/api/social/buffer-callback`,
+    code_verifier: verifier
+  });
+}
+async function accessToken(userId) {
+  let rows = await sql()`SELECT * FROM buffer_connections WHERE user_id=${userId}`;
+  let row = rows[0];
+  if (!row) throw new HttpError(409, "Connect your Buffer account first.", "BUFFER_NOT_CONNECTED");
+  if (!row.expires_at || new Date(row.expires_at).getTime() - Date.now() > 9e4) return decrypt(row.access_token_enc);
+  if (!row.refresh_token_enc) throw new HttpError(409, "Your Buffer session expired. Reconnect Buffer.", "BUFFER_REAUTH");
+  const lock = await sql()`UPDATE buffer_connections SET refresh_lock_until=now()+interval '30 seconds'
+    WHERE user_id=${userId} AND (refresh_lock_until IS NULL OR refresh_lock_until < now())
+    RETURNING refresh_token_enc`;
+  if (!lock[0]) {
+    for (let i = 0; i < 8; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      rows = await sql()`SELECT * FROM buffer_connections WHERE user_id=${userId}`;
+      row = rows[0];
+      if (row && (!row.expires_at || new Date(row.expires_at).getTime() - Date.now() > 9e4)) return decrypt(row.access_token_enc);
+    }
+    throw new HttpError(424, "Buffer is refreshing your connection. Please retry in a moment.", "BUFFER_REFRESH");
+  }
+  try {
+    const token = await tokenRequest({ grant_type: "refresh_token", refresh_token: decrypt(lock[0].refresh_token_enc) });
+    const expires = new Date(Date.now() + (Number(token.expires_in) || 3600) * 1e3).toISOString();
+    await sql()`UPDATE buffer_connections SET access_token_enc=${encrypt(token.access_token)},
+      refresh_token_enc=${token.refresh_token ? encrypt(token.refresh_token) : row.refresh_token_enc},
+      expires_at=${expires}, refresh_lock_until=NULL WHERE user_id=${userId}`;
+    return token.access_token;
+  } catch (error) {
+    await sql()`UPDATE buffer_connections SET refresh_lock_until=NULL WHERE user_id=${userId}`;
+    throw error;
+  }
+}
+async function graph(token, query) {
+  let response;
+  try {
+    response = await fetch(API, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({ query }),
+      signal: AbortSignal.timeout(25e3)
+    });
+  } catch (error) {
+    throw new HttpError(424, error?.name === "TimeoutError" ? "Buffer did not respond in time." : "Could not reach Buffer. Please try again.", "BUFFER");
+  }
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || data.errors?.length) {
+    const message = data.errors?.[0]?.message || "Buffer rejected the request.";
+    console.error("Buffer GraphQL error", response.status, String(message).slice(0, 300));
+    if (response.status === 401 || /unauthorized|invalid token/i.test(message)) throw new HttpError(409, "Buffer authorization expired. Reconnect your Buffer account.", "BUFFER_REAUTH");
+    throw new HttpError(424, `Buffer API: ${String(message).slice(0, 220)}`, "BUFFER");
+  }
+  return data.data;
+}
+async function bufferSaveConnection(userId, tokens, limit) {
+  if (!tokens?.access_token) throw new HttpError(424, "Buffer did not return an access token.", "BUFFER_AUTH");
+  const expires = new Date(Date.now() + (Number(tokens.expires_in) || 3600) * 1e3).toISOString();
+  await sql()`INSERT INTO buffer_connections (user_id,access_token_enc,refresh_token_enc,expires_at,connected_at,refresh_lock_until)
+    VALUES (${userId},${encrypt(tokens.access_token)},${tokens.refresh_token ? encrypt(tokens.refresh_token) : null},${expires},now(),NULL)
+    ON CONFLICT (user_id) DO UPDATE SET access_token_enc=EXCLUDED.access_token_enc,
+      refresh_token_enc=EXCLUDED.refresh_token_enc,expires_at=EXCLUDED.expires_at,connected_at=now(),refresh_lock_until=NULL`;
+  await bufferSyncAccounts(userId, limit);
+}
+async function bufferHasConnection(userId) {
+  const rows = await sql()`SELECT user_id FROM buffer_connections WHERE user_id=${userId}`;
+  return !!rows[0];
+}
+async function bufferSyncAccounts(userId, limit) {
+  const token = await accessToken(userId);
+  const account = await graph(token, "query { account { id email organizations { id name } } }");
+  const organizations = account?.account?.organizations || [];
+  const all = [];
+  for (const org of organizations) {
+    const query = `query { channels(input: { organizationId: ${JSON.stringify(String(org.id))} }) { id name service } }`;
+    const result = await graph(token, query);
+    const channels = Array.isArray(result?.channels) ? result.channels : result?.channels?.edges?.map((edge) => edge.node) || [];
+    for (const channel of channels) all.push({ ...channel, organizationId: org.id });
+  }
+  const mapped = all.map((channel) => ({ ...channel, platform: SERVICE_TO_PLATFORM[String(channel.service || "").toLowerCase()] })).filter((channel) => channel.platform);
+  const unique = /* @__PURE__ */ new Map();
+  for (const channel of mapped) if (!unique.has(channel.platform)) unique.set(channel.platform, channel);
+  const selected = Array.from(unique.values()).slice(0, Math.max(0, limit));
+  await sql()`DELETE FROM buffer_channels WHERE user_id=${userId}`;
+  for (const channel of selected) {
+    await sql()`INSERT INTO buffer_channels (user_id,platform,channel_id,name,service,organization_id,connected_at)
+      VALUES (${userId},${channel.platform},${String(channel.id)},${String(channel.name || PLATFORM_NAMES[channel.platform]).slice(0, 120)},
+      ${String(channel.service || "")},${String(channel.organizationId || "")},now())
+      ON CONFLICT (user_id,platform) DO UPDATE SET channel_id=EXCLUDED.channel_id,name=EXCLUDED.name,
+      service=EXCLUDED.service,organization_id=EXCLUDED.organization_id,connected_at=now()`;
+  }
+  return selected.length;
+}
+async function bufferListAccounts(userId) {
+  const rows = await sql()`SELECT platform,name,connected_at FROM buffer_channels WHERE user_id=${userId}`;
+  return Object.keys(PLATFORM_NAMES).map((platform) => {
+    const channel = rows.find((row) => row.platform === platform);
+    return {
+      platform,
+      name: PLATFORM_NAMES[platform],
+      configured: bufferConfigured(),
+      publishable: true,
+      connected: !!channel,
+      handle: channel?.name || "",
+      avatar: "",
+      followers: 0,
+      connectedAt: channel?.connected_at || null
+    };
+  });
+}
+async function bufferDisconnectChannel(userId, platform) {
+  await sql()`DELETE FROM buffer_channels WHERE user_id=${userId} AND platform=${platform}`;
+}
+async function bufferPublish(userId, platform, post, scheduledAt) {
+  const rows = await sql()`SELECT channel_id FROM buffer_channels WHERE user_id=${userId} AND platform=${platform}`;
+  if (!rows[0]?.channel_id) throw new HttpError(409, `${PLATFORM_NAMES[platform]} is not connected in Buffer. Add it to your Buffer account, then sync channels.`, "SOCIAL_NOT_CONNECTED");
+  if (["youtube", "tiktok", "instagram"].includes(platform) && !post.videoUrl) {
+    throw new HttpError(422, `${PLATFORM_NAMES[platform]} requires a finished video. Select a completed MP4 before publishing.`, "SOCIAL_MEDIA_REQUIRED");
+  }
+  const token = await accessToken(userId);
+  const channelId = String(rows[0].channel_id);
+  const text = JSON.stringify(post.text || "").replace(/\\u2028/g, "\\\\u2028").replace(/\\u2029/g, "\\\\u2029");
+  const id = JSON.stringify(channelId);
+  const assets = post.videoUrl ? `assets: [{ video: { url: ${JSON.stringify(post.videoUrl)} } }]` : "";
+  const mode = scheduledAt ? "customScheduled" : "shareNow";
+  const dueAt = scheduledAt ? `dueAt: ${JSON.stringify(scheduledAt.toISOString())}` : "";
+  const mutation = `mutation { createPost(input: { text: ${text}, channelId: ${id}, schedulingType: automatic, mode: ${mode}, ${dueAt} ${assets} }) { ... on PostActionSuccess { post { id status dueAt } } ... on MutationError { message } } }`;
+  const data = await graph(token, mutation);
+  const result = data?.createPost;
+  if (result?.message) throw new HttpError(422, String(result.message).slice(0, 220), "BUFFER_POST");
+  const postId = String(result?.post?.id || "");
+  if (!postId) throw new HttpError(424, "Buffer did not confirm that the post was created.", "BUFFER_POST");
+  return `${platform}:${postId}`;
+}
+async function bufferHealth() {
+  if (!bufferConfigured()) throw new HttpError(424, "Add BUFFER_CLIENT_ID and BUFFER_CLIENT_SECRET in Vercel.", "BUFFER_CONFIG");
 }
 
 // server/handler.ts
@@ -4959,9 +4820,11 @@ var deleteAccount = async ({ req, res, body }) => {
   const mediaRows = await sql()`SELECT blob_url FROM media_assets WHERE user_id=${id}`;
   await Promise.all(mediaRows.map((asset) => del(asset.blob_url).catch((e) => console.error("media cleanup on delete", e?.message))));
   await sql()`DELETE FROM media_assets WHERE user_id=${id}`;
-  if (zernioConfigured()) await zernioDeleteCustomer(id).catch((e) => console.error("Zernio account cleanup on delete", e));
+  await zernioDeleteCustomer(id).catch((e) => console.error("Legacy social cleanup on delete", e));
   await sql()`DELETE FROM zernio_connections WHERE user_id=${id}`;
   await sql()`DELETE FROM zernio_profiles WHERE user_id=${id}`;
+  await sql()`DELETE FROM buffer_channels WHERE user_id=${id}`;
+  await sql()`DELETE FROM buffer_connections WHERE user_id=${id}`;
   await sql()`DELETE FROM dashboards WHERE user_id=${id}`;
   await sql()`DELETE FROM social_connections WHERE user_id=${id}`;
   await sql()`DELETE FROM scheduled_posts WHERE user_id=${id}`;
@@ -5934,16 +5797,9 @@ var systemCheck = async ({ req, res }) => {
       }
       return `Key accepted. Plans: ${out.join(" \xB7 ")}`;
     }),
-    run3("Zernio (social publishing)", async () => {
-      if (!zernioConfigured()) throw new Error("ZERNIO_API_KEY is not set in Vercel. Add it and redeploy to enable customer social connections.");
-      await zernioHealth();
-      return "Zernio API key accepted. Each OmniPulse customer will use a separate profile.";
-    }),
-    run3("Social networks (direct connect fallback)", async () => {
-      if (zernioConfigured()) return "Not needed: Zernio is handling social connections.";
-      const lines = PLATFORM_IDS.map((p) => `${PROVIDERS[p].name}: ${isConfigured(p) ? "ready" : `missing ${PROVIDERS[p].idEnv} / ${PROVIDERS[p].secretEnv}`} \xB7 redirect ${redirectUri(appUrl(req), p)}`);
-      if (!PLATFORM_IDS.some((p) => isConfigured(p))) throw new Error(`Zernio is not configured and no direct social network developer apps are set up. Add ZERNIO_API_KEY in Vercel.`);
-      return lines.join(" | ");
+    run3("Buffer (social publishing)", async () => {
+      await bufferHealth();
+      return "Buffer OAuth app credentials are present. Each customer connects their own Buffer account.";
     }),
     run3("Scheduled-post sender", async () => {
       if (!process.env.CRON_SECRET) throw new Error("CRON_SECRET is not set. Scheduled posts will not be sent until you set it and ping /api/cron/dispatch every few minutes (see docs/ENVIRONMENT.md).");
@@ -6282,13 +6138,14 @@ async function refreshJob(j) {
 }
 var socialAccounts = async ({ req, res }) => {
   const { row, user } = await requireAccess(req);
-  const accounts = zernioConfigured() ? await zernioListAccounts(row.id, user.channelsLimit) : await listSocialAccounts(row.id);
-  json(res, 200, { accounts, limit: user.channelsLimit, provider: zernioConfigured() ? "zernio" : "direct" });
+  const accounts = await bufferListAccounts(row.id);
+  json(res, 200, { accounts, limit: user.channelsLimit, provider: "buffer" });
 };
 var socialSync = async ({ req, res }) => {
   const { row, user } = await requireAccess(req);
-  const added = zernioConfigured() ? await zernioSyncAccounts(row.id, user.channelsLimit) : 0;
-  json(res, 200, { added, accounts: zernioConfigured() ? await zernioListAccounts(row.id, user.channelsLimit) : await listSocialAccounts(row.id) });
+  const connected = await bufferHasConnection(row.id);
+  const added = connected ? await bufferSyncAccounts(row.id, user.channelsLimit) : 0;
+  json(res, 200, { added, accounts: await bufferListAccounts(row.id), provider: "buffer" });
 };
 var socialConnect = async ({ req, res, query }) => {
   const fail = (why) => redirect(res, `/?social=error&reason=${encodeURIComponent(why)}`);
@@ -6298,38 +6155,35 @@ var socialConnect = async ({ req, res, query }) => {
   if (!isPlatform(p)) return fail("Unknown platform.");
   try {
     const { user } = await requireAccess(req);
-    if (zernioConfigured()) {
-      const started = await zernioConnectUrl(uid, p, `${appUrl(req)}/api/social/zernio-callback`);
-      setCookie(res, "op_zer", await signBlob({ u: uid, p, state: started.state, profileId: started.profileId }, "15m"), 900);
-      return redirect(res, started.url);
+    if (await bufferHasConnection(uid)) {
+      await bufferSyncAccounts(uid, user.channelsLimit);
+      const accounts = await bufferListAccounts(uid);
+      if (accounts.some((account) => account.platform === p && account.connected)) return redirect(res, `/?social=connected&platform=${encodeURIComponent(p)}`);
+      return fail(`No ${PROVIDERS[p].name} channel is connected in Buffer yet. Add it in Buffer, then sync accounts in OmniPulse.`);
     }
-    const { verifier, challenge, state } = socialPkce();
-    const url = socialAuthorizeUrl(p, appUrl(req), state, challenge);
-    setCookie(res, "op_soc", await signBlob({ v: verifier, s: state, u: uid, p }), 900);
+    const { verifier, challenge, state } = bufferPkce();
+    const url = bufferAuthorizeUrl(appUrl(req), state, challenge);
+    setCookie(res, "op_buf", await signBlob({ v: verifier, s: state, u: uid }, "15m"), 900);
     redirect(res, url);
   } catch (e) {
-    fail(e instanceof HttpError ? e.message : "Could not start the connection.");
+    fail(e instanceof HttpError ? e.message : "Could not start the Buffer connection.");
   }
 };
-var socialZernioCallback = async ({ req, res, query }) => {
+var socialBufferCallback = async ({ req, res, query }) => {
   const fail = (why) => redirect(res, `/?social=error&reason=${encodeURIComponent(why)}`);
-  const blob = await readBlob(parseCookies(req)["op_zer"]);
-  setCookie(res, "op_zer", "", 0);
+  const blob = await readBlob(parseCookies(req)["op_buf"]);
+  setCookie(res, "op_buf", "", 0);
   const uid = await sessionUserId(req);
-  const connected = String(query.get("connected") || "");
-  const providerPlatform = { x: "twitter", youtube: "youtube", tiktok: "tiktok", instagram: "instagram", linkedin: "linkedin", facebook: "facebook", pinterest: "pinterest" };
-  if (query.get("error")) return fail("The social network authorization was not completed.");
-  if (!blob || !uid || blob.u !== uid || blob.state !== query.get("state") || !query.get("profileId") || blob.profileId !== query.get("profileId"))
-    return fail("The connection attempt expired or could not be verified. Please try again.");
-  if (!Object.entries(providerPlatform).some(([k, v]) => k === blob.p && v === connected))
-    return fail("The returned social account did not match the platform you selected.");
+  if (query.get("error")) return fail(query.get("error") === "access_denied" ? "You declined Buffer access." : "Buffer authorization returned an error.");
+  if (!blob || !uid || blob.u !== uid || blob.s !== query.get("state") || !query.get("code")) return fail("The Buffer connection attempt expired or could not be verified. Please try again.");
   try {
     const { user } = await requireAccess(req);
-    await zernioSyncAccounts(uid, user.channelsLimit);
-    redirect(res, `/?social=connected&platform=${encodeURIComponent(String(blob.p))}`);
+    const tokens = await bufferExchangeCode(query.get("code"), appUrl(req), String(blob.v || ""));
+    await bufferSaveConnection(uid, tokens, user.channelsLimit);
+    redirect(res, "/?social=connected");
   } catch (e) {
-    console.error("Zernio callback", e);
-    fail(e instanceof HttpError ? e.message : "Could not finish connecting the account.");
+    console.error("Buffer OAuth callback", e);
+    fail(e instanceof HttpError ? e.message : "Could not finish connecting Buffer.");
   }
 };
 var socialCallback = async ({ req, res, query }) => {
@@ -6354,20 +6208,19 @@ var socialCallback = async ({ req, res, query }) => {
 var socialDisconnect = async ({ req, res, body }) => {
   const { row } = await requireAccess(req);
   if (!isPlatform(body.platform)) throw new HttpError(400, "Unknown platform.");
-  if (zernioConfigured()) await zernioDisconnect(row.id, body.platform);
-  else await removeSocialConnection(row.id, body.platform);
+  await bufferDisconnectChannel(row.id, body.platform);
   json(res, 200, { ok: true });
 };
 var socialMetricsRoute = async ({ req, res, query }) => {
   const { row } = await requireAccess(req);
   const ids = (query.get("ids") || "").split(",").map((x) => x.trim()).filter(Boolean).slice(0, 40);
-  json(res, 200, { metrics: ids.length && !zernioConfigured() ? await socialMetrics(row.id, ids) : [] });
+  json(res, 200, { metrics: [] });
 };
 async function publishAll(userId, platforms, post) {
   const out = [];
   for (const p of platforms) {
     try {
-      const postId = zernioConfigured() ? await zernioPublish(userId, p, post) : await publishToPlatform(userId, p, post);
+      const postId = await bufferPublish(userId, p, post);
       out.push({ platform: p, name: PROVIDERS[p].name, ok: true, postId });
     } catch (e) {
       out.push({ platform: p, name: PROVIDERS[p].name, ok: false, error: e?.message || "Publishing failed." });
@@ -6383,11 +6236,11 @@ var socialPublish = async ({ req, res, body }) => {
   const videoUrl = typeof body.videoUrl === "string" && /^https:\/\//.test(body.videoUrl) ? body.videoUrl : void 0;
   if (!text || !platforms.length) throw new HttpError(400, "A caption and at least one connected channel are required.");
   const when = body.dueAt ? new Date(body.dueAt).getTime() : 0;
-  if (body.mode === "scheduled" && when > Date.now() + 6e4 && zernioConfigured()) {
+  if (body.mode === "scheduled" && when > Date.now() + 6e4 && await bufferHasConnection(row.id)) {
     const results2 = [];
     for (const p of platforms) {
       try {
-        results2.push({ platform: p, name: PROVIDERS[p].name, ok: true, scheduled: true, postId: await zernioPublish(row.id, p, { text, title, videoUrl }, new Date(when)) });
+        results2.push({ platform: p, name: PROVIDERS[p].name, ok: true, scheduled: true, postId: await bufferPublish(row.id, p, { text, title, videoUrl }, new Date(when)) });
       } catch (e) {
         results2.push({ platform: p, name: PROVIDERS[p].name, ok: false, error: e?.message || "Scheduling failed." });
       }
@@ -8077,19 +7930,19 @@ var mediaTranscribe = async ({ req, res, body }) => {
   if (!groqKey) throw new HttpError(503, "Speech transcription is temporarily unavailable. Please try again later or contact support if the problem continues.");
   const token = await issueSignedToken({ operations: ["get"] });
   const signed = await presignUrl(token, { pathname: asset.pathname, operation: "get", access: "private", validUntil: Date.now() + 15 * 60 * 1e3 });
-  const form2 = new FormData();
-  form2.set("model", "whisper-large-v3");
-  form2.set("url", signed.presignedUrl);
-  form2.set("response_format", "verbose_json");
-  form2.set("language", "en");
-  form2.set("temperature", "0");
+  const form = new FormData();
+  form.set("model", "whisper-large-v3");
+  form.set("url", signed.presignedUrl);
+  form.set("response_format", "verbose_json");
+  form.set("language", "en");
+  form.set("temperature", "0");
   const transcriptHint = str(body.prompt || "", 800).trim();
-  if (transcriptHint) form2.set("prompt", transcriptHint);
-  form2.append("timestamp_granularities[]", "segment");
+  if (transcriptHint) form.set("prompt", transcriptHint);
+  form.append("timestamp_granularities[]", "segment");
   const response = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
     method: "POST",
     headers: { Authorization: `Bearer ${groqKey}` },
-    body: form2,
+    body: form,
     signal: AbortSignal.timeout(9e4)
   });
   if (!response.ok) {
@@ -8268,7 +8121,7 @@ var routes = {
   "POST /video/editor/assemble": videoEditorAssemble,
   "GET /social/connect": socialConnect,
   "GET /social/callback": socialCallback,
-  "GET /social/zernio-callback": socialZernioCallback,
+  "GET /social/buffer-callback": socialBufferCallback,
   "POST /social/disconnect": socialDisconnect,
   "GET /social/metrics": socialMetricsRoute,
   "POST /social/publish": socialPublish,
