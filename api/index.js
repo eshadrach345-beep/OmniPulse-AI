@@ -3796,6 +3796,33 @@ async function sampleVideoFrames(url, count = 4) {
     await fs.rm(dir, { recursive: true, force: true }).catch(() => void 0);
   }
 }
+async function sampleVideoFileFrames(file, count = 3) {
+  const bin = await ffmpegBinary();
+  const fs = await import("node:fs/promises");
+  const os = await import("node:os");
+  const path = await import("node:path");
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "op-film-qa-"));
+  try {
+    const probe = await run2(bin, ["-hide_banner", "-i", file], 5e3);
+    const durationMatch = probe.err.match(/Duration:\\s*(\\d+):(\\d+):(\\d+(?:\\.\\d+)?)/);
+    const duration = Math.max(1, durationMatch ? Number(durationMatch[1]) * 3600 + Number(durationMatch[2]) * 60 + Number(durationMatch[3]) : 5);
+    const sampleCount = Math.max(3, Math.min(4, Math.round(count) || 3));
+    const pattern = path.join(dir, "frame-%02d.jpg");
+    const fps = (sampleCount / duration).toFixed(6);
+    const result = await run2(bin, ["-y", "-i", file, "-vf", `fps=${fps},scale=512:-2`, "-frames:v", String(sampleCount), "-q:v", "5", pattern], 5e3);
+    if (result.code !== 0) throw new Error("Could not sample the assembled film for sequence-level visual QA.");
+    const names = (await fs.readdir(dir)).filter((name) => /^frame-\\d+\\.jpg$/.test(name)).sort();
+    const frames = [];
+    for (let i = 0; i < names.length; i++) {
+      const bytes = await fs.readFile(path.join(dir, names[i]));
+      if (bytes.length) frames.push({ timestamp: Math.min(duration, (i + 0.5) * duration / sampleCount), bytes, mimeType: "image/jpeg" });
+    }
+    if (frames.length < 3) throw new Error("Sequence-level QA could not extract enough frames from the assembled film.");
+    return frames;
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true }).catch(() => void 0);
+  }
+}
 
 // server/lib/video-provider-policy.ts
 function parseVideoProvider(value) {
@@ -6552,11 +6579,11 @@ var videoMerge = async ({ req, res, query }) => {
   }
   await streamMergedVideoWithRecovery(res, jobs, urls, query.get("name") || "omnipulse-video");
 };
-async function streamMergedVideoWithRecovery(res, jobs, urls, name) {
+async function streamMergedVideoWithRecovery(res, jobs, urls, name, beforeStream) {
   const refreshed = /* @__PURE__ */ new Set();
   for (; ; ) {
     try {
-      await streamMergedVideo(res, urls, name);
+      await streamMergedVideo(res, urls, name, beforeStream);
       return;
     } catch (error) {
       const match = String(error?.message || "").match(/Scene (\d+) could not be downloaded \((400|401|403|404|410)\)/i);
@@ -6578,7 +6605,7 @@ async function streamMergedVideoWithRecovery(res, jobs, urls, name) {
     }
   }
 }
-async function streamMergedVideo(res, urls, name) {
+async function streamMergedVideo(res, urls, name, beforeStream) {
   let merged;
   try {
     merged = await mergeClips(urls);
@@ -6588,6 +6615,7 @@ async function streamMergedVideo(res, urls, name) {
     throw new HttpError(424, e?.message || "The scenes could not be joined.", "MERGE");
   }
   try {
+    if (beforeStream) await beforeStream(merged.file);
     const fsp = await import("node:fs/promises");
     const { createReadStream } = await import("node:fs");
     const size = (await fsp.stat(merged.file)).size;
@@ -7480,6 +7508,42 @@ var projectGet = async ({ req, res, query }) => {
     defaults: (lastDone || eps[eps.length - 1])?.brief || null
   });
 };
+async function reviewAssembledEpisode(file, ep, scenes) {
+  try {
+    const frames = await sampleVideoFileFrames(file, 3);
+    const cast = Array.isArray(ep.storyboard_json?.characters) ? ep.storyboard_json.characters : [];
+    const sceneNotes = scenes.slice(0, 24).map(
+      (scene, index) => `SCENE ${index + 1}: ${[scene.visualPrompt, scene.location, scene.action, scene.secondHalfAction].filter(Boolean).join(" | ")}`
+    ).join("\\n");
+    const description = [
+      "FINAL ASSEMBLED EPISODE \u2014 SEQUENCE-LEVEL CONTINUITY REVIEW.",
+      "Judge the supplied frames as moments from one complete film, not as unrelated standalone images.",
+      "Check that the same lead characters retain their identity and distinctive wardrobe; story-critical props retain their appearance and ownership unless the story explains a handoff; locations, screen direction and chronology make sense; and each scene appears to belong to the same requested story.",
+      "STORY / SCENE ORDER:",
+      sceneNotes,
+      "CANONICAL CAST:",
+      cast.map((character) => `${character.name}: ${character.description || ""}`).join("; "),
+      buildCanonicalPropLock(ep.storyboard_json?.keyProps)
+    ].filter(Boolean).join("\\n").slice(0, 5200);
+    const review = await geminiVisualReview(description, frames.map((frame, index) => ({
+      ...frame,
+      name: `Assembled film chronological sample ${index + 1}`
+    })));
+    if (!review) {
+      console.warn("Sequence-level film QA unavailable; assembled film remains unverified.");
+      return;
+    }
+    const decision = evaluateVisualReview(review);
+    if (decision.reject) {
+      console.warn("Sequence-level film QA rejected the assembled episode:", { episodeId: ep.id, reason: decision.reason, issues: review.issues });
+      throw new HttpError(422, `Final film continuity review found a serious issue: ${decision.reason} Review the scenes before exporting this episode again.`, "FINAL_SEQUENCE_QA_REJECTED");
+    }
+    console.info("Sequence-level film QA completed:", { episodeId: ep.id, status: decision.status, confidence: review.confidence, summary: review.summary });
+  } catch (error) {
+    if (error instanceof HttpError) throw error;
+    console.warn("Sequence-level film QA unavailable; delivery is not blocked:", error?.message || error);
+  }
+}
 var episodeVideo = async ({ req, res, query }) => {
   const { row } = await requireAccess(req);
   await rateLimit(`merge:${row.id}`, 12, 3600);
@@ -7498,7 +7562,7 @@ var episodeVideo = async ({ req, res, query }) => {
   const kit = ep.brief?.brandKit || {};
   const logoAssetId = str(kit.logoAssetId, 80);
   if (String(ep.brief?.format || "") !== "commercial" || !logoAssetId) {
-    await streamMergedVideoWithRecovery(res, jobs, urls, name);
+    await streamMergedVideoWithRecovery(res, jobs, urls, name, (file) => reviewAssembledEpisode(file, ep, scenes));
     return;
   }
   const logoRows = await sql()`SELECT pathname, original_name, content_type FROM media_assets WHERE id = ${logoAssetId} AND user_id = ${row.id} LIMIT 1`;
@@ -7514,6 +7578,7 @@ var episodeVideo = async ({ req, res, query }) => {
   let merged = null;
   try {
     merged = await mergeClips(urls);
+    await reviewAssembledEpisode(merged.file, ep, scenes);
     const token = await issueSignedToken({ operations: ["get"] });
     const signed = await presignUrl(token, { pathname: String(logoAsset.pathname), operation: "get", access: "private", validUntil: Date.now() + 10 * 60 * 1e3 });
     const logoResponse = await fetch(signed.presignedUrl, { signal: AbortSignal.timeout(3e4) });
