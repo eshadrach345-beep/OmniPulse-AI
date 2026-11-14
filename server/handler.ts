@@ -1857,7 +1857,7 @@ async function refreshJob(j: any): Promise<{ state: string; videoUrl?: string; e
 
 // ---------------------------------------------------------------- Social publishing (Buffer OAuth + GraphQL)
 const socialAccounts: Handler = async ({ req, res }) => { const { row, user } = await requireAccess(req); const accounts = await bufferListAccounts(row.id); json(res,200,{accounts,limit:user.channelsLimit,provider:'buffer'}); };
-const socialSync: Handler = async ({ req, res }) => { const { row, user } = await requireAccess(req); const connected = await bufferHasConnection(row.id); const added = connected ? await bufferSyncAccounts(row.id,user.channelsLimit) : 0; json(res,200,{added,accounts:await bufferListAccounts(row.id,user.channelsLimit),provider:'buffer'}); };
+const socialSync: Handler = async ({ req, res }) => { const { row, user } = await requireAccess(req); const connected = await bufferHasConnection(row.id); const added = connected ? await bufferSyncAccounts(row.id,user.channelsLimit) : 0; json(res,200,{added,accounts:await bufferListAccounts(row.id),provider:'buffer'}); };
 const socialConnect: Handler = async ({ req, res, query }) => {
   const fail = (why:string) => redirect(res, `/?social=error&reason=${encodeURIComponent(why)}`);
   const uid = await sessionUserId(req); if (!uid) return redirect(res,'/');
