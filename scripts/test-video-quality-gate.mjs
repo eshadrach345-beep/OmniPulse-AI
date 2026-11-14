@@ -26,6 +26,11 @@ assert.equal(identityDecision.status, 'rejected');
 assert.equal(identityDecision.reject, true);
 assert.match(identityDecision.reason, /identity/i);
 
+const continuityDefect = { ...strong, passed: false, severity: 'major', sceneContinuityIssue: true, summary: 'The lead cast and important prop change without a story reason.' };
+const continuityDecision = gate.evaluateVisualReview(continuityDefect);
+assert.equal(continuityDecision.status, 'rejected', 'unmotivated cast, wardrobe or prop discontinuity blocks the shot');
+assert.match(continuityDecision.reason, /story|cast|wardrobe|props/i);
+
 const lowPromptMatch = { ...strong, qualityScore: 80, promptMatchScore: 28, summary: 'The shot does not show the requested action.' };
 const lowPromptDecision = gate.evaluateVisualReview(lowPromptMatch);
 assert.equal(lowPromptDecision.status, 'rejected', 'high-confidence prompt mismatch scores block unusable shots');
