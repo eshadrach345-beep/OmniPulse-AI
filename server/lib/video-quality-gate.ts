@@ -12,6 +12,7 @@ export interface VisualReviewAssessment {
   motionCoherenceIssue?: boolean;
   visualArtifactIssue?: boolean;
   framingIssue?: boolean;
+  sceneContinuityIssue?: boolean;
   qualityScore?: number | null;
   promptMatchScore?: number | null;
   motionCoherenceScore?: number | null;
@@ -53,6 +54,7 @@ export function evaluateVisualReview(review: VisualReviewAssessment | null | und
     review.motionCoherenceIssue && 'The action or movement is visibly incoherent.',
     review.visualArtifactIssue && 'The shot contains a severe visual generation artifact.',
     review.framingIssue && 'The main subject or essential action is unusably framed.',
+    review.sceneContinuityIssue && 'The shots do not maintain the same story, cast, wardrobe or important props across the sequence.',
   ].filter(Boolean) as string[];
 
   if (review.severity === 'major' || hardIssues.length) {
