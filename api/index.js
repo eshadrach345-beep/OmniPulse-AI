@@ -2092,6 +2092,48 @@ async function falKlingReferenceSubmit(prompt, referenceImageUrls, resolution = 
   }
   return { requestId: String(d.request_id), statusUrl: String(d.status_url), responseUrl: String(d.response_url) };
 }
+async function generateAdBrandImages(prompt, aspect) {
+  const mode = (process.env.AD_IMAGE_PROVIDER || process.env.IMAGE_PROVIDER || "auto").trim().toLowerCase();
+  const haveDeapi = !!lookupEnv("DEAPI_API_KEY");
+  const selected = mode === "auto" ? haveDeapi ? "deapi" : lookupEnv("FAL_KEY") ? "fal" : "" : mode;
+  if (selected === "fal") return falGenerateBrandImages(prompt, aspect);
+  if (selected !== "deapi") throw new HttpError(424, selected ? "AD_IMAGE_PROVIDER must be deapi, fal or auto." : "No brand image provider is configured. Add DEAPI_API_KEY or FAL_KEY in Vercel.", "AD_IMAGE_PROVIDER");
+  const dimensions = aspect === "9:16" ? [576, 1024] : aspect === "16:9" ? [1024, 576] : [768, 768];
+  const createOne = async (index) => {
+    let response;
+    try {
+      response = await fetch(`${DEAPI_BASE}/images/generations`, {
+        method: "POST",
+        headers: deapiHeaders(),
+        body: JSON.stringify({ model: (process.env.DEAPI_IMAGE_MODEL || "Flux_2_Klein_4B_BF16").trim(), prompt, width: dimensions[0], height: dimensions[1], steps: 4, seed: Math.floor(Math.random() * 2e9) + index }),
+        signal: AbortSignal.timeout(2e4)
+      });
+    } catch (e) {
+      throw new HttpError(424, e?.name === "TimeoutError" ? "Brand image generation timed out. Please try again." : "Could not reach the deAPI brand image generator.", "DEAPI_IMAGE");
+    }
+    const requestId = await deapiParse(response);
+    const deadline = Date.now() + 35e3;
+    while (Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 1800));
+      let statusResponse;
+      try {
+        statusResponse = await fetch(`${DEAPI_BASE}/jobs/${encodeURIComponent(requestId)}`, { headers: deapiHeaders(), signal: AbortSignal.timeout(1e4) });
+      } catch {
+        continue;
+      }
+      if (statusResponse.status === 429 || statusResponse.status >= 500) continue;
+      const statusData = await statusResponse.json().catch(() => ({}));
+      if (!statusResponse.ok) throw new HttpError(424, "Could not check brand image generation status on deAPI.", "DEAPI_IMAGE");
+      const job = statusData?.data || {};
+      const state = String(job.status || "").toLowerCase();
+      const result = String(job.result_url || job.result?.url || "");
+      if (state === "done" && /^https:\/\//i.test(result)) return result;
+      if (state === "error" || state === "failed") throw new HttpError(424, String(job.error || job.message || "The brand image generation failed.").slice(0, 220), "DEAPI_IMAGE");
+    }
+    throw new HttpError(424, "Brand image generation is taking longer than expected. Please try again.", "DEAPI_IMAGE_TIMEOUT");
+  };
+  return Promise.all([createOne(1), createOne(2)]);
+}
 async function falGenerateBrandImages(prompt, aspect) {
   const imageSize = aspect === "9:16" ? "portrait_16_9" : aspect === "16:9" ? "landscape_16_9" : "square_hd";
   let r;
@@ -4942,7 +4984,7 @@ var adBrandImages = async ({ req, res, body }) => {
   const prompt = str(body.prompt || "", 1800);
   if (prompt.length < 20) throw new HttpError(400, "Choose or write a detailed brand image direction first.");
   const aspect = ["9:16", "16:9", "1:1"].includes(String(body.aspect)) ? String(body.aspect) : "9:16";
-  const images = await falGenerateBrandImages(prompt, aspect);
+  const images = await generateAdBrandImages(prompt, aspect);
   json(res, 200, { success: true, images });
 };
 var adImageRender = async ({ req, res, body }) => {
