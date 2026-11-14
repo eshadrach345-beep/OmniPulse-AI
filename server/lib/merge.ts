@@ -355,12 +355,13 @@ export async function sampleVideoFileFrames(file: string, count = 3): Promise<Sa
   const path = await import('node:path');
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'op-film-qa-'));
   try {
-    const info = await inspect(bin, file);
-    const duration = Math.max(1, info.seconds || 5);
+    const probe = await run(bin, ['-hide_banner', '-i', file], 5_000);
+    const durationMatch = probe.err.match(/Duration:\\s*(\\d+):(\\d+):(\\d+(?:\\.\\d+)?)/);
+    const duration = Math.max(1, durationMatch ? Number(durationMatch[1]) * 3600 + Number(durationMatch[2]) * 60 + Number(durationMatch[3]) : 5);
     const sampleCount = Math.max(3, Math.min(4, Math.round(count) || 3));
     const pattern = path.join(dir, 'frame-%02d.jpg');
     const fps = (sampleCount / duration).toFixed(6);
-    const result = await run(bin, ['-y', '-i', file, '-vf', `fps=${fps},scale=512:-2`, '-frames:v', String(sampleCount), '-q:v', '5', pattern], 10_000);
+    const result = await run(bin, ['-y', '-i', file, '-vf', `fps=${fps},scale=512:-2`, '-frames:v', String(sampleCount), '-q:v', '5', pattern], 5_000);
     if (result.code !== 0) throw new Error('Could not sample the assembled film for sequence-level visual QA.');
     const names = (await fs.readdir(dir)).filter((name) => /^frame-\\d+\\.jpg$/.test(name)).sort();
     const frames: SampledVideoFrame[] = [];
