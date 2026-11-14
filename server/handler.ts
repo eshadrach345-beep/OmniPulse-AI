@@ -585,7 +585,7 @@ const adBrandImages: Handler = async ({ req, res, body }) => {
 
 const adImageRender: Handler = async ({ req, res, body }) => {
   const { row, user } = await requireAccess(req);
-  await rateLimit(\`ad-render:\${row.id}\`, 20, 3600);
+  await rateLimit(`ad-render:${row.id}`, 20, 3600);
   const imageUrl = String(body.imageUrl || '');
   const dataImage = /^data:image\/(?:jpeg|jpg|png|webp);base64,[A-Za-z0-9+/=]+$/i.test(imageUrl);
   const remoteImage = /^https:\/\//i.test(imageUrl);
@@ -594,23 +594,23 @@ const adImageRender: Handler = async ({ req, res, body }) => {
   if (prompt.length < 10) throw new HttpError(400, 'Describe the movement and look you want for the ad.');
   const seconds: 5 | 10 = Number(body.seconds) === 10 ? 10 : 5;
   const aspect = ['9:16', '16:9', '1:1'].includes(String(body.aspect)) ? String(body.aspect) as '9:16' | '16:9' | '1:1' : '9:16';
-  const used = (await sql()\`SELECT COALESCE(sum(seconds), 0)::int AS secs FROM video_jobs WHERE user_id=\${row.id} AND source = 'plan' AND status <> 'failed' AND created_at >= date_trunc('month', now())\`) as any[];
+  const used = (await sql()`SELECT COALESCE(sum(seconds), 0)::int AS secs FROM video_jobs WHERE user_id=${row.id} AND source = 'plan' AND status <> 'failed' AND created_at >= date_trunc('month', now())`) as any[];
   const planLeft = Math.max(0, user.secondsLimit - used[0].secs), bonus = await topupBalance(row.id);
   let source = 'plan';
   if (seconds > planLeft) {
     if (seconds <= bonus) source = 'topup';
-    else throw new HttpError(403, planLeft + bonus > 0 ? \`You have \${planLeft + bonus} video seconds left, which is not enough for this ad. Buy extra seconds or upgrade your plan.\` : 'You have used all your video seconds. Buy extra seconds or upgrade your plan.', 'LIMIT');
+    else throw new HttpError(403, planLeft + bonus > 0 ? `You have ${planLeft + bonus} video seconds left, which is not enough for this ad. Buy extra seconds or upgrade your plan.` : 'You have used all your video seconds. Buy extra seconds or upgrade your plan.', 'LIMIT');
   }
   const voiceover = str(body.voiceover || '', 300);
   const voiceGender = body.voiceGender === 'male' ? 'male' : 'female';
   const wordCount = voiceover.trim() ? voiceover.trim().split(/\s+/).length : 0;
   const wordLimit = seconds === 5 ? 10 : 22;
-  if (wordCount > wordLimit) throw new HttpError(400, \`The voice-over is too long for a \${seconds}-second ad. Keep it to \${wordLimit} words or fewer.\`);
+  if (wordCount > wordLimit) throw new HttpError(400, `The voice-over is too long for a ${seconds}-second ad. Keep it to ${wordLimit} words or fewer.`);
   let audio: { audio: Buffer; type: string } | undefined;
   let targetAudioUrl: string | undefined;
   if (voiceover.trim()) {
     audio = await synthesize(voiceover, voiceGender === 'male' ? 'am_adam' : 'af_heart', voiceGender);
-    targetAudioUrl = \`data:\${audio.type};base64,\${audio.audio.toString('base64')}\`;
+    targetAudioUrl = `data:${audio.type};base64,${audio.audio.toString('base64')}`;
   }
   const videoQuality: 'balanced' | 'quality' = str(body.videoQuality, 20) === 'quality' ? 'quality' : 'balanced';
   let provider: ReturnType<typeof parseVideoProvider>;
@@ -647,7 +647,7 @@ const adImageRender: Handler = async ({ req, res, body }) => {
     const job = audio
       ? await deapiAudioSync(prompt, audio.audio, audio.type, 'omnipulse-ad-voice.wav', seconds, aspect, selected.slug, firstFrame)
       : await deapiAnimate(prompt, firstFrame, PLANS[user.tier]?.resolution || '480P', seconds, aspect, selected.slug);
-    return { statusUrl: \`deapi:\${job.requestId}\`, responseUrl: 'deapi', provider: 'deapi', model: selected.slug };
+    return { statusUrl: `deapi:${job.requestId}`, responseUrl: 'deapi', provider: 'deapi', model: selected.slug };
   };
 
   let job: { statusUrl: string; responseUrl: string; provider?: string; model?: string };
@@ -664,7 +664,7 @@ const adImageRender: Handler = async ({ req, res, body }) => {
     }
   }
   const id = newId('job');
-  await sql()\`INSERT INTO video_jobs (id, user_id, status_url, response_url, seconds, source, render_prompt) VALUES (\${id}, \${row.id}, \${job.statusUrl}, \${job.responseUrl}, \${seconds}, \${source}, \${prompt})\`;
+  await sql()`INSERT INTO video_jobs (id, user_id, status_url, response_url, seconds, source, render_prompt) VALUES (${id}, ${row.id}, ${job.statusUrl}, ${job.responseUrl}, ${seconds}, ${source}, ${prompt})`;
   json(res, 200, { jobId: id, provider: job.provider || provider, model: job.model });
 };
 
