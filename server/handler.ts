@@ -14,7 +14,7 @@ import { assembleParts, toNativeMultiShotPrompt, addDeapiCastNotes, buildCommerc
 import { refineScene, shownInstruction, proseToUnits, thoughtToVisual, type SpokenLine } from './lib/screenplay.js';
 import { renderComposition } from './lib/compositor.js';
 import { buildSceneKeyframePrompt, buildCanonicalPropLock, chooseSceneKeyframeReference, resolveSceneOpeningFrameUrl } from './lib/scene-keyframe.js';
-import { mergeClips, lastFrameJpeg, sampleVideoFrames } from './lib/merge.js';
+import { mergeClips, lastFrameJpeg, sampleVideoFrames, sampleVideoFileFrames } from './lib/merge.js';
 import { parseVideoProvider, shouldAttemptKlingMultiShot, shouldFallbackToDeapi, requiresKlingMultiShot } from './lib/video-provider-policy.js';
 import { resolveFalKlingResolution } from './lib/fal-video-profile.js';
 import { evaluateVisualReview } from './lib/video-quality-gate.js';
@@ -2200,11 +2200,11 @@ const videoMerge: Handler = async ({ req, res, query }) => {
  * Retry assembly after refreshing only the failed scene from its original provider job.
  * deAPI may reject an expired result URL with HTTP 400 as well as 401/403.
  */
-async function streamMergedVideoWithRecovery(res: Res, jobs: any[], urls: string[], name: string): Promise<void> {
+async function streamMergedVideoWithRecovery(res: Res, jobs: any[], urls: string[], name: string, beforeStream?: (file: string) => Promise<void>): Promise<void> {
   const refreshed = new Set<number>();
   for (;;) {
     try {
-      await streamMergedVideo(res, urls, name);
+      await streamMergedVideo(res, urls, name, beforeStream);
       return;
     } catch (error: any) {
       const match = String(error?.message || '').match(/Scene (\d+) could not be downloaded \((400|401|403|404|410)\)/i);
@@ -2228,7 +2228,7 @@ async function streamMergedVideoWithRecovery(res: Res, jobs: any[], urls: string
 }
 
 /** Joins the clips into one MP4 (fluent-ffmpeg concat) and streams it to the browser as a download. */
-async function streamMergedVideo(res: Res, urls: string[], name: string) {
+async function streamMergedVideo(res: Res, urls: string[], name: string, beforeStream?: (file: string) => Promise<void>) {
   let merged: { file: string; cleanup: () => Promise<void> };
   try { merged = await mergeClips(urls); }
   catch (e: any) {
@@ -2237,6 +2237,7 @@ async function streamMergedVideo(res: Res, urls: string[], name: string) {
     throw new HttpError(424, e?.message || 'The scenes could not be joined.', 'MERGE');
   }
   try {
+    if (beforeStream) await beforeStream(merged.file);
     const fsp = await import('node:fs/promises');
     const { createReadStream } = await import('node:fs');
     const size = (await fsp.stat(merged.file)).size;
@@ -3177,6 +3178,41 @@ const projectGet: Handler = async ({ req, res, query }) => {
   });
 };
 
+/** Reviews the assembled film as one chronological story, including scene-to-scene continuity. */
+async function reviewAssembledEpisode(file: string, ep: any, scenes: any[]): Promise<void> {
+  try {
+    const frames = await sampleVideoFileFrames(file, 3);
+    const cast = Array.isArray(ep.storyboard_json?.characters) ? ep.storyboard_json.characters : [];
+    const sceneNotes = scenes.slice(0, 24).map((scene: any, index: number) =>
+      `SCENE ${index + 1}: ${[scene.visualPrompt, scene.location, scene.action, scene.secondHalfAction].filter(Boolean).join(' | ')}`
+    ).join('\\n');
+    const description = [
+      'FINAL ASSEMBLED EPISODE — SEQUENCE-LEVEL CONTINUITY REVIEW.',
+      'Judge the supplied frames as moments from one complete film, not as unrelated standalone images.',
+      'Check that the same lead characters retain their identity and distinctive wardrobe; story-critical props retain their appearance and ownership unless the story explains a handoff; locations, screen direction and chronology make sense; and each scene appears to belong to the same requested story.',
+      'STORY / SCENE ORDER:', sceneNotes,
+      'CANONICAL CAST:', cast.map((character: any) => `${character.name}: ${character.description || ''}`).join('; '),
+      buildCanonicalPropLock(ep.storyboard_json?.keyProps),
+    ].filter(Boolean).join('\\n').slice(0, 5200);
+    const review = await geminiVisualReview(description, frames.map((frame, index) => ({
+      ...frame, name: `Assembled film chronological sample ${index + 1}`,
+    })));
+    if (!review) {
+      console.warn('Sequence-level film QA unavailable; assembled film remains unverified.');
+      return;
+    }
+    const decision = evaluateVisualReview(review);
+    if (decision.reject) {
+      console.warn('Sequence-level film QA rejected the assembled episode:', { episodeId: ep.id, reason: decision.reason, issues: review.issues });
+      throw new HttpError(422, `Final film continuity review found a serious issue: ${decision.reason} Review the scenes before exporting this episode again.`, 'FINAL_SEQUENCE_QA_REJECTED');
+    }
+    console.info('Sequence-level film QA completed:', { episodeId: ep.id, status: decision.status, confidence: review.confidence, summary: review.summary });
+  } catch (error: any) {
+    if (error instanceof HttpError) throw error;
+    console.warn('Sequence-level film QA unavailable; delivery is not blocked:', error?.message || error);
+  }
+}
+
 /** Downloads the whole episode as one MP4. Commercial exports receive a deterministic, real-asset closing card. */
 const episodeVideo: Handler = async ({ req, res, query }) => {
   const { row } = await requireAccess(req);
@@ -3198,7 +3234,7 @@ const episodeVideo: Handler = async ({ req, res, query }) => {
 
   // Non-commercial productions retain the original fast path.
   if (String(ep.brief?.format || '') !== 'commercial' || !logoAssetId) {
-    await streamMergedVideoWithRecovery(res, jobs, urls, name);
+    await streamMergedVideoWithRecovery(res, jobs, urls, name, (file) => reviewAssembledEpisode(file, ep, scenes));
     return;
   }
 
@@ -3218,6 +3254,7 @@ const episodeVideo: Handler = async ({ req, res, query }) => {
   let merged: { file: string; cleanup: () => Promise<void> } | null = null;
   try {
     merged = await mergeClips(urls);
+    await reviewAssembledEpisode(merged.file, ep, scenes);
     const token = await issueSignedToken({ operations: ['get'] });
     const signed = await presignUrl(token, { pathname: String(logoAsset.pathname), operation: 'get', access: 'private', validUntil: Date.now() + 10 * 60 * 1000 });
     const logoResponse = await fetch(signed.presignedUrl, { signal: AbortSignal.timeout(30_000) });
