@@ -4968,16 +4968,62 @@ var adImageRender = async ({ req, res, body }) => {
   const wordCount = voiceover.trim() ? voiceover.trim().split(/\s+/).length : 0;
   const wordLimit = seconds === 5 ? 10 : 22;
   if (wordCount > wordLimit) throw new HttpError(400, `The voice-over is too long for a ${seconds}-second ad. Keep it to ${wordLimit} words or fewer.`);
+  let audio;
   let targetAudioUrl;
   if (voiceover.trim()) {
-    const audio = await synthesize(voiceover, voiceGender === "male" ? "am_adam" : "af_heart", voiceGender);
+    audio = await synthesize(voiceover, voiceGender === "male" ? "am_adam" : "af_heart", voiceGender);
     targetAudioUrl = `data:${audio.type};base64,${audio.audio.toString("base64")}`;
   }
   const videoQuality = str(body.videoQuality, 20) === "quality" ? "quality" : "balanced";
-  const job = await falImageVideoSubmit(imageUrl, prompt, seconds, aspect, PLANS[user.tier]?.resolution || "480P", targetAudioUrl, videoQuality);
+  let provider;
+  try {
+    provider = parseVideoProvider(body.videoProvider || process.env.VIDEO_PROVIDER);
+  } catch (error) {
+    throw new HttpError(400, error?.message || "Choose a supported video engine.", "VIDEO_PROVIDER");
+  }
+  const deapiRender = async () => {
+    if (!lookupEnv("DEAPI_API_KEY")) throw new HttpError(424, "DeAPI is not connected. Connect a DeAPI key or select fal.ai in the video provider settings.", "VIDEO_PROVIDER_UNAVAILABLE");
+    let firstFrame;
+    if (dataImage) {
+      firstFrame = Buffer.from(imageUrl.slice(imageUrl.indexOf(",") + 1), "base64");
+    } else {
+      const parsed = new URL(imageUrl);
+      const host = parsed.hostname.toLowerCase();
+      const allowed = host === "fal.media" || host.endsWith(".fal.media") || host === "vercel-storage.com" || host.endsWith(".vercel-storage.com");
+      if (!allowed) throw new HttpError(400, "For DeAPI rendering, use an uploaded image or an image from OmniPulse brand-image generation. This image host cannot be securely imported.", "AD_IMAGE_HOST");
+      const response = await fetch(imageUrl, { signal: AbortSignal.timeout(15e3) });
+      const contentType = String(response.headers.get("content-type") || "").toLowerCase();
+      if (!response.ok || !contentType.startsWith("image/")) throw new HttpError(424, "The selected brand image could not be retrieved for DeAPI rendering.", "AD_IMAGE_FETCH");
+      const length = Number(response.headers.get("content-length") || 0);
+      if (length > 10 * 1024 * 1024) throw new HttpError(413, "The selected image is too large for DeAPI rendering.", "AD_IMAGE_SIZE");
+      firstFrame = Buffer.from(await response.arrayBuffer());
+      if (firstFrame.length > 10 * 1024 * 1024) throw new HttpError(413, "The selected image is too large for DeAPI rendering.", "AD_IMAGE_SIZE");
+    }
+    if (!firstFrame.length || firstFrame.length > 10 * 1024 * 1024) throw new HttpError(413, "The selected image must be no larger than 10 MB.", "AD_IMAGE_SIZE");
+    const models = await deapiVideoModels();
+    const requested = str(body.videoModel || process.env.DEAPI_VIDEO_MODEL || "", 120);
+    const compatible = models.filter((m) => m.supportsImageToVideo && (!audio || m.supportsAudioToVideo) && m.minDurationSeconds <= seconds && m.maxDurationSeconds >= seconds);
+    const selected = compatible.find((m) => m.slug === requested) || compatible[0];
+    if (!selected) throw new HttpError(424, audio ? "The connected DeAPI account has no image-and-audio video model that supports this ad length. Choose a compatible model or remove the voice-over." : "The connected DeAPI account has no image-to-video model that supports this ad length.", "DEAPI_MODEL_UNAVAILABLE");
+    const job2 = audio ? await deapiAudioSync(prompt, audio.audio, audio.type, "omnipulse-ad-voice.wav", seconds, aspect, selected.slug, firstFrame) : await deapiAnimate(prompt, firstFrame, PLANS[user.tier]?.resolution || "480P", seconds, aspect, selected.slug);
+    return { statusUrl: `deapi:${job2.requestId}`, responseUrl: "deapi", provider: "deapi", model: selected.slug };
+  };
+  let job;
+  if (provider === "deapi") {
+    job = await deapiRender();
+  } else {
+    try {
+      const falJob = await falImageVideoSubmit(imageUrl, prompt, seconds, aspect, PLANS[user.tier]?.resolution || "480P", targetAudioUrl, videoQuality);
+      job = { ...falJob, provider: "fal" };
+    } catch (error) {
+      if (!shouldFallbackToDeapi(provider, error) || !lookupEnv("DEAPI_API_KEY")) throw error;
+      console.warn("Ad Studio: fal.ai unavailable; falling back to configured deAPI image-to-video:", error?.message);
+      job = await deapiRender();
+    }
+  }
   const id = newId("job");
   await sql()`INSERT INTO video_jobs (id, user_id, status_url, response_url, seconds, source, render_prompt) VALUES (${id}, ${row.id}, ${job.statusUrl}, ${job.responseUrl}, ${seconds}, ${source}, ${prompt})`;
-  json(res, 200, { jobId: id });
+  json(res, 200, { jobId: id, provider: job.provider || provider, model: job.model });
 };
 var videoAudioSync = async ({ req, res, body }) => {
   const { row, user } = await requireAccess(req);
