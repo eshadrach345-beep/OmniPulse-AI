@@ -10,7 +10,7 @@ import { PLANS, TIERS, Tier, Cycle, planId, tierFromPlanId, priceFor, BILLING_CU
 import { mail, flw, verifyFlwSignature, lookupEnv, geminiJson, geminiRaw, geminiFormat, webTrendResearch, aiWriterStatus, testAiWriters, falSubmit, falContinueSubmit, falReferenceVideoSubmit, falKlingReferenceSubmit, falGenerateSceneKeyframe, falGenerateCharacterReference, falGenerateLocationPlate, falEditLocationPlate, falStatus, falImageVideoSubmit, falGenerateBrandImages, generateAdBrandImages, deapiSubmit, deapiStatus, deapiAnimate, deapiAudioSync, deapiVideoModels, geminiVisualReview, RateLimited, synthesize } from './lib/services.js';
 import { trendsFormatPrompt, scriptPrompt, adConceptPrompt, abPrompt, competitorPrompt, outrankPrompt, parseStoryBrief, type SeriesContinuity, type StoryBriefInput, storyBeats, STORY_MOODS, CAMERA_PROFILES, GENRES, INTENSITIES, ENDINGS, PRESENTATIONS, CASTS, TROPES, styleBlock, STORY_LIMITS, planScenes, castMinimum, storyboardPrompt, outlinePrompt, chunkPrompt, adaptPrompt, PART_SECONDS, SCENES_PER_WRITER_CALL, MAX_WORDS_PER_CLIP } from './lib/prompts.js';
 import { validateTrendRadarOutput } from './lib/trend-radar-validation.js';
-import { assembleParts, toNativeMultiShotPrompt, addDeapiCastNotes, buildCommercialShotPrompts } from './lib/assemble.js';
+import { assembleParts, toNativeMultiShotPrompt, toDeapiShotPrompt, addDeapiCastNotes, buildCommercialShotPrompts } from './lib/assemble.js';
 import { refineScene, shownInstruction, proseToUnits, thoughtToVisual, type SpokenLine } from './lib/screenplay.js';
 import { renderComposition } from './lib/compositor.js';
 import { buildSceneKeyframePrompt, buildCanonicalPropLock, chooseSceneKeyframeReference, resolveSceneOpeningFrameUrl } from './lib/scene-keyframe.js';
@@ -1530,7 +1530,7 @@ async function submitToProvider(prompt: string, reso: '480P' | '768P' | '1080P',
   let provider: ReturnType<typeof parseVideoProvider>;
   try { provider = parseVideoProvider(videoProvider || process.env.VIDEO_PROVIDER); }
   catch (e: any) { throw new HttpError(500, e?.message || 'Invalid VIDEO_PROVIDER setting.', 'VIDEO_PROVIDER'); }
-  const viaDeapi = async () => { const deapiPrompt = multiPrompt?.length ? `${prompt} ${toNativeMultiShotPrompt(multiPrompt)}` : prompt; const j = await deapiSubmit(deapiPrompt, reso, seconds, aspect, videoModel, seedOverride); return { statusUrl: `deapi:${j.requestId}`, responseUrl: 'deapi' }; };
+  const viaDeapi = async () => { const deapiPrompt = multiPrompt?.length ? `${prompt} ${toDeapiShotPrompt(multiPrompt, lookupEnv('DEAPI_MULTISHOT_MODE')?.value)}` : prompt; const j = await deapiSubmit(deapiPrompt, reso, seconds, aspect, videoModel, seedOverride); return { statusUrl: `deapi:${j.requestId}`, responseUrl: 'deapi' }; };
   const viaFal = async () => { const j = await falSubmit(prompt, reso, seconds, aspect, videoQuality); return { statusUrl: j.statusUrl, responseUrl: j.responseUrl }; };
   if (provider === 'deapi') return viaDeapi();
   if (provider === 'fal') {
@@ -2506,6 +2506,21 @@ async function reserveSource(row: any, user: ReturnType<typeof toUser>, seconds:
  * Starts one 10 second clip. The second half of a 20 second scene starts from the last picture of the first half (image-to-video),
  * so the scene carries on without a jump; if that is not possible it falls back to a normal clip with a "continue" prompt.
  */
+/** Loads one https reference image as a first frame so DeAPI/LTX starts from the real cast face instead of text alone. */
+async function loadDeapiAnchorFrame(url?: string): Promise<Buffer | undefined> {
+  const target = String(url || '').trim();
+  if (!/^https:\/\//i.test(target)) return undefined;
+  try {
+    const response = await fetch(target, { signal: AbortSignal.timeout(15_000) });
+    if (!response.ok) return undefined;
+    const bytes = Buffer.from(await response.arrayBuffer());
+    return bytes.length > 0 && bytes.length <= 15 * 1024 * 1024 ? bytes : undefined;
+  } catch (e: any) {
+    console.warn('DeAPI anchor frame could not be loaded; continuing with prompt-only generation:', e?.message);
+    return undefined;
+  }
+}
+
 async function startPart(row: any, user: ReturnType<typeof toUser>, spec: { prompt: string; aspect: string; kind: 'text' | 'continue'; prevUrl?: string; startImageUrl?: string; lastFrame?: Buffer; referenceImages?: { name: string; url: string; description?: string }[]; multiPrompt?: { prompt: string; duration: number }[]; commercial?: boolean; videoModel?: string; videoProvider?: string; videoQuality?: 'balanced' | 'quality'; seed?: number }) {
   const source = await reserveSource(row, user, PART_SECONDS);
   await rateLimit(`render:${row.id}`, 300, 3600);
@@ -2519,7 +2534,7 @@ async function startPart(row: any, user: ReturnType<typeof toUser>, spec: { prom
   // LTX accepts one opening image. Preserve the two-shot ad direction as prompt prose
   // rather than claiming it can consume Kling-style independent multi-image references.
   const deapiAnimationPrompt = deapiMultiPrompt?.length
-    ? `${deapiPrompt} ${toNativeMultiShotPrompt(deapiMultiPrompt)}`
+    ? `${deapiPrompt} ${toDeapiShotPrompt(deapiMultiPrompt, lookupEnv('DEAPI_MULTISHOT_MODE')?.value)}`
     : deapiPrompt;
   let job: { statusUrl: string; responseUrl: string } | undefined;
 
@@ -2617,6 +2632,13 @@ async function startPart(row: any, user: ReturnType<typeof toUser>, spec: { prom
           job = { statusUrl: `deapi:${j.requestId}`, responseUrl: 'deapi' };
         } else throw e;
       }
+    } else if (provider === 'deapi' && refs.length) {
+      // Text-only LTX cannot hold a face. Start from the saved cast/location image so the identity is anchored.
+      const anchor = await loadDeapiAnchorFrame(spec.startImageUrl || refs[0]?.url);
+      if (anchor) {
+        const j = await deapiAnimate(deapiAnimationPrompt, anchor, reso, PART_SECONDS, spec.aspect, spec.videoModel, spec.lastFrame, spec.seed);
+        job = { statusUrl: `deapi:${j.requestId}`, responseUrl: 'deapi' };
+      } else job = await submitToProvider(deapiPrompt, reso, PART_SECONDS, spec.aspect, deapiMultiPrompt, spec.videoModel, spec.videoProvider, spec.seed, spec.videoQuality || 'balanced');
     } else job = await submitToProvider(deapiPrompt, reso, PART_SECONDS, spec.aspect, deapiMultiPrompt, spec.videoModel, spec.videoProvider, spec.seed, spec.videoQuality || 'balanced');
   }
   const id = newId('job');
