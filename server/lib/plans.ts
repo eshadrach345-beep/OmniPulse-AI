@@ -15,8 +15,8 @@ export const SECONDS_PER_VIDEO_CREDIT = 5;
  */
 export const PLANS: Record<Tier, { name: string; monthly: number; annual: number; channels: number; secondsPerMonth: number; videosPerMonth: number; quality: string; resolution: '480P' | '768P' | '1080P' }> = {
   starter: { name: 'Starter Creator', monthly: 25, annual: 19, channels: 2, secondsPerMonth: 50, videosPerMonth: 10, quality: 'Standard quality (480p)', resolution: '480P' },
-  pro: { name: 'Pro Growth Engine', monthly: 49, annual: 39, channels: 7, secondsPerMonth: 150, videosPerMonth: 30, quality: 'HD quality (768p)', resolution: '768P' },
-  agency: { name: 'Agency & Scale', monthly: 99, annual: 79, channels: 7, secondsPerMonth: 250, videosPerMonth: 50, quality: 'Full HD quality (1080p, AI-enhanced)', resolution: '1080P' },
+  pro: { name: 'Pro Growth Engine', monthly: 49, annual: 39, channels: 7, secondsPerMonth: 150, videosPerMonth: 30, quality: 'HD quality (up to 768p)', resolution: '768P' },
+  agency: { name: 'Agency & Scale', monthly: 99, annual: 79, channels: 7, secondsPerMonth: 250, videosPerMonth: 50, quality: 'Up to Full HD (1080p on Kling; about 1024px tall on the DeAPI backup)', resolution: '1080P' },
 };
 
 export const TIERS = Object.keys(PLANS) as Tier[];

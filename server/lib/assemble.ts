@@ -34,6 +34,38 @@ export function toNativeMultiShotPrompt(shots: { prompt: string; duration: numbe
 }
 
 /**
+ * LTX cannot really cut between shots. Asked to "hard cut" inside one render it improvises its own
+ * cuts, repeats close-ups of the same prop and lets faces drift. This builds ONE continuous take that
+ * walks through the same beats in order, which keeps cast, location and props stable.
+ */
+export function toContinuousTakePrompt(shots: { prompt: string; duration: number }[]): string {
+  const valid = shots
+    .filter((shot) => shot && String(shot.prompt || '').trim() && Number.isFinite(shot.duration) && shot.duration > 0)
+    .slice(0, 4);
+  if (!valid.length) return '';
+  const globalRule = /^Vertical 9:16 premium live-action short drama\.\s*Preserve the same actors, faces, wardrobe, props, set geometry, light direction and screen direction across both shots\.\s*/i;
+  const ordinals = ['First', 'Next', 'Then', 'Finally'];
+  const beats = valid.map((shot, index) => {
+    const description = String(shot.prompt)
+      .replace(globalRule, '')
+      .replace(/^Continue from the exact action and body positions in Shot 1\.\s*/i, '')
+      .replace(/\b(?:First|Second) shot:\s*/i, '')
+      .trim();
+    const duration = Math.max(1, Math.round(shot.duration));
+    return `${ordinals[index] || 'Then'}, for about ${duration} seconds: ${description}`;
+  });
+  return 'ONE CONTINUOUS TAKE with no cuts. A single unbroken camera movement follows the same actors in the same location through these beats in order. '
+    + beats.join(' ')
+    + ' Every beat shows new action. Never repeat a framing, a close-up or an object insert that already appeared. Keep every actor’s face, hair, wardrobe, props, location geometry and light direction identical from the first frame to the last.';
+}
+
+/** `single_take` (default) avoids repeated clips and identity drift on DeAPI; `prose` restores the old hard-cut prose. */
+export function toDeapiShotPrompt(shots: { prompt: string; duration: number }[], mode?: string): string {
+  return String(mode || '').trim().toLowerCase() === 'prose' ? toNativeMultiShotPrompt(shots) : toContinuousTakePrompt(shots);
+}
+
+
+/**
  * DeAPI's current video endpoints accept one first-frame image, not a set of cast
  * reference images. Preserve the saved cast descriptions as explicit text guidance
  * instead of silently dropping them when the DeAPI provider is selected.
