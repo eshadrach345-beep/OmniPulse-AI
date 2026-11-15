@@ -108,8 +108,14 @@ check(handlerSource.includes('preserve camera axis, screen direction, perspectiv
 
 check(handlerSource.includes('sharesVisibleCharacter && !explicitTimeJump && !explicitCostumeChange && !timeChanged'), 'same character keeps a frame anchor through a location change');
 check(handlerSource.includes('replace the old background; do not carry the previous set'), 'a location transition replaces the previous scene background');
-check(handlerSource.includes('toNativeMultiShotPrompt(multiPrompt)'), 'DeAPI receives native multi-shot prose when a coverage pair exists');
-check(handlerSource.includes('${prompt} ${toNativeMultiShotPrompt(multiPrompt)}'), 'DeAPI multi-shot requests retain the shared scene prompt and continuity context');
+{
+  const take = A.toContinuousTakePrompt([{ prompt: 'First shot: Mara runs across the garage.', duration: 5 }, { prompt: 'Second shot: Mara hands the case to Dan.', duration: 5 }]);
+  check(/ONE CONTINUOUS TAKE/.test(take) && !/hard cut/i.test(take), 'single-take prompt avoids hard cuts');
+  check(take.indexOf('Mara runs') < take.indexOf('hands the case'), 'single-take prompt keeps beat order');
+  check(A.toDeapiShotPrompt([{ prompt: 'x', duration: 5 }], 'prose').includes('opening shot'), 'prose mode restores the old prompt');
+}
+check(handlerSource.includes('toDeapiShotPrompt(multiPrompt'), 'DeAPI receives native multi-shot prose when a coverage pair exists');
+check(handlerSource.includes('${prompt} ${toDeapiShotPrompt(multiPrompt'), 'DeAPI multi-shot requests retain the shared scene prompt and continuity context');
 
 const commercialShots = A.buildCommercialShotPrompts({
   visual: 'A sleek black smartphone showing a clean teal AI dashboard on a dark desk.',
