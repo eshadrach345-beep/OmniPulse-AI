@@ -259,7 +259,7 @@ async function mergeClipsFresh(urls: string[], options: Required<MergeOptions>):
     files.forEach((f) => args.push('-i', f));
     args.push(
       '-filter_complex', graph, '-map', '[v]', '-map', '[aout]',
-      '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '23',
+      '-c:v', 'libx264', '-preset', process.env.MERGE_X264_PRESET || 'veryfast', '-crf', process.env.MERGE_X264_CRF || '20',
       '-profile:v', 'high', '-pix_fmt', 'yuv420p',
       '-c:a', 'aac', '-b:a', '160k', '-ar', '48000',
       '-movflags', '+faststart', out,
