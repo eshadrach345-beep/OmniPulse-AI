@@ -35,8 +35,8 @@ const merge = fs.readFileSync(new URL('../server/lib/merge.ts', import.meta.url)
 assert.ok(merge.includes("if (same && options.transition === 'cut') {"), 'compatible hard-cut scenes must retain the stream-copy fast path');
 assert.ok(merge.includes("'-c', 'copy'"));
 assert.ok(merge.includes(".join('\\n')"));
-assert.ok(merge.includes("'-preset', 'ultrafast'"));
-assert.ok(merge.includes("'-crf', '23'"));
+assert.ok(merge.includes("'-preset', process.env.MERGE_X264_PRESET || 'veryfast'"));
+assert.ok(merge.includes("'-crf', process.env.MERGE_X264_CRF || '20'"));
 assert.ok(merge.includes("'-b:a', '160k'"));
 assert.ok(merge.includes('Scene merge used packet stream-copy'));
 assert.ok(!merge.includes('dynaudnorm'));
