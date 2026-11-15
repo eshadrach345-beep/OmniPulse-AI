@@ -372,8 +372,8 @@ function str(v, max) {
 // server/lib/plans.ts
 var PLANS = {
   starter: { name: "Starter Creator", monthly: 25, annual: 19, channels: 2, secondsPerMonth: 50, videosPerMonth: 10, quality: "Standard quality (480p)", resolution: "480P" },
-  pro: { name: "Pro Growth Engine", monthly: 49, annual: 39, channels: 7, secondsPerMonth: 150, videosPerMonth: 30, quality: "HD quality (768p)", resolution: "768P" },
-  agency: { name: "Agency & Scale", monthly: 99, annual: 79, channels: 7, secondsPerMonth: 250, videosPerMonth: 50, quality: "Full HD quality (1080p, AI-enhanced)", resolution: "1080P" }
+  pro: { name: "Pro Growth Engine", monthly: 49, annual: 39, channels: 7, secondsPerMonth: 150, videosPerMonth: 30, quality: "HD quality (up to 768p)", resolution: "768P" },
+  agency: { name: "Agency & Scale", monthly: 99, annual: 79, channels: 7, secondsPerMonth: 250, videosPerMonth: 50, quality: "Up to Full HD (1080p on Kling; about 1024px tall on the DeAPI backup)", resolution: "1080P" }
 };
 var TIERS = Object.keys(PLANS);
 function planId(tier, cycle) {
@@ -2863,6 +2863,21 @@ function toNativeMultiShotPrompt(shots) {
   });
   return prose.join(" ") + " Keep the same named cast, exact faces, hair, wardrobe, props, location geometry, light direction and screen direction consistent across every cut.";
 }
+function toContinuousTakePrompt(shots) {
+  const valid = shots.filter((shot) => shot && String(shot.prompt || "").trim() && Number.isFinite(shot.duration) && shot.duration > 0).slice(0, 4);
+  if (!valid.length) return "";
+  const globalRule = /^Vertical 9:16 premium live-action short drama\.\s*Preserve the same actors, faces, wardrobe, props, set geometry, light direction and screen direction across both shots\.\s*/i;
+  const ordinals = ["First", "Next", "Then", "Finally"];
+  const beats = valid.map((shot, index) => {
+    const description = String(shot.prompt).replace(globalRule, "").replace(/^Continue from the exact action and body positions in Shot 1\.\s*/i, "").replace(/\b(?:First|Second) shot:\s*/i, "").trim();
+    const duration = Math.max(1, Math.round(shot.duration));
+    return `${ordinals[index] || "Then"}, for about ${duration} seconds: ${description}`;
+  });
+  return "ONE CONTINUOUS TAKE with no cuts. A single unbroken camera movement follows the same actors in the same location through these beats in order. " + beats.join(" ") + " Every beat shows new action. Never repeat a framing, a close-up or an object insert that already appeared. Keep every actor\u2019s face, hair, wardrobe, props, location geometry and light direction identical from the first frame to the last.";
+}
+function toDeapiShotPrompt(shots, mode) {
+  return String(mode || "").trim().toLowerCase() === "prose" ? toNativeMultiShotPrompt(shots) : toContinuousTakePrompt(shots);
+}
 function addDeapiCastNotes(prompt, multiPrompt, cast) {
   const notes = cast.filter((c) => String(c.name || "").trim() && String(c.description || "").trim()).slice(0, 4).map((c) => `${cut(c.name, 40)}: ${cut(c.description, 220)}`);
   if (!notes.length) return { prompt, multiPrompt };
@@ -3715,9 +3730,9 @@ async function mergeClipsFresh(urls, options) {
       "-c:v",
       "libx264",
       "-preset",
-      "ultrafast",
+      process.env.MERGE_X264_PRESET || "veryfast",
       "-crf",
-      "23",
+      process.env.MERGE_X264_CRF || "20",
       "-profile:v",
       "high",
       "-pix_fmt",
@@ -5827,7 +5842,7 @@ async function submitToProvider(prompt, reso, seconds, aspect, multiPrompt, vide
     throw new HttpError(500, e?.message || "Invalid VIDEO_PROVIDER setting.", "VIDEO_PROVIDER");
   }
   const viaDeapi = async () => {
-    const deapiPrompt = multiPrompt?.length ? `${prompt} ${toNativeMultiShotPrompt(multiPrompt)}` : prompt;
+    const deapiPrompt = multiPrompt?.length ? `${prompt} ${toDeapiShotPrompt(multiPrompt, lookupEnv("DEAPI_MULTISHOT_MODE")?.value)}` : prompt;
     const j = await deapiSubmit(deapiPrompt, reso, seconds, aspect, videoModel, seedOverride);
     return { statusUrl: `deapi:${j.requestId}`, responseUrl: "deapi" };
   };
@@ -6769,6 +6784,19 @@ async function reserveSource(row, user, seconds) {
   if (seconds <= bonus) return "topup";
   throw new HttpError(403, planLeft + bonus > 0 ? `You have ${planLeft + bonus} video seconds left, which is not enough for the rest of this part. Buy extra seconds or upgrade, then tap Retry. Finished clips are kept.` : "You have used all your video seconds. Buy extra seconds or upgrade your plan, then tap Retry. Finished clips are kept.", "LIMIT");
 }
+async function loadDeapiAnchorFrame(url) {
+  const target = String(url || "").trim();
+  if (!/^https:\/\//i.test(target)) return void 0;
+  try {
+    const response = await fetch(target, { signal: AbortSignal.timeout(15e3) });
+    if (!response.ok) return void 0;
+    const bytes = Buffer.from(await response.arrayBuffer());
+    return bytes.length > 0 && bytes.length <= 15 * 1024 * 1024 ? bytes : void 0;
+  } catch (e) {
+    console.warn("DeAPI anchor frame could not be loaded; continuing with prompt-only generation:", e?.message);
+    return void 0;
+  }
+}
 async function startPart(row, user, spec) {
   const source = await reserveSource(row, user, PART_SECONDS);
   await rateLimit(`render:${row.id}`, 300, 3600);
@@ -6782,7 +6810,7 @@ async function startPart(row, user, spec) {
   const deapiCast = addDeapiCastNotes(spec.prompt, spec.multiPrompt, (spec.referenceImages || []).map((ref) => ({ name: ref.name, description: ref.description })));
   const deapiPrompt = deapiCast.prompt;
   const deapiMultiPrompt = deapiCast.multiPrompt;
-  const deapiAnimationPrompt = deapiMultiPrompt?.length ? `${deapiPrompt} ${toNativeMultiShotPrompt(deapiMultiPrompt)}` : deapiPrompt;
+  const deapiAnimationPrompt = deapiMultiPrompt?.length ? `${deapiPrompt} ${toDeapiShotPrompt(deapiMultiPrompt, lookupEnv("DEAPI_MULTISHOT_MODE")?.value)}` : deapiPrompt;
   let job;
   if (shouldAttemptKlingMultiShot(provider, !!lookupEnv("FAL_KEY"), spec.multiPrompt?.length || 0)) {
     const refs = (spec.referenceImages || []).filter((x) => /^https:\/\//i.test(x.url)).slice(0, 10);
@@ -6875,6 +6903,12 @@ async function startPart(row, user, spec) {
           job = { statusUrl: `deapi:${j.requestId}`, responseUrl: "deapi" };
         } else throw e;
       }
+    } else if (provider === "deapi" && refs.length) {
+      const anchor = await loadDeapiAnchorFrame(spec.startImageUrl || refs[0]?.url);
+      if (anchor) {
+        const j = await deapiAnimate(deapiAnimationPrompt, anchor, reso, PART_SECONDS, spec.aspect, spec.videoModel, spec.lastFrame, spec.seed);
+        job = { statusUrl: `deapi:${j.requestId}`, responseUrl: "deapi" };
+      } else job = await submitToProvider(deapiPrompt, reso, PART_SECONDS, spec.aspect, deapiMultiPrompt, spec.videoModel, spec.videoProvider, spec.seed, spec.videoQuality || "balanced");
     } else job = await submitToProvider(deapiPrompt, reso, PART_SECONDS, spec.aspect, deapiMultiPrompt, spec.videoModel, spec.videoProvider, spec.seed, spec.videoQuality || "balanced");
   }
   const id = newId("job");
