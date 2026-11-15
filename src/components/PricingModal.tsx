@@ -24,11 +24,11 @@ const FEATURES: Record<SubscriptionTier, { description: string; features: string
   pro: {
     description: 'Autonomous multi-channel distribution, AI video studio & peak scheduling.',
     popular: true,
-    features: ['Up to 7 channels connected at once', '150 seconds of AI video each month', 'Private media library · files up to 1 GB each', 'HD video quality (768p)', 'Peak-time auto-pilot', 'Niche trend & viral hashtag radar', 'A/B testing & hook lift studio', 'Automated growth reports', 'Characters with voices'],
+    features: ['Up to 7 channels connected at once', '150 seconds of AI video each month', 'Private media library · files up to 1 GB each', 'HD video quality (up to 768p)', 'Peak-time auto-pilot', 'Niche trend & viral hashtag radar', 'A/B testing & hook lift studio', 'Automated growth reports', 'Characters with voices'],
   },
   agency: {
     description: 'For agencies, high-volume studios, and multi-brand operators.',
-    features: ['250 seconds of AI video each month', 'Private media library · files up to 2 GB each', 'Full HD video quality (1080p, AI-enhanced)', 'Competitor tracker & content outranker', 'Priority rendering pipeline', 'Printable performance audits', 'Everything in Pro'],
+    features: ['250 seconds of AI video each month', 'Private media library · files up to 2 GB each', 'Up to Full HD (1080p on Kling; about 1024px tall on the DeAPI backup)', 'Competitor tracker & content outranker', 'Priority rendering pipeline', 'Printable performance audits', 'Everything in Pro'],
   },
 };
 
