@@ -76,7 +76,11 @@ try {
     compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext },
   }).outputText;
   await fs.writeFile(modulePath, compiled, 'utf8');
-  const { mergeClips, sampleVideoFrames } = await import(pathToFileURL(modulePath).href);
+  const { mergeClips, sampleVideoFrames, resolveFinishLook, finishFilter } = await import(pathToFileURL(modulePath).href);
+  assert.equal(resolveFinishLook(undefined), 'light', 'the light finishing look is the default');
+  assert.equal(resolveFinishLook('off'), 'off');
+  assert.equal(resolveFinishLook('Cinematic'), 'cinematic');
+  assert.ok(finishFilter('light').includes('noise=alls=4'), 'the finishing look adds fine film grain');
 
   server = createServer(async (req, res) => {
     const file = req.url === '/scene-a.mp4' ? clipA : req.url === '/scene-b.mp4' ? clipB : null;
