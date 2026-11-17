@@ -64,6 +64,16 @@ check(continuation[1].prompt.includes('Mara lowers the phone'), 'continuation in
 check(continuation[1].prompt.includes('throws the phone to the floor'), 'continuation includes the consequence');
 check(!continuation[1].prompt.includes('A side-angle shot'), 'continuation does not re-caption the previous frame');
 check(!/hard cut transitions/i.test(continuation[1].prompt), 'continuation has no conflicting cut direction');
+check(/open on a NEW framing/.test(continuation[1].prompt), 'continuation asks for a new framing instead of repeating the last frame');
+check(/different expression/.test(continuation[1].prompt), 'continuation asks for a different performance beat');
+check(/never cut off by the edge/.test(continuation[1].prompt) && /no sleeves appearing or disappearing/.test(continuation[1].prompt), 'continuation keeps faces uncropped and wardrobe fixed');
+{
+  const framings = new Set([1, 2, 3, 4, 5, 6].map((n) => {
+    const parts = A.assembleParts({ ...base, sceneNumber: n, presentation: 'shortdrama', halves: 2, visualBase: 'Mara runs.', second: 'Mara stops.', soundText: 'room tone', lines: [] });
+    return (parts[1].prompt.match(/NEW framing: ([^.]+)\./) || [])[1];
+  }));
+  check(framings.size >= 4, 'consecutive scenes rotate through different reframing directions');
+}
 check(continuation[1].prompt.length <= A.RENDER_PROMPT_MAX, 'continuation prompt respects provider limit');
 
 const frameAnchoredCut = A.assembleParts({

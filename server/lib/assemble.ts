@@ -203,6 +203,18 @@ export function assembleParts(o: AssembleInput) {
     },
   ][(sceneNumber - 1) % 7];
 
+  // Clips that start from the previous final frame would otherwise repeat that frame's size, angle and expression.
+  // Each continuation therefore asks for a different, face-preserving framing and a different beat of performance.
+  const reframes = [
+    'a wider medium shot that shows the full body and the surrounding space',
+    'an over-the-shoulder shot where the other person’s whole face stays fully visible inside the frame, never cropped by the edge',
+    'a low-angle medium shot that gives the character weight',
+    'a profile medium close-up as the character turns toward something new',
+    'a pulled-back wide shot that shows the whole environment and where everyone stands',
+    'a high-angle medium shot looking down on the character and the space around them',
+  ];
+  const reframeFor = (half: number) => reframes[(Math.max(1, sceneNumber) + half) % reframes.length];
+
   const hasOnScreenDialogue = lines.some((line) => line.speaker.toLowerCase() !== 'narrator');
   const frame = aspect === '9:16'
     ? 'Compose for a vertical 9:16 frame, keeping faces, hands and story-critical props inside the central safe area.'
@@ -251,10 +263,11 @@ export function assembleParts(o: AssembleInput) {
         ? actionForClip
         : 'The supplied frame already establishes the people, faces, wardrobe, location, lighting and prop positions; preserve them as they are.')
       : actionForClip;
+    const reframe = reframeFor(h);
     const fixed = imageContinuation
       ? (frameReference
         ? 'Preserve the established character identities, exact wardrobe, prop designs, location geometry, light direction and screen geography. Follow the new shot composition without duplicating anyone or reversing the 180-degree action axis. Natural stable faces and anatomy; two arms, five distinct fingers, believable grips; no extra limbs, fused fingers, warped faces or duplicate people. ' + frame
-        : 'Keep the same camera side, screen direction and take. Continue the action with natural body movement and a clear final position. Natural stable faces and anatomy; two arms, five distinct fingers, believable grips; no extra limbs, fused fingers, warped faces or duplicate people. ' + frame)
+        : 'Keep the same location, people, wardrobe, props and screen direction, but open on a NEW framing: ' + reframe + '. Make the shot size and angle clearly different from the supplied frame so the edit feels directed, keep every person who is speaking or reacting fully inside the frame with their whole face visible and never cut off by the edge, keep each person in exactly the outfit and layers shown in the supplied frame (no sleeves appearing or disappearing, no garment changing), and give the character a different expression and a new physical action from the supplied frame, never the same stare or pose held again. Continue with natural body movement and a clear final position. Natural stable faces and anatomy; two arms, five distinct fingers, believable grips; no extra limbs, fused fingers, warped faces or duplicate people. ' + frame)
       : 'Natural stable faces and anatomy; two arms, five distinct fingers, believable grips; no extra limbs, fused fingers, warped faces or duplicate people. ' + shotDirection + ' ' + visualStyle + ' Preserve the established faces, wardrobe, room geography and carried props.';
 
     // Protect the story action and approved dialogue first. Style detail is the first material shortened
