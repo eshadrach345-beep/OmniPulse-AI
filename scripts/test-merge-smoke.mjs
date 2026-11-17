@@ -81,6 +81,7 @@ try {
   assert.equal(resolveFinishLook('off'), 'off');
   assert.equal(resolveFinishLook('Cinematic'), 'cinematic');
   assert.ok(finishFilter('light').includes('noise=alls=4'), 'the finishing look adds fine film grain');
+  assert.ok(mergeSource.includes('setpts=PTS-STARTPTS,fps=24'), 'crossfade inputs retain a constant frame rate after timestamp normalization');
 
   server = createServer(async (req, res) => {
     const file = req.url === '/scene-a.mp4' ? clipA : req.url === '/scene-b.mp4' ? clipB : null;
