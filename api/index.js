@@ -2968,6 +2968,15 @@ function assembleParts(o) {
       second: "a moving three-quarter medium close-up that follows the affected character\u2019s turn or withdrawal"
     }
   ][(sceneNumber - 1) % 7];
+  const reframes = [
+    "a wider medium shot that shows the full body and the surrounding space",
+    "an over-the-shoulder shot where the other person\u2019s whole face stays fully visible inside the frame, never cropped by the edge",
+    "a low-angle medium shot that gives the character weight",
+    "a profile medium close-up as the character turns toward something new",
+    "a pulled-back wide shot that shows the whole environment and where everyone stands",
+    "a high-angle medium shot looking down on the character and the space around them"
+  ];
+  const reframeFor = (half) => reframes[(Math.max(1, sceneNumber) + half) % reframes.length];
   const hasOnScreenDialogue = lines.some((line) => line.speaker.toLowerCase() !== "narrator");
   const frame = aspect === "9:16" ? "Compose for a vertical 9:16 frame, keeping faces, hands and story-critical props inside the central safe area." : aspect === "1:1" ? "Compose for a square frame." : "Compose for a wide 16:9 frame.";
   const visualStyle = "The camera " + cameraMotion.replace(/,\s*no cuts?\.?$/i, "") + ". Lighting: " + mood.render + ". Finish: " + (GENRES[brief.genre]?.render || "natural cinematic detail") + ", " + look + ". " + frame;
@@ -2993,7 +3002,8 @@ function assembleParts(o) {
     const actionForClip = h > 1 ? second || "Continue the same physical action to a clear end state." : visualBase;
     const lead = imageContinuation ? h > 1 ? "Continue from the exact supplied final frame. The next physical beat is: " + actionForClip.replace(/[.\s]+$/, "") + "." : frameReference ? "Use the exact supplied final frame of the preceding scene as the visual starting anchor. Preserve the same people, faces, hair, wardrobe, carried props, object designs and time of day. If the screenplay calls for a new angle or adjacent room, make one motivated cut or reframe without changing those identities or possessions. The next scene action is: " + actionForClip.replace(/[.\s]+$/, "") + "." : "Continue from the exact supplied final frame of the preceding scene. The next visible action is: " + actionForClip.replace(/[.\s]+$/, "") + "." : "";
     const visual = imageContinuation ? frameReference ? actionForClip : "The supplied frame already establishes the people, faces, wardrobe, location, lighting and prop positions; preserve them as they are." : actionForClip;
-    const fixed = imageContinuation ? frameReference ? "Preserve the established character identities, exact wardrobe, prop designs, location geometry, light direction and screen geography. Follow the new shot composition without duplicating anyone or reversing the 180-degree action axis. Natural stable faces and anatomy; two arms, five distinct fingers, believable grips; no extra limbs, fused fingers, warped faces or duplicate people. " + frame : "Keep the same camera side, screen direction and take. Continue the action with natural body movement and a clear final position. Natural stable faces and anatomy; two arms, five distinct fingers, believable grips; no extra limbs, fused fingers, warped faces or duplicate people. " + frame : "Natural stable faces and anatomy; two arms, five distinct fingers, believable grips; no extra limbs, fused fingers, warped faces or duplicate people. " + shotDirection + " " + visualStyle + " Preserve the established faces, wardrobe, room geography and carried props.";
+    const reframe = reframeFor(h);
+    const fixed = imageContinuation ? frameReference ? "Preserve the established character identities, exact wardrobe, prop designs, location geometry, light direction and screen geography. Follow the new shot composition without duplicating anyone or reversing the 180-degree action axis. Natural stable faces and anatomy; two arms, five distinct fingers, believable grips; no extra limbs, fused fingers, warped faces or duplicate people. " + frame : "Keep the same location, people, wardrobe, props and screen direction, but open on a NEW framing: " + reframe + ". Make the shot size and angle clearly different from the supplied frame so the edit feels directed, keep every person who is speaking or reacting fully inside the frame with their whole face visible and never cut off by the edge, keep each person in exactly the outfit and layers shown in the supplied frame (no sleeves appearing or disappearing, no garment changing), and give the character a different expression and a new physical action from the supplied frame, never the same stare or pose held again. Continue with natural body movement and a clear final position. Natural stable faces and anatomy; two arms, five distinct fingers, believable grips; no extra limbs, fused fingers, warped faces or duplicate people. " + frame : "Natural stable faces and anatomy; two arms, five distinct fingers, believable grips; no extra limbs, fused fingers, warped faces or duplicate people. " + shotDirection + " " + visualStyle + " Preserve the established faces, wardrobe, room geography and carried props.";
     const safeLead = cut(lead, 520);
     const maxVisual = Math.max(0, Math.min(1320, RENDER_PROMPT_MAX - safeLead.length - tail.length - 260));
     const safeVisual = cut(visual, maxVisual);
@@ -3549,6 +3559,64 @@ async function inspectFinalDelivery(file, bin) {
     console.warn("Final film delivery QA was unavailable:", error?.message || error);
   }
 }
+function resolveFinishLook(raw) {
+  const value = String(raw ?? "").trim().toLowerCase();
+  if (["off", "none", "0", "false", "no"].includes(value)) return "off";
+  return value === "cinematic" ? "cinematic" : "light";
+}
+function finishFilter(look) {
+  const grain = "unsharp=5:5:0.5:5:5:0.0,noise=alls=4:allf=t";
+  if (look === "cinematic") return `eq=contrast=1.08:saturation=0.95:gamma=0.98,colorbalance=rs=0.03:bs=-0.03:rh=0.02:bh=-0.02,${grain},format=yuv420p`;
+  return `eq=contrast=1.06:saturation=0.95,${grain},format=yuv420p`;
+}
+var FINISH_MAX_ELAPSED_MS = 18e3;
+var FINISH_TIMEOUT_MS = 3e4;
+async function applyFinishLook(file, startedAt) {
+  const look = resolveFinishLook(process.env.FINISH_LOOK);
+  if (look === "off") return;
+  if (Date.now() - startedAt > FINISH_MAX_ELAPSED_MS) {
+    console.warn("Finishing look skipped: the join already used most of the time budget.");
+    return;
+  }
+  const fs = await import("node:fs/promises");
+  const path = await import("node:path");
+  const out = path.join(path.dirname(file), "finished-look.mp4");
+  try {
+    const bin = await ffmpegBinary();
+    const result = await run2(bin, [
+      "-y",
+      "-i",
+      file,
+      "-vf",
+      finishFilter(look),
+      "-c:v",
+      "libx264",
+      "-preset",
+      "veryfast",
+      "-crf",
+      "22",
+      "-profile:v",
+      "high",
+      "-pix_fmt",
+      "yuv420p",
+      "-c:a",
+      "copy",
+      "-movflags",
+      "+faststart",
+      out
+    ], FINISH_TIMEOUT_MS);
+    const stat = await fs.stat(out).catch(() => null);
+    if (result.code !== 0 || !stat || stat.size < 2e3) {
+      console.warn("Finishing look failed; delivering the unfinished film.", result.err.slice(-400));
+      return;
+    }
+    await fs.copyFile(out, file);
+  } catch (error) {
+    console.warn("Finishing look unavailable; delivering the unfinished film.", error?.message || error);
+  } finally {
+    await fs.rm(out, { force: true }).catch(() => void 0);
+  }
+}
 function normalizeMergeOptions(options = {}) {
   const allowed = ["cut", "fade", "wipeleft", "slideleft", "circleopen"];
   const transition = allowed.includes(options.transition) ? options.transition : "cut";
@@ -3560,7 +3628,7 @@ var CACHE_MS = 20 * 6e4;
 async function cachePaths(urls, options) {
   const crypto5 = await import("node:crypto"), os = await import("node:os"), path = await import("node:path");
   const dir = path.join(os.tmpdir(), "op-merge-cache");
-  const cacheKey = JSON.stringify({ urls, transition: options.transition, transitionDuration: options.transitionDuration });
+  const cacheKey = JSON.stringify({ urls, transition: options.transition, transitionDuration: options.transitionDuration, finish: resolveFinishLook(process.env.FINISH_LOOK) });
   return { dir, file: path.join(dir, `${crypto5.createHash("sha1").update(cacheKey).digest("hex")}.mp4`) };
 }
 async function cacheTrim(dir) {
@@ -3577,7 +3645,9 @@ async function mergeClips(urls, inputOptions = {}) {
   const cache = await cachePaths(urls, options);
   const hit = await fs.stat(cache.file).catch(() => null);
   if (hit && hit.size > 2e3 && Date.now() - hit.mtimeMs < CACHE_MS) return { file: cache.file, cleanup: async () => void 0, cached: true };
+  const startedAt = Date.now();
   const made = await mergeClipsFresh(urls, options);
+  await applyFinishLook(made.file, startedAt);
   try {
     await fs.mkdir(cache.dir, { recursive: true });
     await fs.copyFile(made.file, cache.file);
@@ -3680,7 +3750,7 @@ async function mergeClipsFresh(urls, options) {
     const audioLabels = [];
     const totalDuration = info.reduce((sum, clip) => sum + Math.max(0.1, clip.seconds), 0);
     info.forEach((c, i) => {
-      parts.push(`[${i}:v]scale=${W}:${H}:force_original_aspect_ratio=decrease,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=24,format=yuv420p,settb=AVTB,setpts=PTS-STARTPTS[v${i}]`);
+      parts.push(`[${i}:v]scale=${W}:${H}:force_original_aspect_ratio=decrease,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=yuv420p,settb=AVTB,setpts=PTS-STARTPTS,fps=24[v${i}]`);
       videoLabels.push(`[v${i}]`);
       if (c.audio) {
         const clipDuration = c.seconds.toFixed(2);
