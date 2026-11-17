@@ -81,6 +81,46 @@ async function inspectFinalDelivery(file: string, bin: string): Promise<void> {
   }
 }
 
+export type FinishLook = 'off' | 'light' | 'cinematic';
+/** `light` is the default; FINISH_LOOK=off disables the pass, `cinematic` adds a gentle teal/warm grade. */
+export function resolveFinishLook(raw?: string): FinishLook {
+  const value = String(raw ?? '').trim().toLowerCase();
+  if (['off', 'none', '0', 'false', 'no'].includes(value)) return 'off';
+  return value === 'cinematic' ? 'cinematic' : 'light';
+}
+/** Removes the flat "AI sheen": a touch of contrast, slightly restrained saturation and fine temporal film grain. */
+export function finishFilter(look: FinishLook): string {
+  const grain = 'unsharp=5:5:0.5:5:5:0.0,noise=alls=4:allf=t';
+  if (look === 'cinematic') return `eq=contrast=1.08:saturation=0.95:gamma=0.98,colorbalance=rs=0.03:bs=-0.03:rh=0.02:bh=-0.02,${grain},format=yuv420p`;
+  return `eq=contrast=1.06:saturation=0.95,${grain},format=yuv420p`;
+}
+// The function budget is 60s. Finishing only runs when the join was quick, and any failure keeps the unfinished film.
+const FINISH_MAX_ELAPSED_MS = 18_000;
+const FINISH_TIMEOUT_MS = 30_000;
+async function applyFinishLook(file: string, startedAt: number): Promise<void> {
+  const look = resolveFinishLook(process.env.FINISH_LOOK);
+  if (look === 'off') return;
+  if (Date.now() - startedAt > FINISH_MAX_ELAPSED_MS) { console.warn('Finishing look skipped: the join already used most of the time budget.'); return; }
+  const fs = await import('node:fs/promises');
+  const path = await import('node:path');
+  const out = path.join(path.dirname(file), 'finished-look.mp4');
+  try {
+    const bin = await ffmpegBinary();
+    const result = await run(bin, [
+      '-y', '-i', file, '-vf', finishFilter(look),
+      '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '22', '-profile:v', 'high', '-pix_fmt', 'yuv420p',
+      '-c:a', 'copy', '-movflags', '+faststart', out,
+    ], FINISH_TIMEOUT_MS);
+    const stat = await fs.stat(out).catch(() => null);
+    if (result.code !== 0 || !stat || stat.size < 2000) { console.warn('Finishing look failed; delivering the unfinished film.', result.err.slice(-400)); return; }
+    await fs.copyFile(out, file);
+  } catch (error: any) {
+    console.warn('Finishing look unavailable; delivering the unfinished film.', error?.message || error);
+  } finally {
+    await fs.rm(out, { force: true }).catch(() => undefined);
+  }
+}
+
 export interface MergeResult { file: string; cleanup: () => Promise<void>; cached?: boolean }
 export type ClipTransition = 'cut' | 'fade' | 'wipeleft' | 'slideleft' | 'circleopen';
 export interface MergeOptions { transition?: ClipTransition; transitionDuration?: number }
@@ -99,7 +139,7 @@ const CACHE_KEEP = 3, CACHE_MS = 20 * 60_000;
 async function cachePaths(urls: string[], options: Required<MergeOptions>) {
   const crypto = await import('node:crypto'), os = await import('node:os'), path = await import('node:path');
   const dir = path.join(os.tmpdir(), 'op-merge-cache');
-  const cacheKey = JSON.stringify({ urls, transition: options.transition, transitionDuration: options.transitionDuration });
+  const cacheKey = JSON.stringify({ urls, transition: options.transition, transitionDuration: options.transitionDuration, finish: resolveFinishLook(process.env.FINISH_LOOK) });
   return { dir, file: path.join(dir, `${crypto.createHash('sha1').update(cacheKey).digest('hex')}.mp4`) };
 }
 async function cacheTrim(dir: string) {
@@ -117,7 +157,9 @@ export async function mergeClips(urls: string[], inputOptions: MergeOptions = {}
   const cache = await cachePaths(urls, options);
   const hit = await fs.stat(cache.file).catch(() => null);
   if (hit && hit.size > 2000 && Date.now() - hit.mtimeMs < CACHE_MS) return { file: cache.file, cleanup: async () => undefined, cached: true };
+  const startedAt = Date.now();
   const made = await mergeClipsFresh(urls, options);
+  await applyFinishLook(made.file, startedAt);
   try { await fs.mkdir(cache.dir, { recursive: true }); await fs.copyFile(made.file, cache.file); await cacheTrim(cache.dir); } catch { /* the cache is only a speed-up */ }
   return made;
 }
